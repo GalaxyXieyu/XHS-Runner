@@ -2,6 +2,14 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const { initializeDatabase } = require('./db');
 const { runCapture } = require('./capture');
+const {
+  cancelTask,
+  enqueueBatch,
+  enqueueTask,
+  getQueueStats,
+  pauseQueue,
+  resumeQueue,
+} = require('./generationQueue');
 const { addKeyword, listKeywords, removeKeyword, updateKeyword } = require('./keywords');
 const { getSettings, setSettings } = require('./settings');
 
@@ -54,6 +62,32 @@ ipcMain.handle('capture:run', (_event, payload) => {
     throw new Error('capture:run expects an object payload');
   }
   return runCapture(payload.keywordId, payload.limit);
+});
+
+ipcMain.handle('generation:enqueue', (_event, payload) => {
+  if (!payload) {
+    throw new Error('generation:enqueue expects a payload');
+  }
+  if (Array.isArray(payload.tasks)) {
+    return enqueueBatch(payload.tasks);
+  }
+  return enqueueTask(payload);
+});
+
+ipcMain.handle('generation:pause', () => {
+  return pauseQueue();
+});
+
+ipcMain.handle('generation:resume', () => {
+  return resumeQueue();
+});
+
+ipcMain.handle('generation:cancel', (_event, taskId) => {
+  return cancelTask(taskId);
+});
+
+ipcMain.handle('generation:stats', () => {
+  return getQueueStats();
 });
 
 app.whenReady().then(() => {

@@ -26,5 +26,22 @@ Deletes the keyword.
 Payload: { keywordId, limit }.
 Triggers capture using XHS MCP settings and returns { status, total, inserted }.
 
+## generation:enqueue
+Payload: { topicId, prompt, templateKey } or { tasks: [] }.
+Enqueues one or more generation tasks and returns created tasks.
+
+## generation:pause
+Pauses the generation queue.
+
+## generation:resume
+Resumes the generation queue.
+
+## generation:cancel
+Payload: task id.
+Cancels a queued task.
+
+## generation:stats
+Returns { queued, paused, processing } for the generation queue.
+
 ## Availability
-These channels are available via the Electron preload bridge as window.settings, window.keywords, and window.capture.
+These channels are available via the Electron preload bridge as window.settings, window.keywords, window.capture, and window.generation.

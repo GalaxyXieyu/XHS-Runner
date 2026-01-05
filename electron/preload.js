@@ -16,6 +16,14 @@ contextBridge.exposeInMainWorld('capture', {
   run: (payload) => ipcRenderer.invoke('capture:run', payload),
 });
 
+contextBridge.exposeInMainWorld('generation', {
+  enqueue: (payload) => ipcRenderer.invoke('generation:enqueue', payload),
+  pause: () => ipcRenderer.invoke('generation:pause'),
+  resume: () => ipcRenderer.invoke('generation:resume'),
+  cancel: (taskId) => ipcRenderer.invoke('generation:cancel', taskId),
+  stats: () => ipcRenderer.invoke('generation:stats'),
+});
+
 contextBridge.exposeInMainWorld('versions', {
   electron: process.versions.electron,
   node: process.versions.node,
