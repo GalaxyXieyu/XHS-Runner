@@ -50,5 +50,17 @@ Returns the latest topics with allowed status transitions.
 Payload: { id, status }.
 Validates and updates the topic workflow state.
 
+## metrics:record
+Payload: { publishRecordId, metricKey, metricValue, capturedAt }.
+Records a metric snapshot.
+
+## metrics:summary
+Payload: { windowDays }.
+Returns totals, comparison, and trend for the window.
+
+## metrics:export
+Payload: { windowDays }.
+Exports metrics CSV to the userData exports directory.
+
 ## Availability
-These channels are available via the Electron preload bridge as window.settings, window.keywords, window.capture, window.generation, and window.topics.
+These channels are available via the Electron preload bridge as window.settings, window.keywords, window.capture, window.generation, window.topics, and window.metrics.

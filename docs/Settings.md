@@ -12,7 +12,7 @@ The capture frequency is stored as captureFrequencyMinutes in the settings table
 - captureRetryCount: retry attempts for MCP failures
 
 ## Metrics Scope
-Data window: last 7 days.
+metricsWindowDays controls the data window (days) for analytics.
 Metrics tracked: views, likes, comments, saves, follows.
 
 ## MCP Environment

@@ -29,6 +29,12 @@ contextBridge.exposeInMainWorld('topics', {
   updateStatus: (payload) => ipcRenderer.invoke('topics:updateStatus', payload),
 });
 
+contextBridge.exposeInMainWorld('metrics', {
+  record: (payload) => ipcRenderer.invoke('metrics:record', payload),
+  summary: (payload) => ipcRenderer.invoke('metrics:summary', payload),
+  exportCsv: (payload) => ipcRenderer.invoke('metrics:export', payload),
+});
+
 contextBridge.exposeInMainWorld('versions', {
   electron: process.versions.electron,
   node: process.versions.node,

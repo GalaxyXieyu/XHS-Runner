@@ -5,6 +5,7 @@ const defaultSettings = {
   captureFrequencyMinutes: 60,
   captureRateLimitMs: 1000,
   captureRetryCount: 2,
+  metricsWindowDays: 7,
 };
 const metricsList = ['views', 'likes', 'comments', 'saves', 'follows'];
 
@@ -14,24 +15,33 @@ export default function Home() {
   const [settings, setSettings] = useState(defaultSettings);
   const [status, setStatus] = useState('');
   const [topics, setTopics] = useState([]);
+  const [metricsSummary, setMetricsSummary] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
-      if (typeof window === 'undefined' || !window.settings || !window.keywords || !window.topics) {
+      if (
+        typeof window === 'undefined' ||
+        !window.settings ||
+        !window.keywords ||
+        !window.topics ||
+        !window.metrics
+      ) {
         setStatus('IPC not available. Launch via Electron.');
         return;
       }
-      const [loadedKeywords, loadedSettings, loadedTopics] = await Promise.all([
+      const [loadedKeywords, loadedSettings, loadedTopics, loadedMetrics] = await Promise.all([
         window.keywords.list(),
         window.settings.get(),
         window.topics.list(),
+        window.metrics.summary({ windowDays: defaultSettings.metricsWindowDays }),
       ]);
       if (!cancelled) {
         setKeywords(loadedKeywords || []);
         setSettings({ ...defaultSettings, ...loadedSettings });
         setTopics(loadedTopics || []);
+        setMetricsSummary(loadedMetrics || null);
         setStatus('Loaded settings from IPC.');
       }
     }
@@ -89,6 +99,7 @@ export default function Home() {
       captureFrequencyMinutes: Number(settings.captureFrequencyMinutes || 0),
       captureRateLimitMs: Number(settings.captureRateLimitMs || 0),
       captureRetryCount: Number(settings.captureRetryCount || 0),
+      metricsWindowDays: Number(settings.metricsWindowDays || 0),
     };
     const saved = await window.settings.set(payload);
     setSettings({ ...defaultSettings, ...saved });
@@ -123,6 +134,26 @@ export default function Home() {
     } catch (error) {
       setStatus(`Status update failed: ${error.message || error}`);
     }
+  }
+
+  async function handleRefreshMetrics() {
+    if (typeof window === 'undefined' || !window.metrics) {
+      return;
+    }
+    const summary = await window.metrics.summary({
+      windowDays: Number(settings.metricsWindowDays || defaultSettings.metricsWindowDays),
+    });
+    setMetricsSummary(summary || null);
+  }
+
+  async function handleExportMetrics() {
+    if (typeof window === 'undefined' || !window.metrics) {
+      return;
+    }
+    const result = await window.metrics.exportCsv({
+      windowDays: Number(settings.metricsWindowDays || defaultSettings.metricsWindowDays),
+    });
+    setStatus(`Metrics exported: ${result.path}`);
   }
 
   return (
@@ -250,12 +281,53 @@ export default function Home() {
 
       <section style={{ marginTop: 24 }}>
         <h2>Metrics Scope</h2>
-        <p>Data window: last 7 days. Metrics tracked:</p>
+        <p>Data window (days):</p>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          <input
+            type="number"
+            min="1"
+            value={settings.metricsWindowDays}
+            onChange={(event) =>
+              setSettings((prev) => ({
+                ...prev,
+                metricsWindowDays: event.target.value,
+              }))
+            }
+            style={{ width: 120, padding: 8 }}
+          />
+          <button type="button" onClick={handleRefreshMetrics}>
+            Refresh
+          </button>
+          <button type="button" onClick={handleExportMetrics}>
+            Export CSV
+          </button>
+        </div>
+        <p style={{ marginTop: 8 }}>Metrics tracked:</p>
         <ul>
           {metricsList.map((metric) => (
             <li key={metric}>{metric}</li>
           ))}
         </ul>
+        {metricsSummary ? (
+          <div style={{ marginTop: 12 }}>
+            <strong>Totals</strong>
+            <ul>
+              {metricsSummary.totals.map((row) => (
+                <li key={row.metricKey}>
+                  {row.metricKey}: {row.total}
+                </li>
+              ))}
+            </ul>
+            <strong>Comparison</strong>
+            <ul>
+              {metricsSummary.comparison.map((row) => (
+                <li key={row.metricKey}>
+                  {row.metricKey}: {row.current} (prev {row.previous}, Δ {row.delta})
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </section>
 
       <section style={{ marginTop: 24 }}>

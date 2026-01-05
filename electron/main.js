@@ -11,6 +11,7 @@ const {
   resumeQueue,
 } = require('./generationQueue');
 const { listTopics, updateTopicStatus } = require('./topicService');
+const { exportMetricsCsv, getMetricsSummary, recordMetric } = require('./metricsService');
 const { addKeyword, listKeywords, removeKeyword, updateKeyword } = require('./keywords');
 const { getSettings, setSettings } = require('./settings');
 
@@ -100,6 +101,23 @@ ipcMain.handle('topics:updateStatus', (_event, payload) => {
     throw new Error('topics:updateStatus expects an object payload');
   }
   return updateTopicStatus(payload.id, payload.status);
+});
+
+ipcMain.handle('metrics:record', (_event, payload) => {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('metrics:record expects an object payload');
+  }
+  return recordMetric(payload);
+});
+
+ipcMain.handle('metrics:summary', (_event, payload) => {
+  const windowDays = payload?.windowDays ? Number(payload.windowDays) : 7;
+  return getMetricsSummary(windowDays);
+});
+
+ipcMain.handle('metrics:export', (_event, payload) => {
+  const windowDays = payload?.windowDays ? Number(payload.windowDays) : 7;
+  return exportMetricsCsv(windowDays);
 });
 
 app.whenReady().then(() => {
