@@ -4,7 +4,7 @@ const { app } = require('electron');
 const Database = require('better-sqlite3');
 
 const DB_FILENAME = 'xhs-generator.db';
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 let dbInstance;
 
@@ -93,6 +93,12 @@ function migrate(db) {
         value TEXT NOT NULL,
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
+    `);
+  }
+
+  if (currentVersion < 3) {
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_topics_source_source_id ON topics(source, source_id);
     `);
   }
 

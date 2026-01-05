@@ -12,6 +12,10 @@ contextBridge.exposeInMainWorld('keywords', {
   remove: (id) => ipcRenderer.invoke('keywords:remove', id),
 });
 
+contextBridge.exposeInMainWorld('capture', {
+  run: (payload) => ipcRenderer.invoke('capture:run', payload),
+});
+
 contextBridge.exposeInMainWorld('versions', {
   electron: process.versions.electron,
   node: process.versions.node,

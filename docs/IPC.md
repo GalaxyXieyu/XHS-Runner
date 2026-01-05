@@ -22,5 +22,9 @@ Updates the keyword value and enabled flag.
 Payload: keyword id.
 Deletes the keyword.
 
+## capture:run
+Payload: { keywordId, limit }.
+Triggers capture using XHS MCP settings and returns { status, total, inserted }.
+
 ## Availability
-These channels are available via the Electron preload bridge as window.settings and window.keywords.
+These channels are available via the Electron preload bridge as window.settings, window.keywords, and window.capture.

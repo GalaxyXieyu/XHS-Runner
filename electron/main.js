@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const { initializeDatabase } = require('./db');
+const { runCapture } = require('./capture');
 const { addKeyword, listKeywords, removeKeyword, updateKeyword } = require('./keywords');
 const { getSettings, setSettings } = require('./settings');
 
@@ -46,6 +47,13 @@ ipcMain.handle('keywords:update', (_event, payload) => {
 
 ipcMain.handle('keywords:remove', (_event, id) => {
   return removeKeyword(id);
+});
+
+ipcMain.handle('capture:run', (_event, payload) => {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('capture:run expects an object payload');
+  }
+  return runCapture(payload.keywordId, payload.limit);
 });
 
 app.whenReady().then(() => {

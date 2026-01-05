@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
 
-const defaultSettings = { captureFrequencyMinutes: 60 };
+const defaultSettings = {
+  captureEnabled: false,
+  captureFrequencyMinutes: 60,
+  captureRateLimitMs: 1000,
+  captureRetryCount: 2,
+};
 const metricsList = ['views', 'likes', 'comments', 'saves', 'follows'];
 
 export default function Home() {
@@ -76,10 +81,27 @@ export default function Home() {
     if (typeof window === 'undefined' || !window.settings || !window.keywords) {
       return;
     }
-    const payload = { captureFrequencyMinutes: Number(settings.captureFrequencyMinutes || 0) };
+    const payload = {
+      captureEnabled: Boolean(settings.captureEnabled),
+      captureFrequencyMinutes: Number(settings.captureFrequencyMinutes || 0),
+      captureRateLimitMs: Number(settings.captureRateLimitMs || 0),
+      captureRetryCount: Number(settings.captureRetryCount || 0),
+    };
     const saved = await window.settings.set(payload);
     setSettings({ ...defaultSettings, ...saved });
     setStatus('Capture frequency saved.');
+  }
+
+  async function handleRunCapture(id) {
+    if (typeof window === 'undefined' || !window.capture) {
+      return;
+    }
+    try {
+      const result = await window.capture.run({ keywordId: id, limit: 50 });
+      setStatus(`Capture ${result.status}: ${result.inserted ?? 0}/${result.total ?? 0}`);
+    } catch (error) {
+      setStatus(`Capture failed: ${error.message || error}`);
+    }
   }
 
   return (
@@ -106,7 +128,10 @@ export default function Home() {
         ) : (
           <div style={{ display: 'grid', gap: 8 }}>
             {keywords.map((item) => (
-              <div key={item.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 8 }}>
+              <div
+                key={item.id}
+                style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: 8 }}
+              >
                 <input
                   type="text"
                   value={item.value}
@@ -124,6 +149,9 @@ export default function Home() {
                 </button>
                 <button type="button" onClick={() => handleRemoveKeyword(item.id)}>
                   Remove
+                </button>
+                <button type="button" onClick={() => handleRunCapture(item.id)}>
+                  Run capture
                 </button>
               </div>
             ))}
@@ -150,6 +178,53 @@ export default function Home() {
             Save
           </button>
         </div>
+      </section>
+
+      <section style={{ marginTop: 24 }}>
+        <h2>Capture Controls</h2>
+        <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+          <label htmlFor="captureEnabled">
+            <input
+              id="captureEnabled"
+              type="checkbox"
+              checked={settings.captureEnabled}
+              onChange={(event) =>
+                setSettings((prev) => ({ ...prev, captureEnabled: event.target.checked }))
+              }
+              style={{ marginRight: 6 }}
+            />
+            Enable capture
+          </label>
+          <label htmlFor="captureRateLimitMs">
+            Rate limit (ms)
+            <input
+              id="captureRateLimitMs"
+              type="number"
+              min="0"
+              value={settings.captureRateLimitMs}
+              onChange={(event) =>
+                setSettings((prev) => ({ ...prev, captureRateLimitMs: event.target.value }))
+              }
+              style={{ width: 120, marginLeft: 8, padding: 6 }}
+            />
+          </label>
+          <label htmlFor="captureRetryCount">
+            Retry count
+            <input
+              id="captureRetryCount"
+              type="number"
+              min="0"
+              value={settings.captureRetryCount}
+              onChange={(event) =>
+                setSettings((prev) => ({ ...prev, captureRetryCount: event.target.value }))
+              }
+              style={{ width: 80, marginLeft: 8, padding: 6 }}
+            />
+          </label>
+        </div>
+        <p style={{ marginTop: 8 }}>
+          Capture requests require XHS_MCP_ENDPOINT. Use XHS_MCP_MODE=mock for local dry runs.
+        </p>
       </section>
 
       <section style={{ marginTop: 24 }}>

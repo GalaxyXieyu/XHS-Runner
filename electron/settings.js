@@ -28,7 +28,10 @@ function setSetting(key, value) {
 
 function getSettings() {
   return {
+    captureEnabled: getSetting('captureEnabled') ?? false,
     captureFrequencyMinutes: getSetting('captureFrequencyMinutes') ?? 60,
+    captureRateLimitMs: getSetting('captureRateLimitMs') ?? 1000,
+    captureRetryCount: getSetting('captureRetryCount') ?? 2,
   };
 }
 
@@ -41,6 +44,8 @@ function setSettings(update) {
 }
 
 module.exports = {
+  getSetting,
   getSettings,
+  setSetting,
   setSettings,
 };
