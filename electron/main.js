@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const fs = require('fs');
 const path = require('path');
+const { initializeDatabase } = require('./db');
 
 const SETTINGS_FILE = 'settings.json';
 
@@ -53,6 +54,7 @@ ipcMain.handle('settings:set', (_event, update) => {
 });
 
 app.whenReady().then(() => {
+  initializeDatabase();
   createWindow();
 
   app.on('activate', () => {
