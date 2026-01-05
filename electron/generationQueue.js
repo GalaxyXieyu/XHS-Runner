@@ -2,6 +2,7 @@ const { getDatabase } = require('./db');
 const { storeAsset } = require('./assetStore');
 const { generateContent } = require('./nanobananaClient');
 const { renderTemplate } = require('./promptTemplates');
+const { updateTopicStatus } = require('./topicService');
 
 let isPaused = false;
 let isProcessing = false;
@@ -16,6 +17,13 @@ function createTask({ topicId, prompt, templateKey }) {
        VALUES (?, 'queued', ?, datetime('now'), datetime('now'))`
     )
     .run(topicId || null, finalPrompt);
+  if (topicId) {
+    try {
+      updateTopicStatus(topicId, 'generating');
+    } catch (error) {
+      // Ignore invalid transitions for now.
+    }
+  }
   return { id: result.lastInsertRowid, prompt: finalPrompt };
 }
 
@@ -101,12 +109,28 @@ async function handleTask(taskId) {
        SET status = 'done', result_asset_id = ?, updated_at = datetime('now')
        WHERE id = ?`
     ).run(asset.id, taskId);
+    const taskRow = db.prepare('SELECT topic_id FROM generation_tasks WHERE id = ?').get(taskId);
+    if (taskRow?.topic_id) {
+      try {
+        updateTopicStatus(taskRow.topic_id, 'reviewing');
+      } catch (error) {
+        // Ignore invalid transitions for now.
+      }
+    }
   } catch (error) {
     db.prepare(
       `UPDATE generation_tasks
        SET status = 'failed', updated_at = datetime('now')
        WHERE id = ?`
     ).run(taskId);
+    const taskRow = db.prepare('SELECT topic_id FROM generation_tasks WHERE id = ?').get(taskId);
+    if (taskRow?.topic_id) {
+      try {
+        updateTopicStatus(taskRow.topic_id, 'failed');
+      } catch (error) {
+        // Ignore invalid transitions for now.
+      }
+    }
   }
 }
 

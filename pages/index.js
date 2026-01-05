@@ -13,22 +13,25 @@ export default function Home() {
   const [newKeyword, setNewKeyword] = useState('');
   const [settings, setSettings] = useState(defaultSettings);
   const [status, setStatus] = useState('');
+  const [topics, setTopics] = useState([]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
-      if (typeof window === 'undefined' || !window.settings || !window.keywords) {
+      if (typeof window === 'undefined' || !window.settings || !window.keywords || !window.topics) {
         setStatus('IPC not available. Launch via Electron.');
         return;
       }
-      const [loadedKeywords, loadedSettings] = await Promise.all([
+      const [loadedKeywords, loadedSettings, loadedTopics] = await Promise.all([
         window.keywords.list(),
         window.settings.get(),
+        window.topics.list(),
       ]);
       if (!cancelled) {
         setKeywords(loadedKeywords || []);
         setSettings({ ...defaultSettings, ...loadedSettings });
+        setTopics(loadedTopics || []);
         setStatus('Loaded settings from IPC.');
       }
     }
@@ -98,9 +101,27 @@ export default function Home() {
     }
     try {
       const result = await window.capture.run({ keywordId: id, limit: 50 });
+      if (window.topics) {
+        const refreshed = await window.topics.list();
+        setTopics(refreshed || []);
+      }
       setStatus(`Capture ${result.status}: ${result.inserted ?? 0}/${result.total ?? 0}`);
     } catch (error) {
       setStatus(`Capture failed: ${error.message || error}`);
+    }
+  }
+
+  async function handleUpdateTopicStatus(id, nextStatus) {
+    if (typeof window === 'undefined' || !window.topics) {
+      return;
+    }
+    try {
+      await window.topics.updateStatus({ id, status: nextStatus });
+      const refreshed = await window.topics.list();
+      setTopics(refreshed || []);
+      setStatus(`Topic ${id} moved to ${nextStatus}.`);
+    } catch (error) {
+      setStatus(`Status update failed: ${error.message || error}`);
     }
   }
 
@@ -235,6 +256,45 @@ export default function Home() {
             <li key={metric}>{metric}</li>
           ))}
         </ul>
+      </section>
+
+      <section style={{ marginTop: 24 }}>
+        <h2>Topic Workflow</h2>
+        {topics.length === 0 ? (
+          <p>No captured topics yet.</p>
+        ) : (
+          <div style={{ display: 'grid', gap: 8 }}>
+            {topics.map((topic) => (
+              <div
+                key={topic.id}
+                style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 2fr', gap: 12, alignItems: 'center' }}
+              >
+                <div>
+                  <strong>{topic.title}</strong>
+                  <div style={{ fontSize: 12, color: '#666' }}>{topic.source_id}</div>
+                </div>
+                <span style={{ padding: '4px 8px', borderRadius: 12, background: '#eef' }}>
+                  {topic.status}
+                </span>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {topic.allowedStatuses?.length ? (
+                    topic.allowedStatuses.map((nextStatus) => (
+                      <button
+                        key={nextStatus}
+                        type="button"
+                        onClick={() => handleUpdateTopicStatus(topic.id, nextStatus)}
+                      >
+                        → {nextStatus}
+                      </button>
+                    ))
+                  ) : (
+                    <span style={{ fontSize: 12, color: '#999' }}>No further transitions</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       <p style={{ marginTop: 24 }}>{status}</p>

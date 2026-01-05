@@ -7,6 +7,7 @@ A backup copy is written as xhs-generator.db.bak by default when invoking the ba
 ## Schema
 - keywords: configured keyword list and enable flags
 - topics: captured topics per keyword
+- topics.status: workflow state (captured/generating/reviewing/approved/published/analyzed/failed)
 - assets: generated images or content assets
 - generation_tasks: generation jobs and status
 - publish_records: publish attempts and status

@@ -15,7 +15,7 @@ function listRecentTopics(keywordId, limit) {
   const db = getDatabase();
   return db
     .prepare(
-      `SELECT id, title, source, source_id, url, created_at
+      `SELECT id, title, source, source_id, url, status, created_at
        FROM topics WHERE keyword_id = ?
        ORDER BY id DESC
        LIMIT ?`
@@ -33,8 +33,8 @@ function insertTopic(keywordId, note) {
   }
   const result = db
     .prepare(
-      `INSERT INTO topics (keyword_id, title, source, source_id, url, created_at)
-       VALUES (?, ?, 'xhs', ?, ?, datetime('now'))`
+      `INSERT INTO topics (keyword_id, title, source, source_id, url, status, created_at)
+       VALUES (?, ?, 'xhs', ?, ?, 'captured', datetime('now'))`
     )
     .run(keywordId, note.title, note.id, note.url);
   return result.lastInsertRowid;

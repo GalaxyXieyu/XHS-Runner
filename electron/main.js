@@ -10,6 +10,7 @@ const {
   pauseQueue,
   resumeQueue,
 } = require('./generationQueue');
+const { listTopics, updateTopicStatus } = require('./topicService');
 const { addKeyword, listKeywords, removeKeyword, updateKeyword } = require('./keywords');
 const { getSettings, setSettings } = require('./settings');
 
@@ -88,6 +89,17 @@ ipcMain.handle('generation:cancel', (_event, taskId) => {
 
 ipcMain.handle('generation:stats', () => {
   return getQueueStats();
+});
+
+ipcMain.handle('topics:list', () => {
+  return listTopics();
+});
+
+ipcMain.handle('topics:updateStatus', (_event, payload) => {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('topics:updateStatus expects an object payload');
+  }
+  return updateTopicStatus(payload.id, payload.status);
 });
 
 app.whenReady().then(() => {

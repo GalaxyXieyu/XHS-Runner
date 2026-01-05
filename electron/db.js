@@ -4,7 +4,7 @@ const { app } = require('electron');
 const Database = require('better-sqlite3');
 
 const DB_FILENAME = 'xhs-generator.db';
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 let dbInstance;
 
@@ -100,6 +100,13 @@ function migrate(db) {
     db.exec(`
       CREATE INDEX IF NOT EXISTS idx_topics_source_source_id ON topics(source, source_id);
     `);
+  }
+
+  if (currentVersion < 4) {
+    const columns = db.prepare(\"PRAGMA table_info('topics')\").all().map((col) => col.name);
+    if (!columns.includes('status')) {
+      db.exec(\"ALTER TABLE topics ADD COLUMN status TEXT NOT NULL DEFAULT 'captured'\");
+    }
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

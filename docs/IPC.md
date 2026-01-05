@@ -43,5 +43,12 @@ Cancels a queued task.
 ## generation:stats
 Returns { queued, paused, processing } for the generation queue.
 
+## topics:list
+Returns the latest topics with allowed status transitions.
+
+## topics:updateStatus
+Payload: { id, status }.
+Validates and updates the topic workflow state.
+
 ## Availability
-These channels are available via the Electron preload bridge as window.settings, window.keywords, window.capture, and window.generation.
+These channels are available via the Electron preload bridge as window.settings, window.keywords, window.capture, window.generation, and window.topics.
