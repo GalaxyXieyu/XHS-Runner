@@ -11,3 +11,4 @@ A backup copy is written as xhs-generator.db.bak by default when invoking the ba
 - generation_tasks: generation jobs and status
 - publish_records: publish attempts and status
 - metrics: per-post metrics snapshots
+- settings: key/value storage for capture frequency and other settings

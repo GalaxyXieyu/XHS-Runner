@@ -4,7 +4,7 @@ const { app } = require('electron');
 const Database = require('better-sqlite3');
 
 const DB_FILENAME = 'xhs-generator.db';
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 let dbInstance;
 
@@ -18,11 +18,8 @@ function ensureDatabaseDirectory(dbPath) {
 
 function migrate(db) {
   const currentVersion = db.pragma('user_version', { simple: true });
-  if (currentVersion >= SCHEMA_VERSION) {
-    return;
-  }
-
-  db.exec(`
+  if (currentVersion < 1) {
+    db.exec(`
     CREATE TABLE IF NOT EXISTS keywords (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       value TEXT NOT NULL UNIQUE,
@@ -87,6 +84,17 @@ function migrate(db) {
     CREATE INDEX IF NOT EXISTS idx_publish_records_task_id ON publish_records(task_id);
     CREATE INDEX IF NOT EXISTS idx_metrics_publish_record_id ON metrics(publish_record_id);
   `);
+  }
+
+  if (currentVersion < 2) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
+  }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

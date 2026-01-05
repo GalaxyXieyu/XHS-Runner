@@ -1,32 +1,8 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
-const fs = require('fs');
 const path = require('path');
 const { initializeDatabase } = require('./db');
-
-const SETTINGS_FILE = 'settings.json';
-
-function getSettingsPath() {
-  return path.join(app.getPath('userData'), SETTINGS_FILE);
-}
-
-function loadSettings() {
-  const filePath = getSettingsPath();
-  try {
-    const raw = fs.readFileSync(filePath, 'utf8');
-    return JSON.parse(raw);
-  } catch (error) {
-    return {};
-  }
-}
-
-function saveSettings(update) {
-  const filePath = getSettingsPath();
-  const current = loadSettings();
-  const next = { ...current, ...update };
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify(next, null, 2), 'utf8');
-  return next;
-}
+const { addKeyword, listKeywords, removeKeyword, updateKeyword } = require('./keywords');
+const { getSettings, setSettings } = require('./settings');
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -43,14 +19,33 @@ function createWindow() {
 }
 
 ipcMain.handle('settings:get', () => {
-  return loadSettings();
+  return getSettings();
 });
 
 ipcMain.handle('settings:set', (_event, update) => {
   if (!update || typeof update !== 'object') {
     throw new Error('settings:set expects an object payload');
   }
-  return saveSettings(update);
+  return setSettings(update);
+});
+
+ipcMain.handle('keywords:list', () => {
+  return listKeywords();
+});
+
+ipcMain.handle('keywords:add', (_event, value) => {
+  return addKeyword(value);
+});
+
+ipcMain.handle('keywords:update', (_event, payload) => {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('keywords:update expects an object payload');
+  }
+  return updateKeyword(payload.id, payload.value, payload.isEnabled);
+});
+
+ipcMain.handle('keywords:remove', (_event, id) => {
+  return removeKeyword(id);
 });
 
 app.whenReady().then(() => {
