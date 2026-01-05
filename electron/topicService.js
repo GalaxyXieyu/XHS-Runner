@@ -30,7 +30,14 @@ function updateTopicStatus(id, nextStatus) {
   return db.prepare('SELECT id, status FROM topics WHERE id = ?').get(id);
 }
 
+function forceUpdateTopicStatus(id, nextStatus) {
+  const db = getDatabase();
+  db.prepare('UPDATE topics SET status = ? WHERE id = ?').run(nextStatus, id);
+  return db.prepare('SELECT id, status FROM topics WHERE id = ?').get(id);
+}
+
 module.exports = {
+  forceUpdateTopicStatus,
   listTopics,
   updateTopicStatus,
 };

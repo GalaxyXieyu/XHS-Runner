@@ -11,6 +11,7 @@ const {
   resumeQueue,
 } = require('./generationQueue');
 const { listTopics, updateTopicStatus } = require('./topicService');
+const { publishTopic, rollbackTopic } = require('./workflowService');
 const { exportMetricsCsv, getMetricsSummary, recordMetric } = require('./metricsService');
 const { getConfig, setConfig } = require('./config');
 const logger = require('./logger');
@@ -131,6 +132,20 @@ ipcMain.handle('config:set', (_event, payload) => {
     throw new Error('config:set expects an object payload');
   }
   return setConfig(payload);
+});
+
+ipcMain.handle('workflow:publishTopic', (_event, payload) => {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('workflow:publishTopic expects an object payload');
+  }
+  return publishTopic(payload.topicId, payload.platform);
+});
+
+ipcMain.handle('workflow:rollback', (_event, payload) => {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('workflow:rollback expects an object payload');
+  }
+  return rollbackTopic(payload.topicId);
 });
 
 app.whenReady().then(() => {

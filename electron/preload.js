@@ -40,6 +40,11 @@ contextBridge.exposeInMainWorld('config', {
   set: (payload) => ipcRenderer.invoke('config:set', payload),
 });
 
+contextBridge.exposeInMainWorld('workflow', {
+  publishTopic: (payload) => ipcRenderer.invoke('workflow:publishTopic', payload),
+  rollback: (payload) => ipcRenderer.invoke('workflow:rollback', payload),
+});
+
 contextBridge.exposeInMainWorld('versions', {
   electron: process.versions.electron,
   node: process.versions.node,

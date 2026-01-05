@@ -140,6 +140,35 @@ export default function Home() {
     }
   }
 
+  async function handlePublishTopic(id) {
+    if (typeof window === 'undefined' || !window.workflow) {
+      return;
+    }
+    try {
+      const result = await window.workflow.publishTopic({ topicId: id, platform: 'xhs' });
+      const refreshed = await window.topics.list();
+      setTopics(refreshed || []);
+      setStatus(`Published topic ${id} (record ${result.publishRecordId}).`);
+      await handleRefreshMetrics();
+    } catch (error) {
+      setStatus(`Publish failed: ${error.message || error}`);
+    }
+  }
+
+  async function handleRollbackTopic(id) {
+    if (typeof window === 'undefined' || !window.workflow) {
+      return;
+    }
+    try {
+      await window.workflow.rollback({ topicId: id });
+      const refreshed = await window.topics.list();
+      setTopics(refreshed || []);
+      setStatus(`Rollback applied to topic ${id}.`);
+    } catch (error) {
+      setStatus(`Rollback failed: ${error.message || error}`);
+    }
+  }
+
   async function handleRefreshMetrics() {
     if (typeof window === 'undefined' || !window.metrics) {
       return;
@@ -375,6 +404,12 @@ export default function Home() {
                   ) : (
                     <span style={{ fontSize: 12, color: '#999' }}>No further transitions</span>
                   )}
+                  <button type="button" onClick={() => handlePublishTopic(topic.id)}>
+                    Publish
+                  </button>
+                  <button type="button" onClick={() => handleRollbackTopic(topic.id)}>
+                    Rollback
+                  </button>
                 </div>
               </div>
             ))}

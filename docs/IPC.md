@@ -69,5 +69,13 @@ Returns the config.json contents.
 Payload: partial config object.
 Persists config.json and returns merged config.
 
+## workflow:publishTopic
+Payload: { topicId, platform }.
+Creates a publish record for the latest generation task and updates topic status.
+
+## workflow:rollback
+Payload: { topicId }.
+Cancels queued downstream tasks and marks the topic failed.
+
 ## Availability
-These channels are available via the Electron preload bridge as window.settings, window.keywords, window.capture, window.generation, window.topics, window.metrics, and window.config.
+These channels are available via the Electron preload bridge as window.settings, window.keywords, window.capture, window.generation, window.topics, window.metrics, window.config, and window.workflow.
