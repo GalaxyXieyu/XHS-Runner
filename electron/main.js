@@ -12,6 +12,8 @@ const {
 } = require('./generationQueue');
 const { listTopics, updateTopicStatus } = require('./topicService');
 const { exportMetricsCsv, getMetricsSummary, recordMetric } = require('./metricsService');
+const { getConfig, setConfig } = require('./config');
+const logger = require('./logger');
 const { addKeyword, listKeywords, removeKeyword, updateKeyword } = require('./keywords');
 const { getSettings, setSettings } = require('./settings');
 
@@ -120,8 +122,20 @@ ipcMain.handle('metrics:export', (_event, payload) => {
   return exportMetricsCsv(windowDays);
 });
 
+ipcMain.handle('config:get', () => {
+  return getConfig();
+});
+
+ipcMain.handle('config:set', (_event, payload) => {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('config:set expects an object payload');
+  }
+  return setConfig(payload);
+});
+
 app.whenReady().then(() => {
   initializeDatabase();
+  logger.info('app_ready', { config: getConfig() });
   createWindow();
 
   app.on('activate', () => {

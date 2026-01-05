@@ -16,6 +16,7 @@ export default function Home() {
   const [status, setStatus] = useState('');
   const [topics, setTopics] = useState([]);
   const [metricsSummary, setMetricsSummary] = useState(null);
+  const [appConfig, setAppConfig] = useState({ updateChannel: 'stable', logLevel: 'info' });
 
   useEffect(() => {
     let cancelled = false;
@@ -26,22 +27,25 @@ export default function Home() {
         !window.settings ||
         !window.keywords ||
         !window.topics ||
-        !window.metrics
+        !window.metrics ||
+        !window.config
       ) {
         setStatus('IPC not available. Launch via Electron.');
         return;
       }
-      const [loadedKeywords, loadedSettings, loadedTopics, loadedMetrics] = await Promise.all([
+      const [loadedKeywords, loadedSettings, loadedTopics, loadedMetrics, loadedConfig] = await Promise.all([
         window.keywords.list(),
         window.settings.get(),
         window.topics.list(),
         window.metrics.summary({ windowDays: defaultSettings.metricsWindowDays }),
+        window.config.get(),
       ]);
       if (!cancelled) {
         setKeywords(loadedKeywords || []);
         setSettings({ ...defaultSettings, ...loadedSettings });
         setTopics(loadedTopics || []);
         setMetricsSummary(loadedMetrics || null);
+        setAppConfig(loadedConfig || appConfig);
         setStatus('Loaded settings from IPC.');
       }
     }
@@ -154,6 +158,15 @@ export default function Home() {
       windowDays: Number(settings.metricsWindowDays || defaultSettings.metricsWindowDays),
     });
     setStatus(`Metrics exported: ${result.path}`);
+  }
+
+  async function handleSaveConfig() {
+    if (typeof window === 'undefined' || !window.config) {
+      return;
+    }
+    const saved = await window.config.set(appConfig);
+    setAppConfig(saved);
+    setStatus('Config saved.');
   }
 
   return (
@@ -367,6 +380,44 @@ export default function Home() {
             ))}
           </div>
         )}
+      </section>
+
+      <section style={{ marginTop: 24 }}>
+        <h2>App Config</h2>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+          <label htmlFor="updateChannel">
+            Update channel
+            <select
+              id="updateChannel"
+              value={appConfig.updateChannel}
+              onChange={(event) =>
+                setAppConfig((prev) => ({ ...prev, updateChannel: event.target.value }))
+              }
+              style={{ marginLeft: 8 }}
+            >
+              <option value="stable">stable</option>
+              <option value="beta">beta</option>
+            </select>
+          </label>
+          <label htmlFor="logLevel">
+            Log level
+            <select
+              id="logLevel"
+              value={appConfig.logLevel}
+              onChange={(event) =>
+                setAppConfig((prev) => ({ ...prev, logLevel: event.target.value }))
+              }
+              style={{ marginLeft: 8 }}
+            >
+              <option value="info">info</option>
+              <option value="warn">warn</option>
+              <option value="error">error</option>
+            </select>
+          </label>
+          <button type="button" onClick={handleSaveConfig}>
+            Save config
+          </button>
+        </div>
       </section>
 
       <p style={{ marginTop: 24 }}>{status}</p>

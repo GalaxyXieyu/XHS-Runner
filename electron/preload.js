@@ -35,6 +35,11 @@ contextBridge.exposeInMainWorld('metrics', {
   exportCsv: (payload) => ipcRenderer.invoke('metrics:export', payload),
 });
 
+contextBridge.exposeInMainWorld('config', {
+  get: () => ipcRenderer.invoke('config:get'),
+  set: (payload) => ipcRenderer.invoke('config:set', payload),
+});
+
 contextBridge.exposeInMainWorld('versions', {
   electron: process.versions.electron,
   node: process.versions.node,

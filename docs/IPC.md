@@ -62,5 +62,12 @@ Returns totals, comparison, and trend for the window.
 Payload: { windowDays }.
 Exports metrics CSV to the userData exports directory.
 
+## config:get
+Returns the config.json contents.
+
+## config:set
+Payload: partial config object.
+Persists config.json and returns merged config.
+
 ## Availability
-These channels are available via the Electron preload bridge as window.settings, window.keywords, window.capture, window.generation, window.topics, and window.metrics.
+These channels are available via the Electron preload bridge as window.settings, window.keywords, window.capture, window.generation, window.topics, window.metrics, and window.config.

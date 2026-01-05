@@ -8,7 +8,11 @@
     "dev:next": "next dev",
     "dev:electron": "wait-on http://localhost:3000 && electron .",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win"
   },
   "dependencies": {
     "next": "14.2.5",
@@ -19,6 +23,21 @@
   "devDependencies": {
     "concurrently": "8.2.2",
     "electron": "30.0.6",
+    "electron-builder": "24.13.3",
     "wait-on": "7.2.0"
+  },
+  "build": {
+    "appId": "com.galaxyxieyu.xhs-runner",
+    "productName": "XHS Runner",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**",
+      "pages/**",
+      "package.json",
+      "docs/**"
+    ],
+    "asar": true
   }
 }
