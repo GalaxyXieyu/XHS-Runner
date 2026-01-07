@@ -37,6 +37,13 @@ contextBridge.exposeInMainWorld('creatives', {
   update: (payload) => ipcRenderer.invoke('creatives:update', payload),
 });
 
+contextBridge.exposeInMainWorld('formAssist', {
+  list: (payload) => ipcRenderer.invoke('formAssist:list', payload),
+  generate: (payload) => ipcRenderer.invoke('formAssist:generate', payload),
+  apply: (payload) => ipcRenderer.invoke('formAssist:apply', payload),
+  feedback: (payload) => ipcRenderer.invoke('formAssist:feedback', payload),
+});
+
 contextBridge.exposeInMainWorld('publish', {
   list: (payload) => ipcRenderer.invoke('publish:list', payload),
   enqueue: (payload) => ipcRenderer.invoke('publish:enqueue', payload),

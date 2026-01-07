@@ -19,6 +19,7 @@ const { addKeyword, listKeywords, removeKeyword, updateKeyword } = require('./ke
 const { getSettings, setSettings } = require('./settings');
 const { addCompetitor, listCompetitors, removeCompetitor } = require('./competitorService');
 const { createCreative, listCreatives, updateCreative } = require('./creativeService');
+const { applySuggestion, generateSuggestion, listFormAssists, saveFeedback } = require('./formAssistService');
 const { getInsights, refreshInsights } = require('./insightService');
 const { enqueueInteraction, listInteractions } = require('./interactionService');
 const { enqueuePublish, listPublishes } = require('./publishService');
@@ -130,6 +131,22 @@ ipcMain.handle('creatives:create', (_event, payload) => {
 
 ipcMain.handle('creatives:update', (_event, payload) => {
   return updateCreative(payload);
+});
+
+ipcMain.handle('formAssist:list', (_event, payload) => {
+  return listFormAssists(payload?.themeId);
+});
+
+ipcMain.handle('formAssist:generate', (_event, payload) => {
+  return generateSuggestion(payload);
+});
+
+ipcMain.handle('formAssist:apply', (_event, payload) => {
+  return applySuggestion(payload);
+});
+
+ipcMain.handle('formAssist:feedback', (_event, payload) => {
+  return saveFeedback(payload);
 });
 
 ipcMain.handle('publish:list', (_event, payload) => {
