@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import ThemeManagement from '../components/ThemeManagement';
 import CreativeTab from '../components/workspace/CreativeTab';
 import OperationsTab from '../components/workspace/OperationsTab';
@@ -37,8 +37,52 @@ const navItems = [
 
 export default function Home() {
   const [currentView, setCurrentView] = useState('themes');
-  const [themes] = useState(sampleThemes);
+  const [themes, setThemes] = useState(sampleThemes);
   const [selectedTheme, setSelectedTheme] = useState(sampleThemes[0]);
+  const [status, setStatus] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadThemes() {
+      if (typeof window === 'undefined' || !window.themes) {
+        return;
+      }
+      try {
+        const list = await window.themes.list();
+        if (!cancelled && Array.isArray(list) && list.length > 0) {
+          setThemes(list);
+          setSelectedTheme(list[0]);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setStatus(`主题加载失败: ${error.message || error}`);
+        }
+      }
+    }
+    loadThemes();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handleCreateTheme() {
+    if (typeof window === 'undefined' || !window.themes) {
+      return;
+    }
+    try {
+      const created = await window.themes.create({
+        name: `新主题 ${Date.now()}`,
+        description: '自动创建的占位主题',
+        keywords: ['示例关键词'],
+      });
+      const list = await window.themes.list();
+      setThemes(Array.isArray(list) && list.length > 0 ? list : [created]);
+      setSelectedTheme(created);
+      setStatus('主题已创建');
+    } catch (error) {
+      setStatus(`创建失败: ${error.message || error}`);
+    }
+  }
 
   return (
     <div className="flex h-screen bg-gray-50">
@@ -95,11 +139,17 @@ export default function Home() {
               themes={themes}
               selectedThemeId={selectedTheme?.id}
               onSelectTheme={setSelectedTheme}
+              onCreateTheme={handleCreateTheme}
             />
           )}
           {currentView === 'creative' && selectedTheme && <CreativeTab theme={selectedTheme} />}
           {currentView === 'operations' && selectedTheme && <OperationsTab theme={selectedTheme} />}
           {currentView === 'settings' && <SettingsPanel />}
+          {status && (
+            <div className="px-6 pb-6 text-xs text-gray-500">
+              {status}
+            </div>
+          )}
         </div>
       </main>
     </div>

@@ -1,10 +1,11 @@
-export default function ThemeManagement({ themes, selectedThemeId, onSelectTheme }) {
+export default function ThemeManagement({ themes, selectedThemeId, onSelectTheme, onCreateTheme }) {
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-sm font-semibold text-gray-900">主题管理</h2>
         <button
           type="button"
+          onClick={onCreateTheme}
           className="px-3 py-1.5 text-xs rounded bg-red-500 text-white hover:bg-red-600"
         >
           新建主题
