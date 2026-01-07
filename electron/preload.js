@@ -12,6 +12,41 @@ contextBridge.exposeInMainWorld('keywords', {
   remove: (id) => ipcRenderer.invoke('keywords:remove', id),
 });
 
+contextBridge.exposeInMainWorld('themes', {
+  list: () => ipcRenderer.invoke('themes:list'),
+  create: (payload) => ipcRenderer.invoke('themes:create', payload),
+  update: (payload) => ipcRenderer.invoke('themes:update', payload),
+  remove: (payload) => ipcRenderer.invoke('themes:remove', payload),
+  setStatus: (payload) => ipcRenderer.invoke('themes:setStatus', payload),
+});
+
+contextBridge.exposeInMainWorld('competitors', {
+  list: (payload) => ipcRenderer.invoke('competitors:list', payload),
+  add: (payload) => ipcRenderer.invoke('competitors:add', payload),
+  remove: (payload) => ipcRenderer.invoke('competitors:remove', payload),
+});
+
+contextBridge.exposeInMainWorld('insights', {
+  get: (payload) => ipcRenderer.invoke('insights:get', payload),
+  refresh: (payload) => ipcRenderer.invoke('insights:refresh', payload),
+});
+
+contextBridge.exposeInMainWorld('creatives', {
+  list: (payload) => ipcRenderer.invoke('creatives:list', payload),
+  create: (payload) => ipcRenderer.invoke('creatives:create', payload),
+  update: (payload) => ipcRenderer.invoke('creatives:update', payload),
+});
+
+contextBridge.exposeInMainWorld('publish', {
+  list: (payload) => ipcRenderer.invoke('publish:list', payload),
+  enqueue: (payload) => ipcRenderer.invoke('publish:enqueue', payload),
+});
+
+contextBridge.exposeInMainWorld('interactions', {
+  list: (payload) => ipcRenderer.invoke('interactions:list', payload),
+  enqueue: (payload) => ipcRenderer.invoke('interactions:enqueue', payload),
+});
+
 contextBridge.exposeInMainWorld('capture', {
   run: (payload) => ipcRenderer.invoke('capture:run', payload),
 });
