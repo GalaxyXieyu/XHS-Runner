@@ -58,8 +58,26 @@ function normalizeNotes(payload: any) {
     .filter(Boolean)
     .map((item: any, index: number) => {
       const id = item.id || item.note_id || item.noteId || `${index}`;
-      const title = item.title || item.desc || item.name || `Note ${index + 1}`;
-      const url = item.url || item.link || item.note_url || null;
+      const title =
+        item.noteCard?.displayTitle ||
+        item.noteCard?.title ||
+        item.title ||
+        item.desc ||
+        item.name ||
+        `Note ${index + 1}`;
+      const rawUrl = item.url || item.link || item.note_url || item.noteUrl;
+      const xsecToken =
+        item.xsecToken ||
+        item.xsec_token ||
+        item.noteCard?.user?.xsecToken ||
+        item.noteCard?.user?.xsec_token;
+      const url =
+        rawUrl ||
+        (id && xsecToken
+          ? `https://www.xiaohongshu.com/explore/${id}?xsec_token=${encodeURIComponent(
+              xsecToken
+            )}&xsec_source=pc_feed`
+          : null);
       return { id: String(id), title, url };
     });
 }
