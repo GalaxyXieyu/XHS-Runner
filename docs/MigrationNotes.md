@@ -11,6 +11,6 @@
 - Remove the local DB file (userData/xhs-generator.db) to force a clean rebuild.
 - Launch the Electron app to re-run migrations.
 
-## MCP Configuration
-- Configure `XHS_MCP_ENDPOINT` and optional tool overrides in `docs/Settings.md`.
-- Use `XHS_MCP_MODE=mock` for local dry runs.
+## XHS Core Configuration
+- Build core before running: `npm run build:xhs-core`.
+- Use `XHS_MCP_DRIVER=mock` for local dry runs.

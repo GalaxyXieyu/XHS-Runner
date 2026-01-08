@@ -24,6 +24,3 @@
 ## 互动/评论
 - comments:reply 成功返回 replied。
 - interactions:enqueue 生成 auto_reply 任务。
-
-## MCP 降级
-- MCP 失败时返回 E_MCP_FAILURE，raw_json 记录异常。

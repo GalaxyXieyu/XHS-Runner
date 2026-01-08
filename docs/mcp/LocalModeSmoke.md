@@ -14,7 +14,7 @@
 2. 执行关键词抓取（调用 `fetchTopNotes`）并确认 topics 写入。
 3. 执行用户笔记拉取（`fetchUserNotes`）并确认返回结构。
 4. 执行详情/评论/删除（需要 `xsec_token`）。
-5. 验证 mock/legacy 切换不受影响。
+5. 验证 mock 切换不受影响。
 
 ## 结果记录
 

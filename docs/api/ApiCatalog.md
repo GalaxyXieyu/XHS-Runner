@@ -5,7 +5,7 @@
 - 响应结构：`{ ok: boolean, data?: any, error?: { code, message, detail? } }`。
 - 错误码建议：
   - E_AUTH_REQUIRED / E_FORBIDDEN / E_NOT_FOUND / E_VALIDATION
-  - E_MCP_FAILURE / E_DB_FAILURE / E_TIMEOUT
+  - E_DB_FAILURE / E_TIMEOUT
 
 ## 资源域接口
 

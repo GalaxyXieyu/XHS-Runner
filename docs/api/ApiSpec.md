@@ -100,5 +100,4 @@
 - E_AUTH_REQUIRED：未登录
 - E_FORBIDDEN：无权限
 - E_VALIDATION：参数校验失败
-- E_MCP_FAILURE：MCP 调用失败
 - E_DB_FAILURE：存储失败

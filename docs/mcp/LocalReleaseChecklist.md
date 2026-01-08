@@ -4,7 +4,7 @@
 
 1. 内置服务可用：`XHS_MCP_DRIVER=local` 启动后可完成搜索与写库。
 2. 业务路径可跑通：搜索/详情/发布/评论/删除至少各跑通一次。
-3. 回滚可执行：切换 `XHS_MCP_DRIVER=legacy` 可恢复旧 MCP 调用。
+3. 回滚可执行：切换 `XHS_MCP_DRIVER=mock` 使用本地 mock 数据。
 
 ## 附加检查
 

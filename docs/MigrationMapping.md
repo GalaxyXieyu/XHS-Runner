@@ -66,7 +66,7 @@ needed for the theme-driven workflow.
 - competitors:remove
 
 ### Insight / Capture / Analysis
-- insights:refresh (trigger MCP fetch + analysis)
+- insights:refresh (trigger local fetch + analysis)
 - insights:get (return cached analytics_json)
 - topics:list
 - topics:updateStatus

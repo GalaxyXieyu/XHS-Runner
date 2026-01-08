@@ -19,11 +19,11 @@
 - 统一超时、异常处理与返回结构。
 
 ### 业务服务层
-- 仅调用 `xhsClient`，不直接依赖 `xhs-mcp` 模块或协议实现。
+- 仅调用 `xhsClient`，不直接依赖 MCP 协议实现。
 
 ## 生命周期与依赖
 
-- 初始化：加载 `xhs-mcp` shared/config；初始化 browser pool（必要时）。
+- 初始化：加载 `xhs-core` shared/config；初始化 browser pool（必要时）。
 - 运行：local-service 通过 core service 执行业务操作。
 - 退出：清理 browser pool、关闭日志句柄。
 
@@ -33,12 +33,10 @@
 electron/
   mcp/
     localService.js        # 内置服务适配层（core -> 业务）
-    legacyClient.js        # 现有 MCP HTTP client
   xhsClient.js             # 驱动选择与统一入口
 ```
 
 ## 参考
 
-- `docs/mcp/BackendArchitecture.md:1`
-- `xhs-mcp/src/core/index.ts:1`
+- `electron/mcp/xhs-core/src/index.ts:1`
 - `electron/xhsClient.js:64`

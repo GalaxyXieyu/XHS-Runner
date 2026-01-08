@@ -17,4 +17,4 @@
 - M3：发布/评论
 
 ## 参考
-- `docs/mcp/IntegrationOptions.md:1`
+- `docs/mcp/LocalServiceArchitecture.md:1`

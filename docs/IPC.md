@@ -24,7 +24,7 @@ Deletes the keyword.
 
 ## capture:run
 Payload: { keywordId, limit }.
-Triggers capture using XHS MCP settings and returns { status, total, inserted }.
+Triggers capture using xhsClient local driver and returns { status, total, inserted }.
 
 ## generation:enqueue
 Payload: { topicId, prompt, templateKey } or { tasks: [] }.

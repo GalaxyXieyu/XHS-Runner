@@ -9,13 +9,13 @@ The capture frequency is stored as captureFrequencyMinutes in the settings table
 ## Capture Controls
 - captureEnabled: enables/disables capture requests
 - captureRateLimitMs: minimum delay between capture requests
-- captureRetryCount: retry attempts for MCP failures
+- captureRetryCount: retry attempts for XHS failures
 
 ## Metrics Scope
 metricsWindowDays controls the data window (days) for analytics.
 Metrics tracked: views, likes, comments, saves, follows.
 
-## MCP Environment
+## XHS Driver Environment
 - XHS_MCP_DRIVER=local|mock (default: local). local uses in-process core services.
 - XHS_MCP_XSEC_TOKEN: xsec_token required for note detail/comment in local mode.
 - XHS_BROWSER_PATH: optional browser executable override for local mode.
