@@ -4,19 +4,32 @@ const legacyClient = require('./mcp/legacyClient');
 
 let loggedDriver = null;
 
+const DRIVER_ALIASES = {
+  mcp: 'legacy',
+};
+
+const SUPPORTED_DRIVERS = new Set(['local', 'legacy', 'mock']);
+
+function normalizeDriver(value) {
+  if (!value) {
+    return null;
+  }
+  const normalized = String(value).trim().toLowerCase();
+  const alias = DRIVER_ALIASES[normalized] || normalized;
+  if (!SUPPORTED_DRIVERS.has(alias)) {
+    console.warn(`[xhsClient] unknown driver "${value}", fallback to legacy`);
+    return 'legacy';
+  }
+  return alias;
+}
+
 function resolveDriver() {
-  const driver = process.env.XHS_MCP_DRIVER;
+  const driver = normalizeDriver(process.env.XHS_MCP_DRIVER);
   if (driver) {
     return driver;
   }
-  const mode = process.env.XHS_MCP_MODE || 'mcp';
-  if (mode === 'mock') {
-    return 'mock';
-  }
-  if (mode === 'mcp') {
-    return 'legacy';
-  }
-  return mode;
+  const mode = normalizeDriver(process.env.XHS_MCP_MODE || 'mcp');
+  return mode || 'legacy';
 }
 
 function logDriver(driver) {

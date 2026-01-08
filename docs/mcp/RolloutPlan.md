@@ -9,7 +9,8 @@
 
 ## 回滚策略
 - 保留 `XHS_MCP_MODE=mock` 与旧 MCP 配置开关。
-- 新旧客户端并存：`XHS_MCP_DRIVER=legacy|xhs-mcp`。
+- 新旧客户端并存：`XHS_MCP_DRIVER=local|legacy`（默认 legacy，兼容 `XHS_MCP_MODE=mcp`）。
+- 回滚路径：切换 `XHS_MCP_DRIVER=legacy` 即可回到旧 MCP 调用。
 - MCP 服务不可用时降级为 mock，并提示用户。
 
 ## 里程碑
