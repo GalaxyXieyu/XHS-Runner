@@ -1,9 +1,8 @@
 # 现有调用链与 xhs-mcp 差异清单
 
 ## 协议差异
-- 现有：`POST { tool, arguments }` 到 `XHS_MCP_ENDPOINT`。
-- xhs-mcp：MCP JSON-RPC `initialize` → `tools/list` → `tools/call`。
-- HTTP 模式支持 `/mcp`（Streamable HTTP）与 `/sse` + `/messages`（SSE）。
+- 当前：`local` 驱动直接调用内联 core 服务，无 MCP HTTP。
+- mock：本地 mock 数据用于离线验证。
 
 ## 工具命名差异（主要映射）
 
@@ -21,8 +20,8 @@
 - xhs-mcp 返回结构为 JSON-RPC result，对现有 `normalizeNotes` 需做适配。
 
 ## 需要改动的调用点
-- `electron/xhsClient.js`：改为 JSON-RPC tools/call，并补充 `xsec_token` 流程。
-- `docs/Settings.md`：需补充 xhs-mcp 的 `/mcp` 或 `/sse` 端点说明。
+- `electron/xhsClient.js`：改为 local core 调用，并补充 `xsec_token` 流程。
+- `docs/Settings.md`：补充 local 驱动与构建说明。
 
 ## 参考
 - `xhs-mcp/README.md:35`

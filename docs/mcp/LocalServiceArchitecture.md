@@ -3,7 +3,7 @@
 ## 目标
 
 - 业务侧不再依赖 MCP tools/HTTP 接口，直接调用内置服务函数。
-- 保留 `xhsClient` 作为统一入口，支持 `local|legacy|mock` 驱动切换。
+- 保留 `xhsClient` 作为统一入口，支持 `local|mock` 驱动切换。
 
 ## 分层与职责
 
@@ -15,7 +15,6 @@
 ### xhsClient（统一入口）
 - 根据 `XHS_MCP_DRIVER` 选择调用路径：
   - `local`：走内置服务层
-  - `legacy`：保留现有 MCP HTTP 调用
   - `mock`：本地 mock 数据
 - 统一超时、异常处理与返回结构。
 

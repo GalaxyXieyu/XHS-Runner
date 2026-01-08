@@ -15,23 +15,16 @@
 | commentOnNote | 暂无 | 现有仓库未发现调用方。 |
 | deleteNote | 暂无 | 现有仓库未发现调用方。 |
 
-## 协议形态与依赖
+## 运行模式与依赖
 
-- 当前调用协议：`POST { tool, arguments }` 到 `XHS_MCP_ENDPOINT`，返回 JSON。
-- 运行模式：`XHS_MCP_MODE=mock|mcp`，默认 `mcp`。
-- 超时控制：`XHS_MCP_TIMEOUT_MS`（毫秒）。
+- 驱动模式：`XHS_MCP_DRIVER=local|mock`，默认 `local`。
+- 内置 core 需先构建：`npm run build:xhs-core`。
 
 ## 环境变量清单
 
-- `XHS_MCP_ENDPOINT`：MCP HTTP 端点（mcp 模式必填）。
-- `XHS_MCP_TIMEOUT_MS`：请求超时（毫秒）。
-- `XHS_MCP_MODE`：`mock` 或 `mcp`。
-- `XHS_MCP_TOOL_SEARCH` / `XHS_MCP_TOOL`：search 工具名。
-- `XHS_MCP_TOOL_USER_NOTES`：用户笔记工具名。
-- `XHS_MCP_TOOL_NOTE_DETAIL`：笔记详情工具名。
-- `XHS_MCP_TOOL_PUBLISH`：发布工具名。
-- `XHS_MCP_TOOL_COMMENT`：评论工具名。
-- `XHS_MCP_TOOL_DELETE`：删除工具名。
+- `XHS_MCP_DRIVER`：local 或 mock。
+- `XHS_MCP_XSEC_TOKEN`：详情/评论所需 token。
+- `XHS_BROWSER_PATH`：可选浏览器可执行路径。
 
 ## 参考
 
