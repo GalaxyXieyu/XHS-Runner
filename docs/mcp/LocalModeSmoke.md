@@ -8,6 +8,7 @@
   - `XHS_MCP_DRIVER=local`
   - （如需要）`XHS_MCP_XSEC_TOKEN=<token>`
   - （可选）`XHS_BROWSER_PATH=<path>`
+  - （可选）`XHS_SMOKE_SHOW_RAW=true` 输出原始 feed 样例
 
 ## 冒烟步骤
 

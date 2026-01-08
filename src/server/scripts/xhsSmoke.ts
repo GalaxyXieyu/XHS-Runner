@@ -1,4 +1,4 @@
-import { checkStatus, login } from '../services/xhs/localService';
+import { checkStatus, login, searchNotes } from '../services/xhs/localService';
 import { fetchNoteDetail, fetchTopNotes, fetchUserNotes } from '../services/xhs/xhsClient';
 
 const DEFAULT_KEYWORD = '小红书';
@@ -19,15 +19,23 @@ async function run() {
   const noteId = process.env.XHS_TEST_NOTE_ID;
   const userId = process.env.XHS_TEST_USER_ID;
   const timeout = toNumber(process.env.XHS_LOGIN_TIMEOUT, 300);
+  const skipLogin = process.env.XHS_SMOKE_SKIP_LOGIN === 'true';
+
+  if (!skipLogin) {
+    console.log('[xhs-smoke] starting login flow...');
+    const loginResult = await login({ timeout });
+    console.log('[xhs-smoke] login result:', loginResult);
+  }
 
   console.log('[xhs-smoke] checking login status...');
   const status = await checkStatus();
   console.log('[xhs-smoke] status:', status);
 
-  if (!status.loggedIn) {
-    console.log('[xhs-smoke] not logged in, starting login flow...');
-    const loginResult = await login({ timeout });
-    console.log('[xhs-smoke] login result:', loginResult);
+  if (process.env.XHS_SMOKE_SHOW_RAW === 'true') {
+    console.log('[xhs-smoke] raw feed sample:');
+    const rawResult = await searchNotes(keyword);
+    const sample = (rawResult as any)?.feeds?.[0];
+    console.log(JSON.stringify(sample ?? null, null, 2));
   }
 
   console.log(`[xhs-smoke] fetching top notes for keyword=\"${keyword}\" limit=${limit}...`);
