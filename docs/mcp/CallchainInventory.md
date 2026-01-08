@@ -2,13 +2,13 @@
 
 ## 当前调用入口
 
-- `electron/capture.js`：`runCapture` → `fetchWithRetry` → `fetchTopNotes` → `xhsClient.fetchTopNotes`。
+- `src/server/services/xhs/capture.ts`：`runCapture` → `fetchWithRetry` → `fetchTopNotes` → `xhsClient.fetchTopNotes`。
 
 ## xhsClient 导出函数现状
 
 | 函数 | 当前调用方 | 说明 |
 | --- | --- | --- |
-| fetchTopNotes | `electron/capture.js` | 关键词拉取热门笔记，写入 topics。 |
+| fetchTopNotes | `src/server/services/xhs/capture.ts` | 关键词拉取热门笔记，写入 topics。 |
 | fetchUserNotes | 暂无 | 现有仓库未发现调用方。 |
 | fetchNoteDetail | 暂无 | 现有仓库未发现调用方。 |
 | publishContent | 暂无 | 现有仓库未发现调用方。 |
@@ -28,5 +28,5 @@
 
 ## 参考
 
-- `electron/xhsClient.js:64`
-- `electron/capture.js:3`
+- `src/server/services/xhs/xhsClient.ts:1`
+- `src/server/services/xhs/capture.ts:1`

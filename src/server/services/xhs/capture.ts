@@ -1,17 +1,17 @@
-const { getDatabase } = require('./db');
-const { getSetting, getSettings, setSetting } = require('./settings');
-const { fetchTopNotes } = require('./xhsClient');
+import { getDatabase } from '../../db';
+import { getSetting, getSettings, setSetting } from '../../settings';
+import { fetchTopNotes } from './xhsClient';
 
-function sleep(ms) {
+function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function getKeyword(id) {
+function getKeyword(id: number) {
   const db = getDatabase();
   return db.prepare('SELECT id, value FROM keywords WHERE id = ?').get(id);
 }
 
-function listRecentTopics(keywordId, limit) {
+function listRecentTopics(keywordId: number, limit: number) {
   const db = getDatabase();
   return db
     .prepare(
@@ -23,7 +23,7 @@ function listRecentTopics(keywordId, limit) {
     .all(keywordId, limit);
 }
 
-function insertTopic(keywordId, note) {
+function insertTopic(keywordId: number, note: { id: string; title: string; url?: string | null }) {
   const db = getDatabase();
   const exists = db
     .prepare('SELECT id FROM topics WHERE source = ? AND source_id = ?')
@@ -40,7 +40,7 @@ function insertTopic(keywordId, note) {
   return result.lastInsertRowid;
 }
 
-async function enforceRateLimit(rateLimitMs) {
+async function enforceRateLimit(rateLimitMs: number) {
   const lastRequestAt = getSetting('capture:lastRequestAt');
   if (!lastRequestAt || !rateLimitMs) {
     return;
@@ -51,7 +51,7 @@ async function enforceRateLimit(rateLimitMs) {
   }
 }
 
-async function fetchWithRetry(keyword, limit, retryCount) {
+async function fetchWithRetry(keyword: string, limit: number, retryCount: number) {
   let attempt = 0;
   while (true) {
     try {
@@ -66,7 +66,7 @@ async function fetchWithRetry(keyword, limit, retryCount) {
   }
 }
 
-async function runCapture(keywordId, limit = 50) {
+export async function runCapture(keywordId: number, limit = 50) {
   const settings = getSettings();
   if (!settings.captureEnabled) {
     throw new Error('Capture is disabled by settings');
@@ -94,7 +94,7 @@ async function runCapture(keywordId, limit = 50) {
   const notes = await fetchWithRetry(keyword.value, limit, settings.captureRetryCount);
 
   let inserted = 0;
-  notes.forEach((note) => {
+  notes.forEach((note: any) => {
     if (note && note.id) {
       const rowId = insertTopic(keywordId, note);
       if (rowId) {
@@ -113,7 +113,3 @@ async function runCapture(keywordId, limit = 50) {
     inserted,
   };
 }
-
-module.exports = {
-  runCapture,
-};

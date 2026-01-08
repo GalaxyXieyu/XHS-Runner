@@ -1,17 +1,17 @@
-const fs = require('fs');
-const path = require('path');
-const { app } = require('electron');
+import fs from 'fs';
+import path from 'path';
+import { resolveUserDataPath } from './runtime/userDataPath';
 
 const DEFAULT_CONFIG = {
   updateChannel: 'stable',
   logLevel: 'info',
 };
 
-function getConfigPath() {
-  return path.join(app.getPath('userData'), 'config.json');
+export function getConfigPath() {
+  return resolveUserDataPath('config.json');
 }
 
-function getConfig() {
+export function getConfig() {
   const filePath = getConfigPath();
   try {
     const raw = fs.readFileSync(filePath, 'utf8');
@@ -21,16 +21,10 @@ function getConfig() {
   }
 }
 
-function setConfig(update) {
+export function setConfig(update: Record<string, any>) {
   const filePath = getConfigPath();
   const next = { ...getConfig(), ...update };
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, JSON.stringify(next, null, 2), 'utf8');
   return next;
 }
-
-module.exports = {
-  getConfig,
-  getConfigPath,
-  setConfig,
-};

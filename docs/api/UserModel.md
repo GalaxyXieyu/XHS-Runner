@@ -48,5 +48,5 @@
 
 ## 参考
 - `data/schema.md:114`
-- `electron/db.js:6`
+- `src/server/db.ts:1`
 - `components/Settings.tsx:1`

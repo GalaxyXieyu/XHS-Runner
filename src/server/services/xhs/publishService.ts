@@ -1,13 +1,13 @@
-const { getDatabase } = require('./db');
+import { getDatabase } from '../../db';
 
-function stringifyJson(value) {
+function stringifyJson(value: any) {
   if (value === undefined) {
     return undefined;
   }
   return value === null ? null : JSON.stringify(value);
 }
 
-function enqueuePublish(payload) {
+export function enqueuePublish(payload: Record<string, any>) {
   if (!payload || typeof payload !== 'object') {
     throw new Error('publish:enqueue expects an object payload');
   }
@@ -43,7 +43,7 @@ function enqueuePublish(payload) {
     .get(result.lastInsertRowid);
 }
 
-function listPublishes(themeId) {
+export function listPublishes(themeId?: number) {
   const db = getDatabase();
   if (themeId) {
     return db
@@ -65,8 +65,3 @@ function listPublishes(themeId) {
     )
     .all();
 }
-
-module.exports = {
-  enqueuePublish,
-  listPublishes,
-};

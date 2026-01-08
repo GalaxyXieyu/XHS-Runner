@@ -26,17 +26,24 @@
 - 初始化：加载 `xhs-core` shared/config；初始化 browser pool（必要时）。
 - 运行：local-service 通过 core service 执行业务操作。
 - 退出：清理 browser pool、关闭日志句柄。
+- 运行时加载：服务层 TS 编译输出到 `electron/server/` 供主进程调用。
 
 ## 目录建议
 
 ```
+src/server/
+  services/xhs/
+    localService.ts        # 内置服务适配层（core -> 业务）
+    xhsClient.ts           # 驱动选择与统一入口
+    capture.ts             # 抓取入口
 electron/
+  main.js                  # IPC 路由
+  preload.js               # renderer bridge
   mcp/
-    localService.js        # 内置服务适配层（core -> 业务）
-  xhsClient.js             # 驱动选择与统一入口
+    xhs-core/              # 内联 core
 ```
 
 ## 参考
 
 - `electron/mcp/xhs-core/src/index.ts:1`
-- `electron/xhsClient.js:64`
+- `src/server/services/xhs/xhsClient.ts:1`

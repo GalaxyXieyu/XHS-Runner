@@ -1,7 +1,7 @@
 # Generation Pipeline
 
 ## Prompt Templates
-Templates live in electron/promptTemplates.js and are rendered with {{topic}} variables.
+Templates live in src/server/services/xhs/promptTemplates.ts and are rendered with {{topic}} variables.
 
 ## Queue Behavior
 - enqueue: creates generation_tasks rows with status=queued

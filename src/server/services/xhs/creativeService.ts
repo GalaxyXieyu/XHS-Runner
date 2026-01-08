@@ -1,13 +1,13 @@
-const { getDatabase } = require('./db');
+import { getDatabase } from '../../db';
 
-function stringifyJson(value) {
+function stringifyJson(value: any) {
   if (value === undefined) {
     return undefined;
   }
   return value === null ? null : JSON.stringify(value);
 }
 
-function listCreatives(themeId) {
+export function listCreatives(themeId?: number) {
   const db = getDatabase();
   if (themeId) {
     return db
@@ -30,7 +30,7 @@ function listCreatives(themeId) {
     .all();
 }
 
-function createCreative(payload) {
+export function createCreative(payload: Record<string, any>) {
   if (!payload || typeof payload !== 'object') {
     throw new Error('creatives:create expects an object payload');
   }
@@ -66,7 +66,7 @@ function createCreative(payload) {
     .get(result.lastInsertRowid);
 }
 
-function updateCreative(payload) {
+export function updateCreative(payload: Record<string, any>) {
   if (!payload || typeof payload !== 'object') {
     throw new Error('creatives:update expects an object payload');
   }
@@ -116,9 +116,3 @@ function updateCreative(payload) {
     )
     .get(payload.id);
 }
-
-module.exports = {
-  createCreative,
-  listCreatives,
-  updateCreative,
-};

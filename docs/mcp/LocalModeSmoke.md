@@ -3,6 +3,7 @@
 ## 前置条件
 
 - 构建内置 core：`npm run build:xhs-core`
+- 构建服务层：`npm run build:server`
 - 设置驱动与必要配置：
   - `XHS_MCP_DRIVER=local`
   - （如需要）`XHS_MCP_XSEC_TOKEN=<token>`
@@ -23,5 +24,5 @@
 
 ## 参考
 
-- `electron/xhsClient.js:1`
-- `electron/mcp/localService.js:1`
+- `src/server/services/xhs/xhsClient.ts:1`
+- `src/server/services/xhs/localService.ts:1`

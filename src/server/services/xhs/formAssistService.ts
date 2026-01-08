@@ -1,6 +1,6 @@
-const { getDatabase } = require('./db');
+import { getDatabase } from '../../db';
 
-function parseJson(value) {
+function parseJson(value: string | null) {
   if (!value) {
     return null;
   }
@@ -11,7 +11,7 @@ function parseJson(value) {
   }
 }
 
-function listFormAssists(themeId) {
+export function listFormAssists(themeId?: number) {
   const db = getDatabase();
   const rows = themeId
     ? db
@@ -30,7 +30,7 @@ function listFormAssists(themeId) {
         )
         .all();
 
-  return rows.map((row) => ({
+  return rows.map((row: any) => ({
     ...row,
     suggestion: parseJson(row.suggestion_json),
     applied: parseJson(row.applied_json),
@@ -38,7 +38,7 @@ function listFormAssists(themeId) {
   }));
 }
 
-function generateSuggestion(payload) {
+export function generateSuggestion(payload: Record<string, any>) {
   if (!payload || typeof payload !== 'object') {
     throw new Error('formAssist:generate expects an object payload');
   }
@@ -69,7 +69,7 @@ function generateSuggestion(payload) {
   };
 }
 
-function applySuggestion(payload) {
+export function applySuggestion(payload: Record<string, any>) {
   if (!payload || typeof payload !== 'object') {
     throw new Error('formAssist:apply expects an object payload');
   }
@@ -99,7 +99,7 @@ function applySuggestion(payload) {
   };
 }
 
-function saveFeedback(payload) {
+export function saveFeedback(payload: Record<string, any>) {
   if (!payload || typeof payload !== 'object') {
     throw new Error('formAssist:feedback expects an object payload');
   }
@@ -128,10 +128,3 @@ function saveFeedback(payload) {
     feedback: parseJson(row.feedback_json),
   };
 }
-
-module.exports = {
-  applySuggestion,
-  generateSuggestion,
-  listFormAssists,
-  saveFeedback,
-};

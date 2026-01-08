@@ -1,7 +1,7 @@
-const { getDatabase } = require('./db');
-const { canTransition, getAllowedTransitions } = require('./workflow');
+import { getDatabase } from '../../db';
+import { canTransition, getAllowedTransitions } from './workflow';
 
-function listTopics(limit = 100) {
+export function listTopics(limit = 100) {
   const db = getDatabase();
   const rows = db
     .prepare(
@@ -11,13 +11,13 @@ function listTopics(limit = 100) {
        LIMIT ?`
     )
     .all(limit);
-  return rows.map((row) => ({
+  return rows.map((row: any) => ({
     ...row,
     allowedStatuses: getAllowedTransitions(row.status),
   }));
 }
 
-function updateTopicStatus(id, nextStatus) {
+export function updateTopicStatus(id: number, nextStatus: string) {
   const db = getDatabase();
   const current = db.prepare('SELECT status FROM topics WHERE id = ?').get(id);
   if (!current) {
@@ -30,14 +30,8 @@ function updateTopicStatus(id, nextStatus) {
   return db.prepare('SELECT id, status FROM topics WHERE id = ?').get(id);
 }
 
-function forceUpdateTopicStatus(id, nextStatus) {
+export function forceUpdateTopicStatus(id: number, nextStatus: string) {
   const db = getDatabase();
   db.prepare('UPDATE topics SET status = ? WHERE id = ?').run(nextStatus, id);
   return db.prepare('SELECT id, status FROM topics WHERE id = ?').get(id);
 }
-
-module.exports = {
-  forceUpdateTopicStatus,
-  listTopics,
-  updateTopicStatus,
-};

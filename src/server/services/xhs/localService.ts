@@ -1,21 +1,15 @@
-const path = require('path');
-const LOCAL_DIST_ENTRY = path.resolve(
-  __dirname,
-  'xhs-core',
-  'dist',
-  'index.js'
-);
+import path from 'path';
 
-let cachedServices = null;
+const LOCAL_DIST_ENTRY = path.resolve(__dirname, '../../../mcp/xhs-core/dist/index.js');
+
+let cachedServices: any = null;
 
 function loadXhsModule() {
   try {
-    // CommonJS output from build:xhs-core
     return require(LOCAL_DIST_ENTRY);
-  } catch (error) {
-    const message =
-      'xhs-core dist not found. Build it with: npm run build:xhs-core.';
-    const wrapped = new Error(message);
+  } catch (error: any) {
+    const message = 'xhs-core dist not found. Build it with: npm run build:xhs-core.';
+    const wrapped = new Error(message) as Error & { cause?: unknown };
     wrapped.cause = error;
     throw wrapped;
   }
@@ -44,25 +38,25 @@ async function getServices() {
   return cachedServices;
 }
 
-function resolveBrowserPath(options) {
+function resolveBrowserPath(options?: { browserPath?: string }) {
   return options?.browserPath || process.env.XHS_BROWSER_PATH || undefined;
 }
 
-function resolveXsecToken(options) {
+function resolveXsecToken(options?: { xsecToken?: string }) {
   return options?.xsecToken || process.env.XHS_MCP_XSEC_TOKEN || undefined;
 }
 
-async function searchNotes(keyword, options = {}) {
+export async function searchNotes(keyword: string, options: { browserPath?: string } = {}) {
   const { feedService } = await getServices();
   return feedService.searchFeeds(keyword, resolveBrowserPath(options));
 }
 
-async function getUserNotes(limit, options = {}) {
+export async function getUserNotes(limit: number, options: { cursor?: string; browserPath?: string } = {}) {
   const { noteService } = await getServices();
   return noteService.getUserNotes(limit, options?.cursor, resolveBrowserPath(options));
 }
 
-async function getNoteDetail(noteId, options = {}) {
+export async function getNoteDetail(noteId: string, options: { xsecToken?: string; browserPath?: string } = {}) {
   const { feedService } = await getServices();
   const token = resolveXsecToken(options);
   if (!token) {
@@ -71,7 +65,10 @@ async function getNoteDetail(noteId, options = {}) {
   return feedService.getFeedDetail(noteId, token, resolveBrowserPath(options));
 }
 
-async function publishContent(payload, options = {}) {
+export async function publishContent(
+  payload: Record<string, any>,
+  options: { browserPath?: string } = {}
+) {
   const { publishService } = await getServices();
   const { type, title, content, media_paths, mediaPaths, tags } = payload || {};
   const resolvedMedia = media_paths || mediaPaths || [];
@@ -85,7 +82,11 @@ async function publishContent(payload, options = {}) {
   );
 }
 
-async function commentOnNote(noteId, content, options = {}) {
+export async function commentOnNote(
+  noteId: string,
+  content: string,
+  options: { xsecToken?: string; browserPath?: string } = {}
+) {
   const { feedService } = await getServices();
   const token = resolveXsecToken(options);
   if (!token) {
@@ -94,16 +95,7 @@ async function commentOnNote(noteId, content, options = {}) {
   return feedService.commentOnFeed(noteId, token, content, resolveBrowserPath(options));
 }
 
-async function deleteNote(noteId, options = {}) {
+export async function deleteNote(noteId: string, options: { browserPath?: string } = {}) {
   const { noteService } = await getServices();
   return noteService.deleteNote(noteId, resolveBrowserPath(options));
 }
-
-module.exports = {
-  commentOnNote,
-  deleteNote,
-  getNoteDetail,
-  getUserNotes,
-  publishContent,
-  searchNotes,
-};

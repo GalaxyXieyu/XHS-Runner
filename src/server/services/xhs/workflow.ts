@@ -1,4 +1,4 @@
-const TOPIC_STATES = [
+export const TOPIC_STATES = [
   'captured',
   'generating',
   'reviewing',
@@ -8,7 +8,7 @@ const TOPIC_STATES = [
   'failed',
 ];
 
-const transitions = {
+const transitions: Record<string, string[]> = {
   captured: ['generating'],
   generating: ['reviewing', 'failed'],
   reviewing: ['approved', 'failed'],
@@ -18,16 +18,10 @@ const transitions = {
   failed: ['captured'],
 };
 
-function getAllowedTransitions(state) {
+export function getAllowedTransitions(state: string) {
   return transitions[state] || [];
 }
 
-function canTransition(current, next) {
+export function canTransition(current: string, next: string) {
   return getAllowedTransitions(current).includes(next);
 }
-
-module.exports = {
-  TOPIC_STATES,
-  canTransition,
-  getAllowedTransitions,
-};

@@ -1,7 +1,8 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
-const { initializeDatabase } = require('./db');
-const { runCapture } = require('./capture');
+const { setUserDataPath } = require('./server/runtime/userDataPath');
+const { initializeDatabase } = require('./server/db');
+const { runCapture } = require('./server/services/xhs/capture');
 const {
   cancelTask,
   enqueueBatch,
@@ -9,21 +10,21 @@ const {
   getQueueStats,
   pauseQueue,
   resumeQueue,
-} = require('./generationQueue');
-const { listTopics, updateTopicStatus } = require('./topicService');
-const { publishTopic, rollbackTopic } = require('./workflowService');
-const { exportMetricsCsv, getMetricsSummary, recordMetric } = require('./metricsService');
-const { getConfig, setConfig } = require('./config');
-const logger = require('./logger');
-const { addKeyword, listKeywords, removeKeyword, updateKeyword } = require('./keywords');
-const { getSettings, setSettings } = require('./settings');
-const { addCompetitor, listCompetitors, removeCompetitor } = require('./competitorService');
-const { createCreative, listCreatives, updateCreative } = require('./creativeService');
-const { applySuggestion, generateSuggestion, listFormAssists, saveFeedback } = require('./formAssistService');
-const { getInsights, refreshInsights } = require('./insightService');
-const { enqueueInteraction, listInteractions } = require('./interactionService');
-const { enqueuePublish, listPublishes } = require('./publishService');
-const { createTheme, listThemes, removeTheme, setThemeStatus, updateTheme } = require('./themeService');
+} = require('./server/services/xhs/generationQueue');
+const { listTopics, updateTopicStatus } = require('./server/services/xhs/topicService');
+const { publishTopic, rollbackTopic } = require('./server/services/xhs/workflowService');
+const { exportMetricsCsv, getMetricsSummary, recordMetric } = require('./server/services/xhs/metricsService');
+const { getConfig, setConfig } = require('./server/config');
+const logger = require('./server/logger');
+const { addKeyword, listKeywords, removeKeyword, updateKeyword } = require('./server/services/xhs/keywords');
+const { getSettings, setSettings } = require('./server/settings');
+const { addCompetitor, listCompetitors, removeCompetitor } = require('./server/services/xhs/competitorService');
+const { createCreative, listCreatives, updateCreative } = require('./server/services/xhs/creativeService');
+const { applySuggestion, generateSuggestion, listFormAssists, saveFeedback } = require('./server/services/xhs/formAssistService');
+const { getInsights, refreshInsights } = require('./server/services/xhs/insightService');
+const { enqueueInteraction, listInteractions } = require('./server/services/xhs/interactionService');
+const { enqueuePublish, listPublishes } = require('./server/services/xhs/publishService');
+const { createTheme, listThemes, removeTheme, setThemeStatus, updateTheme } = require('./server/services/xhs/themeService');
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -252,6 +253,7 @@ ipcMain.handle('workflow:rollback', (_event, payload) => {
 });
 
 app.whenReady().then(() => {
+  setUserDataPath(app.getPath('userData'));
   initializeDatabase();
   logger.info('app_ready', { config: getConfig() });
   createWindow();

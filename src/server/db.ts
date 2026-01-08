@@ -1,22 +1,23 @@
-const fs = require('fs');
-const path = require('path');
-const { app } = require('electron');
+import fs from 'fs';
+import path from 'path';
+import { resolveUserDataPath } from './runtime/userDataPath';
+
 const Database = require('better-sqlite3');
 
 const DB_FILENAME = 'xhs-generator.db';
 const SCHEMA_VERSION = 7;
 
-let dbInstance;
+let dbInstance: any;
 
-function getDatabasePath() {
-  return path.join(app.getPath('userData'), DB_FILENAME);
+export function getDatabasePath() {
+  return resolveUserDataPath(DB_FILENAME);
 }
 
-function ensureDatabaseDirectory(dbPath) {
+function ensureDatabaseDirectory(dbPath: string) {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 }
 
-function migrate(db) {
+function migrate(db: any) {
   const currentVersion = db.pragma('user_version', { simple: true });
   if (currentVersion < 1) {
     db.exec(`
@@ -103,7 +104,7 @@ function migrate(db) {
   }
 
   if (currentVersion < 4) {
-    const columns = db.prepare("PRAGMA table_info('topics')").all().map((col) => col.name);
+    const columns = db.prepare("PRAGMA table_info('topics')").all().map((col: any) => col.name);
     if (!columns.includes('status')) {
       db.exec("ALTER TABLE topics ADD COLUMN status TEXT NOT NULL DEFAULT 'captured'");
     }
@@ -172,7 +173,7 @@ function migrate(db) {
         ON interaction_tasks(publish_record_id);
     `);
 
-    const keywordColumns = db.prepare("PRAGMA table_info('keywords')").all().map((col) => col.name);
+    const keywordColumns = db.prepare("PRAGMA table_info('keywords')").all().map((col: any) => col.name);
     if (!keywordColumns.includes('theme_id')) {
       db.exec('ALTER TABLE keywords ADD COLUMN theme_id INTEGER');
     }
@@ -224,7 +225,7 @@ function migrate(db) {
       CREATE INDEX IF NOT EXISTS idx_accounts_platform ON accounts(platform);
     `);
 
-    const keywordColumns = db.prepare("PRAGMA table_info('keywords')").all().map((col) => col.name);
+    const keywordColumns = db.prepare("PRAGMA table_info('keywords')").all().map((col: any) => col.name);
     if (!keywordColumns.includes('keyword')) {
       db.exec('ALTER TABLE keywords ADD COLUMN keyword TEXT');
       db.exec('UPDATE keywords SET keyword = value WHERE keyword IS NULL');
@@ -248,7 +249,7 @@ function migrate(db) {
       db.exec('ALTER TABLE keywords ADD COLUMN source_meta_json TEXT');
     }
 
-    const topicColumns = db.prepare("PRAGMA table_info('topics')").all().map((col) => col.name);
+    const topicColumns = db.prepare("PRAGMA table_info('topics')").all().map((col: any) => col.name);
     if (!topicColumns.includes('theme_id')) {
       db.exec('ALTER TABLE topics ADD COLUMN theme_id INTEGER');
       db.exec(
@@ -309,7 +310,7 @@ function migrate(db) {
       db.exec('ALTER TABLE topics ADD COLUMN raw_json TEXT');
     }
 
-    const creativeColumns = db.prepare("PRAGMA table_info('creatives')").all().map((col) => col.name);
+    const creativeColumns = db.prepare("PRAGMA table_info('creatives')").all().map((col: any) => col.name);
     if (!creativeColumns.includes('source_topic_id')) {
       db.exec('ALTER TABLE creatives ADD COLUMN source_topic_id INTEGER');
     }
@@ -332,7 +333,7 @@ function migrate(db) {
       db.exec('ALTER TABLE creatives ADD COLUMN model TEXT');
     }
 
-    const publishColumns = db.prepare("PRAGMA table_info('publish_records')").all().map((col) => col.name);
+    const publishColumns = db.prepare("PRAGMA table_info('publish_records')").all().map((col: any) => col.name);
     if (!publishColumns.includes('account_id')) {
       db.exec('ALTER TABLE publish_records ADD COLUMN account_id INTEGER');
     }
@@ -405,7 +406,7 @@ function migrate(db) {
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }
 
-function initializeDatabase() {
+export function initializeDatabase() {
   if (dbInstance) {
     return dbInstance;
   }
@@ -418,24 +419,17 @@ function initializeDatabase() {
   return dbInstance;
 }
 
-function getDatabase() {
+export function getDatabase() {
   if (!dbInstance) {
     return initializeDatabase();
   }
   return dbInstance;
 }
 
-function backupDatabase(destinationPath) {
+export function backupDatabase(destinationPath?: string) {
   const dbPath = getDatabasePath();
   ensureDatabaseDirectory(dbPath);
   const target = destinationPath || `${dbPath}.bak`;
   fs.copyFileSync(dbPath, target);
   return target;
 }
-
-module.exports = {
-  backupDatabase,
-  getDatabase,
-  getDatabasePath,
-  initializeDatabase,
-};

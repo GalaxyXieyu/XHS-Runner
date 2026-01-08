@@ -1,10 +1,10 @@
-const { getDatabase } = require('./db');
-const { forceUpdateTopicStatus } = require('./topicService');
-const { recordMetric } = require('./metricsService');
+import { getDatabase } from '../../db';
+import { forceUpdateTopicStatus } from './topicService';
+import { recordMetric } from './metricsService';
 
 const DEFAULT_METRICS = ['views', 'likes', 'comments', 'saves', 'follows'];
 
-function publishTopic(topicId, platform = 'xhs') {
+export function publishTopic(topicId: number, platform = 'xhs') {
   const db = getDatabase();
   const task = db
     .prepare(
@@ -35,7 +35,7 @@ function publishTopic(topicId, platform = 'xhs') {
   return { publishRecordId: result.lastInsertRowid, taskId: task.id };
 }
 
-function rollbackTopic(topicId) {
+export function rollbackTopic(topicId: number) {
   const db = getDatabase();
   db.prepare(
     `UPDATE generation_tasks
@@ -52,8 +52,3 @@ function rollbackTopic(topicId) {
   forceUpdateTopicStatus(topicId, 'failed');
   return { topicId, status: 'failed' };
 }
-
-module.exports = {
-  publishTopic,
-  rollbackTopic,
-};

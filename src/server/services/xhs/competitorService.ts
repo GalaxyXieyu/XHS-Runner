@@ -1,6 +1,6 @@
-const { getDatabase } = require('./db');
+import { getDatabase } from '../../db';
 
-function listCompetitors(themeId) {
+export function listCompetitors(themeId: number) {
   if (!themeId) {
     throw new Error('competitors:list requires themeId');
   }
@@ -15,7 +15,7 @@ function listCompetitors(themeId) {
     .all(themeId);
 }
 
-function addCompetitor(payload) {
+export function addCompetitor(payload: Record<string, any>) {
   if (!payload || typeof payload !== 'object') {
     throw new Error('competitors:add expects an object payload');
   }
@@ -44,7 +44,7 @@ function addCompetitor(payload) {
     .get(result.lastInsertRowid);
 }
 
-function removeCompetitor(id) {
+export function removeCompetitor(id: number) {
   if (!id) {
     throw new Error('competitors:remove requires id');
   }
@@ -52,9 +52,3 @@ function removeCompetitor(id) {
   db.prepare('DELETE FROM competitors WHERE id = ?').run(id);
   return { id };
 }
-
-module.exports = {
-  addCompetitor,
-  listCompetitors,
-  removeCompetitor,
-};

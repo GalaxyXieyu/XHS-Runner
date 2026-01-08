@@ -1,6 +1,6 @@
-const { getDatabase } = require('./db');
+import { getDatabase } from '../../db';
 
-function parseJson(value) {
+function parseJson(value: string | null) {
   if (!value) {
     return null;
   }
@@ -11,7 +11,7 @@ function parseJson(value) {
   }
 }
 
-function getInsights(themeId) {
+export function getInsights(themeId: number) {
   if (!themeId) {
     throw new Error('insights:get requires themeId');
   }
@@ -23,7 +23,7 @@ function getInsights(themeId) {
   return parseJson(row.analytics_json) || { top_tags: [], title_patterns: [], comment_insights: [] };
 }
 
-function refreshInsights(themeId) {
+export function refreshInsights(themeId: number) {
   if (!themeId) {
     throw new Error('insights:refresh requires themeId');
   }
@@ -45,8 +45,3 @@ function refreshInsights(themeId) {
   ).run(JSON.stringify(payload), themeId);
   return payload;
 }
-
-module.exports = {
-  getInsights,
-  refreshInsights,
-};

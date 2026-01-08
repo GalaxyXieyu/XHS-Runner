@@ -1,6 +1,6 @@
-const { getDatabase } = require('./db');
+import { getDatabase } from '../../db';
 
-function listInteractions(publishRecordId) {
+export function listInteractions(publishRecordId?: number) {
   const db = getDatabase();
   if (publishRecordId) {
     return db
@@ -21,7 +21,7 @@ function listInteractions(publishRecordId) {
     .all();
 }
 
-function enqueueInteraction(payload) {
+export function enqueueInteraction(payload: Record<string, any>) {
   if (!payload || typeof payload !== 'object') {
     throw new Error('interactions:enqueue expects an object payload');
   }
@@ -47,8 +47,3 @@ function enqueueInteraction(payload) {
     )
     .get(result.lastInsertRowid);
 }
-
-module.exports = {
-  enqueueInteraction,
-  listInteractions,
-};

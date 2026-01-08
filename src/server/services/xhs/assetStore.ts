@@ -1,15 +1,25 @@
-const fs = require('fs');
-const path = require('path');
-const { app } = require('electron');
-const { getDatabase } = require('./db');
+import fs from 'fs';
+import path from 'path';
+import { getDatabase } from '../../db';
+import { resolveUserDataPath } from '../../runtime/userDataPath';
 
 const ASSETS_DIR = 'assets';
 
-function getAssetsPath() {
-  return path.join(app.getPath('userData'), ASSETS_DIR);
+export function getAssetsPath() {
+  return resolveUserDataPath(ASSETS_DIR);
 }
 
-function storeAsset({ type, filename, data, metadata }) {
+export function storeAsset({
+  type,
+  filename,
+  data,
+  metadata,
+}: {
+  type: string;
+  filename: string;
+  data: Buffer;
+  metadata?: Record<string, any> | null;
+}) {
   const db = getDatabase();
   const assetsPath = getAssetsPath();
   fs.mkdirSync(assetsPath, { recursive: true });
@@ -26,8 +36,3 @@ function storeAsset({ type, filename, data, metadata }) {
     path: filePath,
   };
 }
-
-module.exports = {
-  getAssetsPath,
-  storeAsset,
-};

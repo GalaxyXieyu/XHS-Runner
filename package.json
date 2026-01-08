@@ -4,16 +4,17 @@
   "private": true,
   "main": "electron/main.js",
   "scripts": {
-    "dev": "concurrently -k \"next dev\" \"wait-on http://localhost:3000 && electron .\"",
+    "dev": "npm run build:server && concurrently -k \"next dev\" \"wait-on http://localhost:3000 && electron .\"",
     "dev:next": "next dev",
-    "dev:electron": "wait-on http://localhost:3000 && electron .",
+    "dev:electron": "npm run build:server && wait-on http://localhost:3000 && electron .",
+    "build:server": "node_modules/typescript/bin/tsc -p tsconfig.server.json",
     "build:xhs-core": "node_modules/typescript/bin/tsc -p electron/mcp/xhs-core/tsconfig.json",
     "build": "next build",
     "start": "next start",
-    "pack": "electron-builder --dir",
-    "dist": "electron-builder",
-    "dist:mac": "electron-builder --mac",
-    "dist:win": "electron-builder --win"
+    "pack": "npm run build:server && npm run build:xhs-core && electron-builder --dir",
+    "dist": "npm run build:server && npm run build:xhs-core && electron-builder",
+    "dist:mac": "npm run build:server && npm run build:xhs-core && electron-builder --mac",
+    "dist:win": "npm run build:server && npm run build:xhs-core && electron-builder --win"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.3",

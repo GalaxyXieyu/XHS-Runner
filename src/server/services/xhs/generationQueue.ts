@@ -1,14 +1,14 @@
-const { getDatabase } = require('./db');
-const { storeAsset } = require('./assetStore');
-const { generateContent } = require('./nanobananaClient');
-const { renderTemplate } = require('./promptTemplates');
-const { updateTopicStatus } = require('./topicService');
+import { getDatabase } from '../../db';
+import { storeAsset } from './assetStore';
+import { generateContent } from './nanobananaClient';
+import { renderTemplate } from './promptTemplates';
+import { updateTopicStatus } from './topicService';
 
 let isPaused = false;
 let isProcessing = false;
-const queue = [];
+const queue: number[] = [];
 
-function createTask({ topicId, prompt, templateKey }) {
+function createTask({ topicId, prompt, templateKey }: { topicId?: number; prompt: string; templateKey?: string }) {
   const db = getDatabase();
   const finalPrompt = renderTemplate(templateKey || 'default', { topic: prompt });
   const result = db
@@ -27,29 +27,29 @@ function createTask({ topicId, prompt, templateKey }) {
   return { id: result.lastInsertRowid, prompt: finalPrompt };
 }
 
-function enqueueTask(payload) {
+export function enqueueTask(payload: { topicId?: number; prompt: string; templateKey?: string }) {
   const task = createTask(payload);
   queue.push(task.id);
   processQueue();
   return task;
 }
 
-function enqueueBatch(tasks) {
+export function enqueueBatch(tasks: Array<{ topicId?: number; prompt: string; templateKey?: string }>) {
   return tasks.map((task) => enqueueTask(task));
 }
 
-function pauseQueue() {
+export function pauseQueue() {
   isPaused = true;
   return { paused: true, queued: queue.length };
 }
 
-function resumeQueue() {
+export function resumeQueue() {
   isPaused = false;
   processQueue();
   return { paused: false, queued: queue.length };
 }
 
-function cancelTask(taskId) {
+export function cancelTask(taskId: number) {
   const db = getDatabase();
   const index = queue.indexOf(taskId);
   if (index >= 0) {
@@ -61,7 +61,7 @@ function cancelTask(taskId) {
   return { id: taskId, status: 'canceled' };
 }
 
-function getQueueStats() {
+export function getQueueStats() {
   return { queued: queue.length, paused: isPaused, processing: isProcessing };
 }
 
@@ -73,13 +73,15 @@ async function processQueue() {
 
   while (queue.length > 0 && !isPaused) {
     const taskId = queue.shift();
-    await handleTask(taskId);
+    if (taskId !== undefined) {
+      await handleTask(taskId);
+    }
   }
 
   isProcessing = false;
 }
 
-async function handleTask(taskId) {
+async function handleTask(taskId: number) {
   const db = getDatabase();
   const task = db.prepare('SELECT id, prompt FROM generation_tasks WHERE id = ?').get(taskId);
   if (!task) {
@@ -133,12 +135,3 @@ async function handleTask(taskId) {
     }
   }
 }
-
-module.exports = {
-  cancelTask,
-  enqueueBatch,
-  enqueueTask,
-  getQueueStats,
-  pauseQueue,
-  resumeQueue,
-};

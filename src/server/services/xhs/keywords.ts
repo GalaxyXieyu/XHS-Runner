@@ -1,13 +1,13 @@
-const { getDatabase } = require('./db');
+import { getDatabase } from '../../db';
 
-function listKeywords() {
+export function listKeywords() {
   const db = getDatabase();
   return db
     .prepare('SELECT id, value, is_enabled, created_at, updated_at FROM keywords ORDER BY id DESC')
     .all();
 }
 
-function addKeyword(value) {
+export function addKeyword(value: string) {
   const trimmed = String(value || '').trim();
   if (!trimmed) {
     throw new Error('Keyword value is required');
@@ -23,7 +23,7 @@ function addKeyword(value) {
   return db.prepare('SELECT id, value, is_enabled, created_at, updated_at FROM keywords WHERE value = ?').get(trimmed);
 }
 
-function updateKeyword(id, value, isEnabled) {
+export function updateKeyword(id: number, value: string, isEnabled?: number | boolean) {
   const db = getDatabase();
   const trimmed = String(value || '').trim();
   if (!trimmed) {
@@ -37,15 +37,8 @@ function updateKeyword(id, value, isEnabled) {
   return db.prepare('SELECT id, value, is_enabled, created_at, updated_at FROM keywords WHERE id = ?').get(id);
 }
 
-function removeKeyword(id) {
+export function removeKeyword(id: number) {
   const db = getDatabase();
   db.prepare('DELETE FROM keywords WHERE id = ?').run(id);
   return { id };
 }
-
-module.exports = {
-  addKeyword,
-  listKeywords,
-  removeKeyword,
-  updateKeyword,
-};

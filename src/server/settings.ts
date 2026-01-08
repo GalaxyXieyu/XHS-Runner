@@ -1,6 +1,6 @@
-const { getDatabase } = require('./db');
+import { getDatabase } from './db';
 
-function getSetting(key) {
+export function getSetting(key: string) {
   const db = getDatabase();
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
   if (!row) {
@@ -13,7 +13,7 @@ function getSetting(key) {
   }
 }
 
-function setSetting(key, value) {
+export function setSetting(key: string, value: any) {
   const db = getDatabase();
   const payload = JSON.stringify(value);
   db.prepare(
@@ -26,7 +26,7 @@ function setSetting(key, value) {
   return value;
 }
 
-function getSettings() {
+export function getSettings() {
   return {
     captureEnabled: getSetting('captureEnabled') ?? false,
     captureFrequencyMinutes: getSetting('captureFrequencyMinutes') ?? 60,
@@ -36,17 +36,10 @@ function getSettings() {
   };
 }
 
-function setSettings(update) {
+export function setSettings(update: Record<string, any>) {
   const next = { ...getSettings(), ...update };
   Object.entries(next).forEach(([key, value]) => {
     setSetting(key, value);
   });
   return next;
 }
-
-module.exports = {
-  getSetting,
-  getSettings,
-  setSetting,
-  setSettings,
-};

@@ -1,6 +1,6 @@
-const { getDatabase } = require('./db');
+import { getDatabase } from '../../db';
 
-function parseJson(value) {
+function parseJson(value: string | null) {
   if (!value) {
     return null;
   }
@@ -11,7 +11,7 @@ function parseJson(value) {
   }
 }
 
-function listThemeKeywords(db, themeId) {
+function listThemeKeywords(db: any, themeId: number) {
   return db
     .prepare(
       `SELECT id,
@@ -27,7 +27,7 @@ function listThemeKeywords(db, themeId) {
     .all(themeId);
 }
 
-function listThemeCompetitors(db, themeId) {
+function listThemeCompetitors(db: any, themeId: number) {
   return db
     .prepare(
       `SELECT id, xhs_user_id, name, last_monitored_at, created_at, updated_at
@@ -38,7 +38,7 @@ function listThemeCompetitors(db, themeId) {
     .all(themeId);
 }
 
-function listThemes() {
+export function listThemes() {
   const db = getDatabase();
   const themes = db
     .prepare(
@@ -48,7 +48,7 @@ function listThemes() {
     )
     .all();
 
-  return themes.map((theme) => ({
+  return themes.map((theme: any) => ({
     ...theme,
     analytics: parseJson(theme.analytics_json),
     keywords: listThemeKeywords(db, theme.id),
@@ -56,7 +56,7 @@ function listThemes() {
   }));
 }
 
-function createTheme(payload) {
+export function createTheme(payload: Record<string, any>) {
   if (!payload || typeof payload !== 'object') {
     throw new Error('themes:create expects an object payload');
   }
@@ -78,7 +78,7 @@ function createTheme(payload) {
 
   const themeId = result.lastInsertRowid;
   if (Array.isArray(payload.keywords)) {
-    payload.keywords.forEach((keywordValue) => {
+    payload.keywords.forEach((keywordValue: any) => {
       const value = String(keywordValue || '').trim();
       if (!value) {
         return;
@@ -92,7 +92,7 @@ function createTheme(payload) {
   }
 
   if (Array.isArray(payload.competitors)) {
-    payload.competitors.forEach((competitor) => {
+    payload.competitors.forEach((competitor: any) => {
       const entry = typeof competitor === 'object' ? competitor : { name: competitor };
       const nameValue = entry?.name ? String(entry.name) : null;
       const xhsUserId = entry?.xhs_user_id ? String(entry.xhs_user_id) : null;
@@ -112,7 +112,7 @@ function createTheme(payload) {
     .get(themeId);
 }
 
-function updateTheme(payload) {
+export function updateTheme(payload: Record<string, any>) {
   if (!payload || typeof payload !== 'object') {
     throw new Error('themes:update expects an object payload');
   }
@@ -147,7 +147,7 @@ function updateTheme(payload) {
     .get(payload.id);
 }
 
-function removeTheme(id) {
+export function removeTheme(id: number) {
   if (!id) {
     throw new Error('themes:remove requires id');
   }
@@ -158,7 +158,7 @@ function removeTheme(id) {
   return { id };
 }
 
-function setThemeStatus(id, status) {
+export function setThemeStatus(id: number, status: string) {
   if (!id) {
     throw new Error('themes:setStatus requires id');
   }
@@ -171,11 +171,3 @@ function setThemeStatus(id, status) {
   ).run(nextStatus, id);
   return db.prepare('SELECT id, status FROM themes WHERE id = ?').get(id);
 }
-
-module.exports = {
-  createTheme,
-  listThemes,
-  removeTheme,
-  setThemeStatus,
-  updateTheme,
-};

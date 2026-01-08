@@ -1,17 +1,25 @@
-const DEFAULT_LIMIT = 50;
-const localService = require('./mcp/localService');
+import {
+  commentOnNote as commentOnNoteLocal,
+  deleteNote as deleteNoteLocal,
+  getNoteDetail as getNoteDetailLocal,
+  getUserNotes as getUserNotesLocal,
+  publishContent as publishContentLocal,
+  searchNotes as searchNotesLocal,
+} from './localService';
 
-let loggedDriver = null;
+const DEFAULT_LIMIT = 50;
+
+let loggedDriver: string | null = null;
 
 const SUPPORTED_DRIVERS = new Set(['local', 'mock']);
 
-function normalizeDriver(value) {
+function normalizeDriver(value?: string | null) {
   if (!value) {
     return null;
   }
   const normalized = String(value).trim().toLowerCase();
   if (!SUPPORTED_DRIVERS.has(normalized)) {
-    console.warn(`[xhsClient] unknown driver "${value}", fallback to local`);
+    console.warn(`[xhsClient] unknown driver \"${value}\", fallback to local`);
     return 'local';
   }
   return normalized;
@@ -29,7 +37,7 @@ function resolveDriver() {
   return legacyMode === 'mock' ? 'mock' : 'local';
 }
 
-function logDriver(driver) {
+function logDriver(driver: string) {
   if (loggedDriver === driver) {
     return;
   }
@@ -37,7 +45,7 @@ function logDriver(driver) {
   console.info(`[xhsClient] using driver: ${driver}`);
 }
 
-function normalizeNotes(payload) {
+function normalizeNotes(payload: any) {
   const rawList =
     payload?.data?.list ||
     payload?.data ||
@@ -48,7 +56,7 @@ function normalizeNotes(payload) {
 
   return rawList
     .filter(Boolean)
-    .map((item, index) => {
+    .map((item: any, index: number) => {
       const id = item.id || item.note_id || item.noteId || `${index}`;
       const title = item.title || item.desc || item.name || `Note ${index + 1}`;
       const url = item.url || item.link || item.note_url || null;
@@ -56,7 +64,7 @@ function normalizeNotes(payload) {
     });
 }
 
-function normalizeNoteDetail(payload) {
+function normalizeNoteDetail(payload: any) {
   const note = payload?.data?.note || payload?.data || payload?.result || payload?.note || {};
   const comments = payload?.data?.comments || payload?.comments || note.comments || [];
   return {
@@ -76,16 +84,15 @@ function normalizeNoteDetail(payload) {
   };
 }
 
-function mockNotes(keyword, limit) {
-  return Array.from({ length: limit }, (_, index) => ({
+function mockNotes(keyword: string, limit: number) {
+  return Array.from({ length: limit }, (_value, index) => ({
     id: `mock-${keyword}-${index + 1}`,
     title: `Mock note for ${keyword} #${index + 1}`,
     url: null,
   }));
 }
 
-
-async function fetchTopNotes(keyword, limit = DEFAULT_LIMIT) {
+export async function fetchTopNotes(keyword: string, limit = DEFAULT_LIMIT) {
   const driver = resolveDriver();
   const capped = Math.min(limit, DEFAULT_LIMIT);
 
@@ -95,31 +102,31 @@ async function fetchTopNotes(keyword, limit = DEFAULT_LIMIT) {
     return mockNotes(keyword, capped);
   }
 
-  const result = await localService.searchNotes(keyword);
+  const result = await searchNotesLocal(keyword);
   const feeds = result?.feeds || [];
   return normalizeNotes({ data: { list: feeds } }).slice(0, capped);
 }
 
-async function fetchUserNotes(userId, limit = DEFAULT_LIMIT) {
+export async function fetchUserNotes(userId: string, limit = DEFAULT_LIMIT) {
   const driver = resolveDriver();
   const capped = Math.min(limit, DEFAULT_LIMIT);
 
   logDriver(driver);
 
   if (driver === 'mock') {
-    return Array.from({ length: capped }, (_, index) => ({
+    return Array.from({ length: capped }, (_value, index) => ({
       id: `mock-user-${userId}-${index + 1}`,
       title: `Mock competitor note #${index + 1}`,
       url: null,
     }));
   }
 
-  const result = await localService.getUserNotes(capped);
+  const result = await getUserNotesLocal(capped);
   const feeds = result?.data || [];
   return normalizeNotes({ data: { list: feeds } }).slice(0, capped);
 }
 
-async function fetchNoteDetail(noteId, options = {}) {
+export async function fetchNoteDetail(noteId: string, options: Record<string, any> = {}) {
   const driver = resolveDriver();
   logDriver(driver);
 
@@ -132,7 +139,7 @@ async function fetchNoteDetail(noteId, options = {}) {
       raw: { mode: 'mock' },
     };
   }
-  const detail = await localService.getNoteDetail(noteId, options);
+  const detail = await getNoteDetailLocal(noteId, options);
   const rawDetail = detail?.detail || detail;
   return normalizeNoteDetail({
     data: { note: rawDetail, comments: rawDetail?.comments || [] },
@@ -141,7 +148,7 @@ async function fetchNoteDetail(noteId, options = {}) {
   });
 }
 
-async function publishContent(payload, options = {}) {
+export async function publishContent(payload: Record<string, any>, options: Record<string, any> = {}) {
   const driver = resolveDriver();
   logDriver(driver);
 
@@ -149,10 +156,10 @@ async function publishContent(payload, options = {}) {
     return { status: 'mocked', payload };
   }
 
-  return localService.publishContent(payload, options);
+  return publishContentLocal(payload, options);
 }
 
-async function commentOnNote(noteId, content, options = {}) {
+export async function commentOnNote(noteId: string, content: string, options: Record<string, any> = {}) {
   const driver = resolveDriver();
   logDriver(driver);
 
@@ -160,10 +167,10 @@ async function commentOnNote(noteId, content, options = {}) {
     return { status: 'mocked', note_id: noteId, content };
   }
 
-  return localService.commentOnNote(noteId, content, options);
+  return commentOnNoteLocal(noteId, content, options);
 }
 
-async function deleteNote(noteId, options = {}) {
+export async function deleteNote(noteId: string, options: Record<string, any> = {}) {
   const driver = resolveDriver();
   logDriver(driver);
 
@@ -171,14 +178,5 @@ async function deleteNote(noteId, options = {}) {
     return { status: 'mocked', note_id: noteId };
   }
 
-  return localService.deleteNote(noteId, options);
+  return deleteNoteLocal(noteId, options);
 }
-
-module.exports = {
-  commentOnNote,
-  deleteNote,
-  fetchNoteDetail,
-  fetchTopNotes,
-  fetchUserNotes,
-  publishContent,
-};

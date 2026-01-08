@@ -1,7 +1,7 @@
 const DEFAULT_IMAGE_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=';
 
-async function generateContent(prompt) {
+export async function generateContent(prompt: string) {
   const mode = process.env.NANOBANANA_MODE || 'mock';
   const endpoint = process.env.NANOBANANA_ENDPOINT;
 
@@ -31,7 +31,3 @@ async function generateContent(prompt) {
     metadata: { mode: 'remote' },
   };
 }
-
-module.exports = {
-  generateContent,
-};

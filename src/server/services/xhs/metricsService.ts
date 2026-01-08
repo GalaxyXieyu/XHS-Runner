@@ -1,9 +1,19 @@
-const fs = require('fs');
-const path = require('path');
-const { app } = require('electron');
-const { getDatabase } = require('./db');
+import fs from 'fs';
+import path from 'path';
+import { getDatabase } from '../../db';
+import { resolveUserDataPath } from '../../runtime/userDataPath';
 
-function recordMetric({ publishRecordId, metricKey, metricValue, capturedAt }) {
+export function recordMetric({
+  publishRecordId,
+  metricKey,
+  metricValue,
+  capturedAt,
+}: {
+  publishRecordId?: number;
+  metricKey: string;
+  metricValue: number;
+  capturedAt?: string;
+}) {
   const db = getDatabase();
   const timestamp = capturedAt || new Date().toISOString();
   db.prepare(
@@ -13,7 +23,7 @@ function recordMetric({ publishRecordId, metricKey, metricValue, capturedAt }) {
   return { metricKey, metricValue, capturedAt: timestamp };
 }
 
-function getMetricsSummary(windowDays = 7) {
+export function getMetricsSummary(windowDays = 7) {
   const db = getDatabase();
   const windowClause = `-${windowDays} days`;
   const previousClause = `-${windowDays * 2} days`;
@@ -37,8 +47,8 @@ function getMetricsSummary(windowDays = 7) {
     )
     .all(previousClause, windowClause);
 
-  const comparison = totals.map((row) => {
-    const previous = previousTotals.find((item) => item.metricKey === row.metricKey);
+  const comparison = totals.map((row: any) => {
+    const previous = previousTotals.find((item: any) => item.metricKey === row.metricKey);
     const prevValue = previous ? previous.total : 0;
     return {
       metricKey: row.metricKey,
@@ -58,7 +68,7 @@ function getMetricsSummary(windowDays = 7) {
     )
     .all(windowClause);
 
-  const trend = trendRows.reduce((acc, row) => {
+  const trend = trendRows.reduce((acc: Record<string, Array<{ day: string; total: number }>>, row: any) => {
     if (!acc[row.metricKey]) {
       acc[row.metricKey] = [];
     }
@@ -74,7 +84,7 @@ function getMetricsSummary(windowDays = 7) {
   };
 }
 
-function exportMetricsCsv(windowDays = 7) {
+export function exportMetricsCsv(windowDays = 7) {
   const db = getDatabase();
   const windowClause = `-${windowDays} days`;
   const rows = db
@@ -88,20 +98,14 @@ function exportMetricsCsv(windowDays = 7) {
 
   const header = ['publish_record_id', 'metric_key', 'metric_value', 'captured_at'];
   const lines = [header.join(',')];
-  rows.forEach((row) => {
+  rows.forEach((row: any) => {
     lines.push([row.publish_record_id, row.metric_key, row.metric_value, row.captured_at].join(','));
   });
 
-  const exportDir = path.join(app.getPath('userData'), 'exports');
+  const exportDir = resolveUserDataPath('exports');
   fs.mkdirSync(exportDir, { recursive: true });
   const filename = `metrics-${Date.now()}.csv`;
   const filePath = path.join(exportDir, filename);
   fs.writeFileSync(filePath, lines.join('\n'), 'utf8');
   return { path: filePath, count: rows.length };
 }
-
-module.exports = {
-  exportMetricsCsv,
-  getMetricsSummary,
-  recordMetric,
-};
