@@ -99,3 +99,18 @@ export async function deleteNote(noteId: string, options: { browserPath?: string
   const { noteService } = await getServices();
   return noteService.deleteNote(noteId, resolveBrowserPath(options));
 }
+
+export async function login(options: { browserPath?: string; timeout?: number } = {}) {
+  const { authService } = await getServices();
+  return authService.login(resolveBrowserPath(options), options.timeout);
+}
+
+export async function checkStatus(options: { browserPath?: string } = {}) {
+  const { authService } = await getServices();
+  return authService.checkStatus(resolveBrowserPath(options));
+}
+
+export async function logout() {
+  const { authService } = await getServices();
+  return authService.logout();
+}

@@ -25,6 +25,7 @@
 - 开发模式：`npm run dev`
 - 构建内置 core：`npm run build:xhs-core`
 - 构建服务层：`npm run build:server`
+- 登录与抓取冒烟：`npm run smoke:xhs`
 
 ## 参考文档
 
