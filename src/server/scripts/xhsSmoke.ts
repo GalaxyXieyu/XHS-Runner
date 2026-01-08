@@ -43,11 +43,19 @@ async function run() {
   console.log('[xhs-smoke] fetched notes:', notes.slice(0, 3));
 
   if (noteId) {
-    if (!process.env.XHS_MCP_XSEC_TOKEN) {
+    const fallbackToken =
+      (notes as any[]).find((note) => note?.id === noteId || note?.note_id === noteId)?.xsec_token ||
+      (notes as any[])[0]?.xsec_token ||
+      null;
+    const xsecToken = process.env.XHS_MCP_XSEC_TOKEN || fallbackToken;
+    if (!xsecToken) {
       console.warn('[xhs-smoke] XHS_MCP_XSEC_TOKEN missing, skip fetchNoteDetail');
     } else {
+      if (!process.env.XHS_MCP_XSEC_TOKEN && fallbackToken) {
+        console.log('[xhs-smoke] using xsec_token from fetched notes for detail request');
+      }
       console.log(`[xhs-smoke] fetching note detail for noteId=${noteId}...`);
-      const detail = await fetchNoteDetail(noteId, { xsecToken: process.env.XHS_MCP_XSEC_TOKEN });
+      const detail = await fetchNoteDetail(noteId, { xsecToken });
       const detailAny = detail as any;
       console.log('[xhs-smoke] note detail:', {
         id: detailAny?.id,

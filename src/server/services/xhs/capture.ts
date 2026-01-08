@@ -23,7 +23,45 @@ function listRecentTopics(keywordId: number, limit: number) {
     .all(keywordId, limit);
 }
 
-function insertTopic(keywordId: number, note: { id: string; title: string; url?: string | null }) {
+function serializeJson(value: any) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value === 'string') {
+    return value;
+  }
+  try {
+    return JSON.stringify(value);
+  } catch (error) {
+    return null;
+  }
+}
+
+function insertTopic(
+  keywordId: number,
+  note: {
+    id: string;
+    title: string;
+    url?: string | null;
+    note_id?: string | null;
+    xsec_token?: string | null;
+    desc?: string | null;
+    note_type?: string | null;
+    tags?: string[] | string | null;
+    cover_url?: string | null;
+    media_urls?: string[] | null;
+    author_id?: string | null;
+    author_name?: string | null;
+    author_avatar_url?: string | null;
+    like_count?: number | null;
+    collect_count?: number | null;
+    comment_count?: number | null;
+    share_count?: number | null;
+    published_at?: string | null;
+    fetched_at?: string | null;
+    raw_json?: any;
+  }
+) {
   const db = getDatabase();
   const exists = db
     .prepare('SELECT id FROM topics WHERE source = ? AND source_id = ?')
@@ -31,12 +69,63 @@ function insertTopic(keywordId: number, note: { id: string; title: string; url?:
   if (exists) {
     return null;
   }
+  const now = note.fetched_at || new Date().toISOString();
+  const tags = serializeJson(note.tags);
+  const mediaUrls = serializeJson(note.media_urls);
+  const rawJson = serializeJson(note.raw_json ?? note);
   const result = db
     .prepare(
-      `INSERT INTO topics (keyword_id, title, source, source_id, url, status, created_at)
-       VALUES (?, ?, 'xhs', ?, ?, 'captured', datetime('now'))`
+      `INSERT INTO topics (
+         keyword_id,
+         title,
+         source,
+         source_id,
+         url,
+         status,
+         created_at,
+         note_id,
+         xsec_token,
+         desc,
+         note_type,
+         tags,
+         cover_url,
+         media_urls,
+         author_id,
+         author_name,
+         author_avatar_url,
+         like_count,
+         collect_count,
+         comment_count,
+         share_count,
+         published_at,
+         fetched_at,
+         raw_json
+       )
+       VALUES (?, ?, 'xhs', ?, ?, 'captured', datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(keywordId, note.title, note.id, note.url);
+    .run(
+      keywordId,
+      note.title || note.desc || note.id,
+      note.id,
+      note.url,
+      note.note_id || note.id,
+      note.xsec_token,
+      note.desc,
+      note.note_type,
+      tags,
+      note.cover_url,
+      mediaUrls,
+      note.author_id,
+      note.author_name,
+      note.author_avatar_url,
+      note.like_count,
+      note.collect_count,
+      note.comment_count,
+      note.share_count,
+      note.published_at,
+      now,
+      rawJson
+    );
   return result.lastInsertRowid;
 }
 
