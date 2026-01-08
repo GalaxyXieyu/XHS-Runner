@@ -2,7 +2,7 @@
 
 ## 前置条件
 
-- 进入 `xhs-mcp` 目录并构建 dist：`npm --prefix xhs-mcp install && npm --prefix xhs-mcp run build`
+- 构建内置 core：`npm run build:xhs-core`
 - 设置驱动与必要配置：
   - `XHS_MCP_DRIVER=local`
   - （如需要）`XHS_MCP_XSEC_TOKEN=<token>`

@@ -1,23 +1,20 @@
 const path = require('path');
-const { pathToFileURL } = require('url');
-
 const LOCAL_DIST_ENTRY = path.resolve(
   __dirname,
-  '..',
-  '..',
-  'xhs-mcp',
+  'xhs-core',
   'dist',
-  'xhs-mcp.js'
+  'index.js'
 );
 
 let cachedServices = null;
 
-async function loadXhsModule() {
+function loadXhsModule() {
   try {
-    return await import(pathToFileURL(LOCAL_DIST_ENTRY).href);
+    // CommonJS output from build:xhs-core
+    return require(LOCAL_DIST_ENTRY);
   } catch (error) {
     const message =
-      'xhs-mcp dist not found. Build it with: npm --prefix xhs-mcp install && npm --prefix xhs-mcp run build.';
+      'xhs-core dist not found. Build it with: npm run build:xhs-core.';
     const wrapped = new Error(message);
     wrapped.cause = error;
     throw wrapped;

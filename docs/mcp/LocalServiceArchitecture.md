@@ -8,7 +8,7 @@
 ## 分层与职责
 
 ### local-service（内置服务层）
-- 直接实例化 `xhs-mcp` core 服务（AuthService/FeedService/PublishService/NoteService/DeleteService）。
+- 直接实例化内联 core 服务（`electron/mcp/xhs-core` 下的 AuthService/FeedService/PublishService/NoteService/DeleteService）。
 - 负责参数整理、错误转换、调用链日志。
 - 不依赖 MCP JSON-RPC / HTTP/SSE 协议层。
 
