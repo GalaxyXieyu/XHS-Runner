@@ -16,8 +16,11 @@ metricsWindowDays controls the data window (days) for analytics.
 Metrics tracked: views, likes, comments, saves, follows.
 
 ## MCP Environment
-Set XHS_MCP_ENDPOINT to the MCP HTTP endpoint.
-Optional: XHS_MCP_MODE=mock to use mock responses during local testing.
+- XHS_MCP_DRIVER=local|legacy|mock (default: legacy). local uses in-process core services.
+- XHS_MCP_ENDPOINT: MCP HTTP endpoint (legacy only).
+- XHS_MCP_MODE=mock (legacy fallback flag, kept for compatibility).
+- XHS_MCP_XSEC_TOKEN: xsec_token required for note detail/comment in local mode.
+- XHS_BROWSER_PATH: optional browser executable override for local mode.
 
 Tool overrides (optional):
 - XHS_MCP_TOOL_SEARCH (default: xhs_search_note)
