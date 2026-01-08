@@ -1,5 +1,31 @@
 const DEFAULT_LIMIT = 50;
 const DEFAULT_TIMEOUT_MS = Number(process.env.XHS_MCP_TIMEOUT_MS || 15000);
+const localService = require('./mcp/localService');
+
+let loggedDriver = null;
+
+function resolveDriver() {
+  const driver = process.env.XHS_MCP_DRIVER;
+  if (driver) {
+    return driver;
+  }
+  const mode = process.env.XHS_MCP_MODE || 'mcp';
+  if (mode === 'mock') {
+    return 'mock';
+  }
+  if (mode === 'mcp') {
+    return 'legacy';
+  }
+  return mode;
+}
+
+function logDriver(driver) {
+  if (loggedDriver === driver) {
+    return;
+  }
+  loggedDriver = driver;
+  console.info(`[xhsClient] using driver: ${driver}`);
+}
 
 function normalizeNotes(payload) {
   const rawList =
@@ -93,11 +119,19 @@ async function callMcpTool(tool, args) {
 }
 
 async function fetchTopNotes(keyword, limit = DEFAULT_LIMIT) {
-  const mode = process.env.XHS_MCP_MODE || 'mcp';
+  const driver = resolveDriver();
   const capped = Math.min(limit, DEFAULT_LIMIT);
 
-  if (mode === 'mock') {
+  logDriver(driver);
+
+  if (driver === 'mock') {
     return mockNotes(keyword, capped);
+  }
+
+  if (driver === 'local') {
+    const result = await localService.searchNotes(keyword);
+    const feeds = result?.feeds || [];
+    return normalizeNotes({ data: { list: feeds } }).slice(0, capped);
   }
 
   const tool =
@@ -109,10 +143,12 @@ async function fetchTopNotes(keyword, limit = DEFAULT_LIMIT) {
 }
 
 async function fetchUserNotes(userId, limit = DEFAULT_LIMIT) {
-  const mode = process.env.XHS_MCP_MODE || 'mcp';
+  const driver = resolveDriver();
   const capped = Math.min(limit, DEFAULT_LIMIT);
 
-  if (mode === 'mock') {
+  logDriver(driver);
+
+  if (driver === 'mock') {
     return Array.from({ length: capped }, (_, index) => ({
       id: `mock-user-${userId}-${index + 1}`,
       title: `Mock competitor note #${index + 1}`,
@@ -120,14 +156,22 @@ async function fetchUserNotes(userId, limit = DEFAULT_LIMIT) {
     }));
   }
 
+  if (driver === 'local') {
+    const result = await localService.getUserNotes(capped);
+    const feeds = result?.data || [];
+    return normalizeNotes({ data: { list: feeds } }).slice(0, capped);
+  }
+
   const tool = process.env.XHS_MCP_TOOL_USER_NOTES || 'xhs_get_user_notes';
   const data = await callMcpTool(tool, { user_id: userId, limit: capped });
   return normalizeNotes(data).slice(0, capped);
 }
 
-async function fetchNoteDetail(noteId) {
-  const mode = process.env.XHS_MCP_MODE || 'mcp';
-  if (mode === 'mock') {
+async function fetchNoteDetail(noteId, options = {}) {
+  const driver = resolveDriver();
+  logDriver(driver);
+
+  if (driver === 'mock') {
     return {
       id: noteId,
       title: `Mock note ${noteId}`,
@@ -136,34 +180,65 @@ async function fetchNoteDetail(noteId) {
       raw: { mode: 'mock' },
     };
   }
+  if (driver === 'local') {
+    const detail = await localService.getNoteDetail(noteId, options);
+    const rawDetail = detail?.detail || detail;
+    return normalizeNoteDetail({
+      data: { note: rawDetail, comments: rawDetail?.comments || [] },
+      result: rawDetail,
+      note: rawDetail,
+    });
+  }
+
   const tool = process.env.XHS_MCP_TOOL_NOTE_DETAIL || 'xhs_get_note_detail';
   const data = await callMcpTool(tool, { note_id: noteId });
   return normalizeNoteDetail(data);
 }
 
-async function publishContent(payload) {
-  const mode = process.env.XHS_MCP_MODE || 'mcp';
-  if (mode === 'mock') {
+async function publishContent(payload, options = {}) {
+  const driver = resolveDriver();
+  logDriver(driver);
+
+  if (driver === 'mock') {
     return { status: 'mocked', payload };
   }
+
+  if (driver === 'local') {
+    return localService.publishContent(payload, options);
+  }
+
   const tool = process.env.XHS_MCP_TOOL_PUBLISH || 'xhs_publish_content';
   return callMcpTool(tool, payload);
 }
 
-async function commentOnNote(noteId, content) {
-  const mode = process.env.XHS_MCP_MODE || 'mcp';
-  if (mode === 'mock') {
+async function commentOnNote(noteId, content, options = {}) {
+  const driver = resolveDriver();
+  logDriver(driver);
+
+  if (driver === 'mock') {
     return { status: 'mocked', note_id: noteId, content };
   }
+
+  if (driver === 'local') {
+    return localService.commentOnNote(noteId, content, options);
+  }
+
   const tool = process.env.XHS_MCP_TOOL_COMMENT || 'xhs_comment_on_note';
   return callMcpTool(tool, { note_id: noteId, content });
 }
 
-async function deleteNote(noteId) {
-  const mode = process.env.XHS_MCP_MODE || 'mcp';
-  if (mode === 'mock') {
+async function deleteNote(noteId, options = {}) {
+  const driver = resolveDriver();
+  logDriver(driver);
+
+  if (driver === 'mock') {
     return { status: 'mocked', note_id: noteId };
   }
+
+  if (driver === 'local') {
+    return localService.deleteNote(noteId, options);
+  }
+
   const tool = process.env.XHS_MCP_TOOL_DELETE || 'xhs_delete_note';
   return callMcpTool(tool, { note_id: noteId });
 }
