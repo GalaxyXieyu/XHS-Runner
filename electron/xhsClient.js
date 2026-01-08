@@ -1,6 +1,6 @@
 const DEFAULT_LIMIT = 50;
-const DEFAULT_TIMEOUT_MS = Number(process.env.XHS_MCP_TIMEOUT_MS || 15000);
 const localService = require('./mcp/localService');
+const legacyClient = require('./mcp/legacyClient');
 
 let loggedDriver = null;
 
@@ -74,49 +74,6 @@ function mockNotes(keyword, limit) {
   }));
 }
 
-async function fetchWithTimeout(url, options, timeoutMs) {
-  if (!timeoutMs) {
-    return fetch(url, options);
-  }
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...options, signal: controller.signal });
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-async function callMcpTool(tool, args) {
-  const endpoint = process.env.XHS_MCP_ENDPOINT;
-  if (!endpoint) {
-    throw new Error('XHS_MCP_ENDPOINT is not configured');
-  }
-
-  const payload = {
-    tool,
-    arguments: args || {},
-  };
-
-  const response = await fetchWithTimeout(
-    endpoint,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    },
-    DEFAULT_TIMEOUT_MS
-  );
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`XHS MCP request failed: ${response.status} ${body}`);
-  }
-
-  return response.json();
-}
 
 async function fetchTopNotes(keyword, limit = DEFAULT_LIMIT) {
   const driver = resolveDriver();
@@ -138,7 +95,7 @@ async function fetchTopNotes(keyword, limit = DEFAULT_LIMIT) {
     process.env.XHS_MCP_TOOL_SEARCH ||
     process.env.XHS_MCP_TOOL ||
     'xhs_search_note';
-  const data = await callMcpTool(tool, { keyword, limit: capped });
+  const data = await legacyClient.callTool(tool, { keyword, limit: capped });
   return normalizeNotes(data).slice(0, capped);
 }
 
@@ -163,7 +120,7 @@ async function fetchUserNotes(userId, limit = DEFAULT_LIMIT) {
   }
 
   const tool = process.env.XHS_MCP_TOOL_USER_NOTES || 'xhs_get_user_notes';
-  const data = await callMcpTool(tool, { user_id: userId, limit: capped });
+  const data = await legacyClient.callTool(tool, { user_id: userId, limit: capped });
   return normalizeNotes(data).slice(0, capped);
 }
 
@@ -191,7 +148,7 @@ async function fetchNoteDetail(noteId, options = {}) {
   }
 
   const tool = process.env.XHS_MCP_TOOL_NOTE_DETAIL || 'xhs_get_note_detail';
-  const data = await callMcpTool(tool, { note_id: noteId });
+  const data = await legacyClient.callTool(tool, { note_id: noteId });
   return normalizeNoteDetail(data);
 }
 
@@ -208,7 +165,7 @@ async function publishContent(payload, options = {}) {
   }
 
   const tool = process.env.XHS_MCP_TOOL_PUBLISH || 'xhs_publish_content';
-  return callMcpTool(tool, payload);
+  return legacyClient.callTool(tool, payload);
 }
 
 async function commentOnNote(noteId, content, options = {}) {
@@ -224,7 +181,7 @@ async function commentOnNote(noteId, content, options = {}) {
   }
 
   const tool = process.env.XHS_MCP_TOOL_COMMENT || 'xhs_comment_on_note';
-  return callMcpTool(tool, { note_id: noteId, content });
+  return legacyClient.callTool(tool, { note_id: noteId, content });
 }
 
 async function deleteNote(noteId, options = {}) {
@@ -240,7 +197,7 @@ async function deleteNote(noteId, options = {}) {
   }
 
   const tool = process.env.XHS_MCP_TOOL_DELETE || 'xhs_delete_note';
-  return callMcpTool(tool, { note_id: noteId });
+  return legacyClient.callTool(tool, { note_id: noteId });
 }
 
 module.exports = {
