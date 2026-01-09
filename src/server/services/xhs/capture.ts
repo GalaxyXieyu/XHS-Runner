@@ -8,7 +8,7 @@ function sleep(ms: number) {
 
 function getKeyword(id: number) {
   const db = getDatabase();
-  return db.prepare('SELECT id, value FROM keywords WHERE id = ?').get(id);
+  return db.prepare('SELECT id, value, theme_id FROM keywords WHERE id = ?').get(id);
 }
 
 function listRecentTopics(keywordId: number, limit: number) {
@@ -39,6 +39,7 @@ function serializeJson(value: any) {
 
 function insertTopic(
   keywordId: number,
+  themeId: number | null | undefined,
   note: {
     id: string;
     title: string;
@@ -83,6 +84,7 @@ function insertTopic(
          url,
          status,
          created_at,
+         theme_id,
          note_id,
          xsec_token,
          desc,
@@ -101,13 +103,14 @@ function insertTopic(
          fetched_at,
          raw_json
        )
-       VALUES (?, ?, 'xhs', ?, ?, 'captured', datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, 'xhs', ?, ?, 'captured', datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       keywordId,
       note.title || note.desc || note.id,
       note.id,
       note.url,
+      themeId ?? null,
       note.note_id || note.id,
       note.xsec_token,
       note.desc,
@@ -185,7 +188,7 @@ export async function runCapture(keywordId: number, limit = 50) {
   let inserted = 0;
   notes.forEach((note: any) => {
     if (note && note.id) {
-      const rowId = insertTopic(keywordId, note);
+      const rowId = insertTopic(keywordId, keyword.theme_id, note);
       if (rowId) {
         inserted += 1;
       }

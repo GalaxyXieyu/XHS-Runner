@@ -19,6 +19,7 @@
 5. 验证 mock 切换不受影响。
 
 > 可选：使用脚本快速验证 `npm run smoke:xhs`（会检查登录状态并抓取样例数据）。
+> 可选：多关键词主题抓取写库验证 `npm run smoke:xhs-capture`（支持 `XHS_TEST_KEYWORDS` 与 `XHS_TEST_LIMIT`）。
 
 ## 结果记录
 
