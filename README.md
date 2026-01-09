@@ -32,3 +32,5 @@
 - `docs/mcp/LocalServiceArchitecture.md`
 - `docs/mcp/CallchainInventory.md`
 - `docs/mcp/LocalModeSmoke.md`
+
+
