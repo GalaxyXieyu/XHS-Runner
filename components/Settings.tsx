@@ -23,7 +23,13 @@ export function Settings() {
     llmBaseUrl: '',
     llmApiKey: '',
     llmModel: '',
-    imageKey: ''
+    imageKey: '',
+    volcengineAccessKey: '',
+    volcengineSecretKey: '',
+    superbedToken: '',
+    nanobananaEndpoint: '',
+    nanobananaMode: 'mock',
+    nanobananaApiKey: ''
   });
   const [saving, setSaving] = useState(false);
 
@@ -35,7 +41,13 @@ export function Settings() {
         llmBaseUrl: data.llmBaseUrl || '',
         llmApiKey: data.llmApiKey || '',
         llmModel: data.llmModel || '',
-        imageKey: data.imageKey || ''
+        imageKey: data.imageKey || '',
+        volcengineAccessKey: data.volcengineAccessKey || '',
+        volcengineSecretKey: data.volcengineSecretKey || '',
+        superbedToken: data.superbedToken || '',
+        nanobananaEndpoint: data.nanobananaEndpoint || '',
+        nanobananaMode: data.nanobananaMode || 'mock',
+        nanobananaApiKey: data.nanobananaApiKey || ''
       });
     } catch (e) {
       console.error('Failed to load settings:', e);
@@ -278,6 +290,89 @@ export function Settings() {
                   className="w-full px-3 py-2 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                 />
                 <div className="text-xs text-gray-500 mt-1">用于 AI 图像生成功能</div>
+              </div>
+
+              <div className="border-t border-gray-100 pt-4">
+                <div className="text-xs font-medium text-gray-800 mb-2">图像模型配置</div>
+                <div className="grid grid-cols-1 gap-3">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-900 mb-1.5">
+                        火山引擎 AccessKey
+                      </label>
+                      <input
+                        type="password"
+                        value={apiConfig.volcengineAccessKey}
+                        onChange={(e) => setApiConfig({ ...apiConfig, volcengineAccessKey: e.target.value })}
+                        placeholder="volcengine access key"
+                        className="w-full px-3 py-2 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-900 mb-1.5">
+                        火山引擎 SecretKey
+                      </label>
+                      <input
+                        type="password"
+                        value={apiConfig.volcengineSecretKey}
+                        onChange={(e) => setApiConfig({ ...apiConfig, volcengineSecretKey: e.target.value })}
+                        placeholder="volcengine secret key"
+                        className="w-full px-3 py-2 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-900 mb-1.5">
+                      Superbed Token
+                    </label>
+                    <input
+                      type="password"
+                      value={apiConfig.superbedToken}
+                      onChange={(e) => setApiConfig({ ...apiConfig, superbedToken: e.target.value })}
+                      placeholder="superbed token"
+                      className="w-full px-3 py-2 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-900 mb-1.5">
+                        Nanobanana Endpoint
+                      </label>
+                      <input
+                        type="text"
+                        value={apiConfig.nanobananaEndpoint}
+                        onChange={(e) => setApiConfig({ ...apiConfig, nanobananaEndpoint: e.target.value })}
+                        placeholder="https://..."
+                        className="w-full px-3 py-2 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-900 mb-1.5">
+                        Nanobanana 模式
+                      </label>
+                      <select
+                        value={apiConfig.nanobananaMode}
+                        onChange={(e) => setApiConfig({ ...apiConfig, nanobananaMode: e.target.value })}
+                        className="w-full px-3 py-2 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                      >
+                        <option value="mock">mock</option>
+                        <option value="remote">remote</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-900 mb-1.5">
+                      Nanobanana API Key
+                    </label>
+                    <input
+                      type="password"
+                      value={apiConfig.nanobananaApiKey}
+                      onChange={(e) => setApiConfig({ ...apiConfig, nanobananaApiKey: e.target.value })}
+                      placeholder="nanobanana api key"
+                      className="w-full px-3 py-2 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
 

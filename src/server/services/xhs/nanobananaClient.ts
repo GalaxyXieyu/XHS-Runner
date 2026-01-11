@@ -1,9 +1,12 @@
+import { getSetting } from '../../settings';
+
 const DEFAULT_IMAGE_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=';
 
 export async function generateContent(prompt: string) {
-  const mode = process.env.NANOBANANA_MODE || 'mock';
-  const endpoint = process.env.NANOBANANA_ENDPOINT;
+  const mode = process.env.NANOBANANA_MODE || getSetting('nanobananaMode') || 'mock';
+  const endpoint = process.env.NANOBANANA_ENDPOINT || getSetting('nanobananaEndpoint');
+  const apiKey = process.env.NANOBANANA_API_KEY || getSetting('nanobananaApiKey');
 
   if (mode === 'mock' || !endpoint) {
     return {
@@ -13,9 +16,13 @@ export async function generateContent(prompt: string) {
     };
   }
 
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (apiKey) {
+    headers['Authorization'] = `Bearer ${apiKey}`;
+  }
   const response = await fetch(endpoint, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify({ prompt }),
   });
 

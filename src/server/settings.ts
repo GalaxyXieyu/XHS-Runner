@@ -36,6 +36,12 @@ export function getSettings() {
     llmBaseUrl: getSetting('llmBaseUrl') ?? '',
     llmApiKey: getSetting('llmApiKey') ?? '',
     llmModel: getSetting('llmModel') ?? '',
+    volcengineAccessKey: getSetting('volcengineAccessKey') ?? '',
+    volcengineSecretKey: getSetting('volcengineSecretKey') ?? '',
+    superbedToken: getSetting('superbedToken') ?? '',
+    nanobananaEndpoint: getSetting('nanobananaEndpoint') ?? '',
+    nanobananaMode: getSetting('nanobananaMode') ?? 'mock',
+    nanobananaApiKey: getSetting('nanobananaApiKey') ?? '',
   };
 }
 
