@@ -8,3 +8,5 @@ data/
 data/
 plan/
 electron/server/
+tsconfig.tsbuildinfo
+issues/
