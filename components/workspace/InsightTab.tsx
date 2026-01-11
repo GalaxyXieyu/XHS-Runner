@@ -149,10 +149,10 @@ export function InsightTab({ theme }: InsightTabProps) {
           <button
             onClick={generateTrendReport}
             disabled={generatingTrend}
-            className="ml-2 px-2.5 py-1 bg-red-500 text-white text-xs rounded-lg hover:bg-red-600 flex items-center gap-1 disabled:opacity-50 shrink-0 whitespace-nowrap"
+            className="ml-2 px-3 py-1.5 bg-red-500 text-white text-xs font-medium rounded hover:bg-red-600 flex items-center gap-1.5 disabled:opacity-50 shrink-0 whitespace-nowrap transition-colors"
           >
-            {generatingTrend ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-            {generatingTrend ? '生成中...' : '生成报告'}
+            {generatingTrend ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            <span>{generatingTrend ? '生成中...' : '生成报告'}</span>
           </button>
         </div>
         {trendReport?.analysis ? (
@@ -244,10 +244,10 @@ export function InsightTab({ theme }: InsightTabProps) {
           <button
             onClick={runAnalysis}
             disabled={analyzing || topTitles.length < 5}
-            className="ml-2 px-2.5 py-1 bg-purple-500 text-white text-xs rounded-lg hover:bg-purple-600 flex items-center gap-1 disabled:opacity-50 transition-colors shrink-0 whitespace-nowrap"
+            className="ml-2 px-3 py-1.5 bg-purple-500 text-white text-xs font-medium rounded hover:bg-purple-600 flex items-center gap-1.5 disabled:opacity-50 transition-colors shrink-0 whitespace-nowrap"
           >
-            {analyzing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-            {analyzing ? '分析中...' : '生成分析'}
+            {analyzing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+            <span>{analyzing ? '分析中...' : '生成分析'}</span>
           </button>
         </div>
         {/* AI Analysis Result */}

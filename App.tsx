@@ -164,7 +164,18 @@ export default function App() {
               onRefresh={loadThemes}
             />
           )}
-          {currentView === 'creative' && selectedTheme && <CreativeTab theme={selectedTheme} />}
+          {currentView === 'creative' && selectedTheme && (
+            <CreativeTab
+              theme={selectedTheme}
+              themes={themes}
+              onSelectTheme={(id) => {
+                const next = themes.find((item) => String(item.id) === String(id));
+                if (next) {
+                  setSelectedTheme(next);
+                }
+              }}
+            />
+          )}
           {currentView === 'operations' && selectedTheme && <OperationsTab theme={selectedTheme} />}
           {currentView === 'settings' && <Settings />}
           

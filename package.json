@@ -5,7 +5,7 @@
   "main": "electron/main.js",
   "scripts": {
     "postinstall": "electron-rebuild",
-    "dev": "npm run build:server && concurrently -k \"next dev\" \"wait-on http://localhost:3000 && electron .\"",
+    "dev": "npm run build:server && XHS_USER_DATA_PATH=\"$HOME/Library/Application Support/xhs-generator\" concurrently -k \"next dev\" \"wait-on http://localhost:3000 && electron .\"",
     "dev:next": "next dev",
     "dev:electron": "npm run build:server && wait-on http://localhost:3000 && electron .",
     "build:server": "node_modules/typescript/bin/tsc -p tsconfig.server.json",

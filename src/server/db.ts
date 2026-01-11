@@ -5,7 +5,7 @@ import { resolveUserDataPath } from './runtime/userDataPath';
 const Database = require('better-sqlite3');
 
 const DB_FILENAME = 'xhs-generator.db';
-const SCHEMA_VERSION = 12;
+const SCHEMA_VERSION = 13;
 
 let dbInstance: any;
 
@@ -535,6 +535,26 @@ function migrate(db: any) {
     if (!taskColumns.includes('model')) {
       db.exec('ALTER TABLE generation_tasks ADD COLUMN model TEXT');
     }
+  }
+
+  if (currentVersion < 13) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS llm_providers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        provider_type TEXT NOT NULL DEFAULT 'openai',
+        base_url TEXT,
+        api_key TEXT,
+        model_name TEXT,
+        temperature REAL DEFAULT 0.7,
+        max_tokens INTEGER DEFAULT 2048,
+        is_default INTEGER DEFAULT 0,
+        is_enabled INTEGER DEFAULT 1,
+        icon TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

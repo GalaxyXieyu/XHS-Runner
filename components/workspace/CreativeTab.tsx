@@ -13,6 +13,8 @@ interface CreativeItem {
 
 interface CreativeTabProps {
   theme: Theme;
+  themes?: Theme[];
+  onSelectTheme?: (themeId: string) => void;
 }
 
 function normalizeCreative(row: any): CreativeItem {
@@ -26,7 +28,7 @@ function normalizeCreative(row: any): CreativeItem {
   };
 }
 
-export function CreativeTab({ theme }: CreativeTabProps) {
+export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) {
   const [creatives, setCreatives] = useState<CreativeItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -102,34 +104,89 @@ export function CreativeTab({ theme }: CreativeTabProps) {
     }
   };
 
+  const themeStats = {
+    keywords: theme.keywords?.length || 0,
+    competitors: theme.competitors?.length || 0,
+  };
+
+  const availableThemes = themes && themes.length > 0 ? themes : [theme];
+
   return (
     <div className="space-y-3">
-      <div className="bg-white border border-gray-200 rounded p-3">
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-            <input
-              type="text"
-              placeholder="搜索内容包..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-2 py-1.5 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
-            />
+      <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-gray-900">内容创作</div>
+            <div className="text-xs text-gray-500">选择主题并管理内容包</div>
           </div>
+          <div className="flex items-center gap-2 text-xs text-gray-600">
+            <span>{themeStats.keywords} 个关键词</span>
+            <span>·</span>
+            <span>{themeStats.competitors} 个竞品</span>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+          <div className="lg:col-span-1">
+            <label className="block text-xs text-gray-600 mb-1">当前主题</label>
+            <select
+              value={theme.id}
+              onChange={(e) => onSelectTheme?.(e.target.value)}
+              disabled={!onSelectTheme}
+              className="w-full px-3 py-2 bg-white text-gray-900 text-xs rounded-lg border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-colors duration-150"
+            >
+              {availableThemes.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="lg:col-span-2">
+            <label className="block text-xs text-gray-600 mb-1">搜索内容包</label>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+              <input
+                type="text"
+                placeholder="输入标题或正文关键词..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 bg-white text-gray-900 text-xs rounded-lg border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-colors duration-150"
+              />
+            </div>
+          </div>
+        </div>
+        <div className="flex justify-end">
           <button
             onClick={loadCreatives}
-            className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded text-xs hover:bg-gray-50 transition-colors"
+            className="px-4 py-2 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 active:bg-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-500/40 transition-colors duration-150 inline-flex items-center gap-1.5"
           >
             <RefreshCw className="w-3.5 h-3.5" />
-            {loading ? '刷新中' : '刷新'}
+            {loading ? '刷新中' : '刷新内容'}
           </button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-2">
         {filteredCreatives.length === 0 && (
-          <div className="bg-white border border-dashed border-gray-200 rounded p-6 text-center text-xs text-gray-400">
-            暂无内容包
+          <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
+            <div className="text-sm font-semibold text-gray-900 mb-2">暂无内容包</div>
+            <div className="text-xs text-gray-500 mb-4">
+              可以先在主题管理中完善关键词，或等待每日自动生成内容包。
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={loadCreatives}
+                className="px-4 py-2 bg-white text-gray-700 text-xs font-medium rounded-lg border border-gray-200 hover:bg-gray-50 hover:border-gray-300 transition-colors duration-150"
+              >
+                立即刷新
+              </button>
+              <button
+                onClick={() => onSelectTheme(theme.id)}
+                className="px-4 py-2 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 active:bg-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-500/40 transition-colors duration-150"
+              >
+                继续当前主题
+              </button>
+            </div>
           </div>
         )}
         {filteredCreatives.map((item) => (

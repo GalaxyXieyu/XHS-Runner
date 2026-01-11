@@ -158,7 +158,7 @@ async function postJson<T>(url: string, data: any, headers: Record<string, strin
 }
 
 function stripBase64Header(base64: string) {
-  return base64.replace(/^data:image\\/[^;]+;base64,/, '');
+  return base64.replace(/^data:image\/[^;]+;base64,/, '');
 }
 
 async function uploadBase64ToSuperbed(base64: string, filename: string, token?: string): Promise<string> {
@@ -218,7 +218,7 @@ async function generateJimengImage(params: {
     }
 
     const bodyStr = JSON.stringify(requestBody);
-    const timestamp = new Date().toISOString().replace(/[-:]|\\.\\d{3}/g, '').replace('Z', '') + 'Z';
+    const timestamp = new Date().toISOString().replace(/[-:]|\.\d{3}/g, '').replace('Z', '') + 'Z';
     const payloadHash = crypto.createHash('sha256').update(bodyStr).digest('hex');
 
     const headers: Record<string, string> = {
