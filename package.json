@@ -4,6 +4,7 @@
   "private": true,
   "main": "electron/main.js",
   "scripts": {
+    "postinstall": "electron-rebuild",
     "dev": "npm run build:server && concurrently -k \"next dev\" \"wait-on http://localhost:3000 && electron .\"",
     "dev:next": "next dev",
     "dev:electron": "npm run build:server && wait-on http://localhost:3000 && electron .",
@@ -16,7 +17,8 @@
     "pack": "npm run build:server && npm run build:xhs-core && electron-builder --dir",
     "dist": "npm run build:server && npm run build:xhs-core && electron-builder",
     "dist:mac": "npm run build:server && npm run build:xhs-core && electron-builder --mac",
-    "dist:win": "npm run build:server && npm run build:xhs-core && electron-builder --win"
+    "dist:win": "npm run build:server && npm run build:xhs-core && electron-builder --win",
+    "rebuild": "electron-rebuild"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.3",
@@ -72,7 +74,7 @@
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.1",
     "concurrently": "8.2.2",
-    "electron": "30.0.6",
+    "electron": "^30.0.6",
     "electron-builder": "24.13.3",
     "electron-rebuild": "^3.2.9",
     "typescript": "^5.4.5",

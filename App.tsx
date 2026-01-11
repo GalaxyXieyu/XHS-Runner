@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { FolderKanban, Sparkles, BarChart3, Settings as SettingsIcon } from 'lucide-react';
 import { ThemeManagement } from './components/ThemeManagement';
 import { CreativeTab } from './components/workspace/CreativeTab';
@@ -15,38 +15,59 @@ export interface Theme {
   status: 'active' | 'paused' | 'completed';
 }
 
+declare global {
+  interface Window {
+    themes?: {
+      list: () => Promise<any[]>;
+      create: (payload: any) => Promise<any>;
+      update: (payload: any) => Promise<any>;
+      remove: (payload: any) => Promise<any>;
+      setStatus: (payload: any) => Promise<any>;
+    };
+    capture?: {
+      run: (payload: { keywordId: number; limit?: number }) => Promise<any>;
+    };
+  }
+}
+
+function transformTheme(t: any): Theme {
+  return {
+    id: String(t.id),
+    name: t.name,
+    description: t.description || '',
+    keywords: (t.keywords || []).map((k: any) => k.value || k),
+    competitors: (t.competitors || []).map((c: any) => c.name || c),
+    createdAt: t.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
+    status: t.status || 'active',
+  };
+}
+
 export default function App() {
   const [currentView, setCurrentView] = useState<'themes' | 'creative' | 'operations' | 'settings'>('themes');
   const [selectedTheme, setSelectedTheme] = useState<Theme | null>(null);
-  const [themes, setThemes] = useState<Theme[]>([
-    {
-      id: '1',
-      name: '2024夏季防晒攻略',
-      description: '针对夏季防晒产品的深度测评与推荐',
-      keywords: ['防晒', '夏季护肤', '防晒霜测评'],
-      competitors: ['美妆博主A', '护肤达人B'],
-      createdAt: '2024-06-15',
-      status: 'active'
-    },
-    {
-      id: '2',
-      name: '秋冬护肤指南',
-      description: '秋冬季节护肤产品推荐',
-      keywords: ['秋冬护肤', '保湿', '补水'],
-      competitors: ['护肤专家C'],
-      createdAt: '2024-09-01',
-      status: 'active'
-    },
-    {
-      id: '3',
-      name: '平价美妆测评',
-      description: '学生党友好的平价美妆产品',
-      keywords: ['平价美妆', '学生党', '性价比'],
-      competitors: ['平价美妆博主'],
-      createdAt: '2024-08-10',
-      status: 'paused'
+  const [themes, setThemes] = useState<Theme[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadThemes();
+  }, []);
+
+  const loadThemes = async () => {
+    try {
+      let data: any[];
+      if (window.themes) {
+        data = await window.themes.list();
+      } else {
+        const res = await fetch('/api/themes');
+        data = await res.json();
+      }
+      setThemes(data.map(transformTheme));
+    } catch (e) {
+      console.error('Failed to load themes:', e);
+    } finally {
+      setLoading(false);
     }
-  ]);
+  };
 
   const navItems = [
     { id: 'themes' as const, label: '主题管理', icon: FolderKanban },
@@ -116,11 +137,12 @@ export default function App() {
         {/* Content Area */}
         <div className="h-[calc(100vh-3rem)]">
           {currentView === 'themes' && (
-            <ThemeManagement 
+            <ThemeManagement
               themes={themes}
               setThemes={setThemes}
               selectedTheme={selectedTheme}
               setSelectedTheme={setSelectedTheme}
+              onRefresh={loadThemes}
             />
           )}
           {currentView === 'creative' && selectedTheme && <CreativeTab theme={selectedTheme} />}

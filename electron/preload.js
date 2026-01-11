@@ -91,3 +91,9 @@ contextBridge.exposeInMainWorld('versions', {
   electron: process.versions.electron,
   node: process.versions.node,
 });
+
+contextBridge.exposeInMainWorld('auth', {
+  login: (options) => ipcRenderer.invoke('auth:login', options),
+  logout: () => ipcRenderer.invoke('auth:logout'),
+  checkStatus: () => ipcRenderer.invoke('auth:checkStatus'),
+});

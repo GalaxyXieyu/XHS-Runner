@@ -8,9 +8,25 @@ interface ThemeManagementProps {
   setThemes: (themes: Theme[]) => void;
   selectedTheme: Theme | null;
   setSelectedTheme: (theme: Theme | null) => void;
+  onRefresh?: () => void;
 }
 
-export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedTheme }: ThemeManagementProps) {
+async function apiCall(method: string, url: string, body?: any) {
+  if (window.themes) {
+    if (method === 'POST' && url === '/api/themes') return window.themes.create(body);
+    if (method === 'PUT') return window.themes.update(body);
+    if (method === 'DELETE') return window.themes.remove(body);
+    if (method === 'PATCH') return window.themes.setStatus(body);
+  }
+  const res = await fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  return res.json();
+}
+
+export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedTheme, onRefresh }: ThemeManagementProps) {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingTheme, setEditingTheme] = useState<Theme | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -28,66 +44,52 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
     setSelectedTheme(themes[0]);
   }
 
-  const handleCreateTheme = (e: React.FormEvent) => {
+  const handleCreateTheme = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (editingTheme) {
-      // 编辑模式
-      const updatedThemes = themes.map(t =>
-        t.id === editingTheme.id
-          ? {
-              ...t,
-              name: formData.name,
-              description: formData.description,
-              keywords: formData.keywords.split(',').map(k => k.trim()).filter(Boolean),
-              competitors: formData.competitors.split(',').map(c => c.trim()).filter(Boolean),
-              status: formData.status
-            }
-          : t
-      );
-      setThemes(updatedThemes);
-      if (selectedTheme?.id === editingTheme.id) {
-        setSelectedTheme(updatedThemes.find(t => t.id === editingTheme.id) || null);
+    const payload = {
+      name: formData.name,
+      description: formData.description,
+      keywords: formData.keywords.split(',').map(k => k.trim()).filter(Boolean),
+      competitors: formData.competitors.split(',').map(c => c.trim()).filter(Boolean),
+      status: formData.status,
+    };
+
+    try {
+      if (editingTheme) {
+        await apiCall('PUT', `/api/themes/${editingTheme.id}`, { id: Number(editingTheme.id), ...payload });
+      } else {
+        await apiCall('POST', '/api/themes', payload);
       }
-    } else {
-      // 新建模式
-      const newTheme: Theme = {
-        id: Date.now().toString(),
-        name: formData.name,
-        description: formData.description,
-        keywords: formData.keywords.split(',').map(k => k.trim()).filter(Boolean),
-        competitors: formData.competitors.split(',').map(c => c.trim()).filter(Boolean),
-        status: formData.status,
-        createdAt: new Date().toISOString().split('T')[0]
-      };
-      setThemes([...themes, newTheme]);
-      setSelectedTheme(newTheme);
+      onRefresh?.();
+    } catch (err) {
+      console.error('Failed to save theme:', err);
     }
-    setFormData({
-      name: '',
-      description: '',
-      keywords: '',
-      competitors: '',
-      status: 'active'
-    });
+
+    setFormData({ name: '', description: '', keywords: '', competitors: '', status: 'active' });
     setShowCreateModal(false);
     setEditingTheme(null);
   };
 
-  const handleDeleteTheme = (id: string) => {
+  const handleDeleteTheme = async (id: string) => {
     if (confirm('确定要删除这个主题吗？')) {
-      const newThemes = themes.filter(t => t.id !== id);
-      setThemes(newThemes);
-      if (selectedTheme?.id === id) {
-        setSelectedTheme(newThemes[0] || null);
+      try {
+        await apiCall('DELETE', `/api/themes/${id}`, { id: Number(id) });
+        onRefresh?.();
+        if (selectedTheme?.id === id) {
+          setSelectedTheme(null);
+        }
+      } catch (err) {
+        console.error('Failed to delete theme:', err);
       }
     }
   };
 
-  const handleUpdateStatus = (id: string, status: Theme['status']) => {
-    const updatedThemes = themes.map(t => t.id === id ? { ...t, status } : t);
-    setThemes(updatedThemes);
-    if (selectedTheme?.id === id) {
-      setSelectedTheme(updatedThemes.find(t => t.id === id) || null);
+  const handleUpdateStatus = async (id: string, status: Theme['status']) => {
+    try {
+      await apiCall('PATCH', `/api/themes/${id}/status`, { id: Number(id), status });
+      onRefresh?.();
+    } catch (err) {
+      console.error('Failed to update status:', err);
     }
   };
 

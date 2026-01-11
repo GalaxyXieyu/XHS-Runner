@@ -25,6 +25,7 @@ const { getInsights, refreshInsights } = require('./server/services/xhs/insightS
 const { enqueueInteraction, listInteractions } = require('./server/services/xhs/interactionService');
 const { enqueuePublish, listPublishes } = require('./server/services/xhs/publishService');
 const { createTheme, listThemes, removeTheme, setThemeStatus, updateTheme } = require('./server/services/xhs/themeService');
+const { login, logout, checkStatus } = require('./server/services/xhs/localService');
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -250,6 +251,18 @@ ipcMain.handle('workflow:rollback', (_event, payload) => {
     throw new Error('workflow:rollback expects an object payload');
   }
   return rollbackTopic(payload.topicId);
+});
+
+ipcMain.handle('auth:login', (_event, options) => {
+  return login(options);
+});
+
+ipcMain.handle('auth:logout', () => {
+  return logout();
+});
+
+ipcMain.handle('auth:checkStatus', () => {
+  return checkStatus();
 });
 
 app.whenReady().then(() => {
