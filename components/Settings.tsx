@@ -19,9 +19,42 @@ export function Settings() {
   const [profile, setProfile] = useState<{ userId?: string } | null>(null);
 
   const [apiConfig, setApiConfig] = useState({
-    openaiKey: '',
+    llmBaseUrl: '',
+    llmApiKey: '',
+    llmModel: '',
     imageKey: ''
   });
+  const [saving, setSaving] = useState(false);
+
+  const loadSettings = async () => {
+    try {
+      const res = await fetch('/api/settings');
+      const data = await res.json();
+      setApiConfig({
+        llmBaseUrl: data.llmBaseUrl || '',
+        llmApiKey: data.llmApiKey || '',
+        llmModel: data.llmModel || '',
+        imageKey: data.imageKey || ''
+      });
+    } catch (e) {
+      console.error('Failed to load settings:', e);
+    }
+  };
+
+  const saveApiConfig = async () => {
+    setSaving(true);
+    try {
+      await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(apiConfig)
+      });
+    } catch (e) {
+      console.error('Failed to save settings:', e);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const [systemParams, setSystemParams] = useState({
     cleanThreshold: 100,
@@ -33,6 +66,7 @@ export function Settings() {
 
   useEffect(() => {
     checkAuthStatus();
+    loadSettings();
   }, []);
 
   const checkAuthStatus = async () => {
@@ -185,19 +219,49 @@ export function Settings() {
           </div>
           <div className="p-4">
             <div className="space-y-4">
-              {/* OpenAI API Key */}
+              {/* LLM Base URL */}
               <div>
                 <label className="block text-xs font-medium text-gray-900 mb-1.5">
-                  OpenAI API Key
+                  LLM API Base URL
+                </label>
+                <input
+                  type="text"
+                  value={apiConfig.llmBaseUrl}
+                  onChange={(e) => setApiConfig({ ...apiConfig, llmBaseUrl: e.target.value })}
+                  placeholder="https://api.openai.com/v1"
+                  className="w-full px-3 py-2 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                />
+                <div className="text-xs text-gray-500 mt-1">支持 OpenAI 兼容的 API 端点</div>
+              </div>
+
+              {/* LLM API Key */}
+              <div>
+                <label className="block text-xs font-medium text-gray-900 mb-1.5">
+                  LLM API Key
                 </label>
                 <input
                   type="password"
-                  value={apiConfig.openaiKey}
-                  onChange={(e) => setApiConfig({ ...apiConfig, openaiKey: e.target.value })}
+                  value={apiConfig.llmApiKey}
+                  onChange={(e) => setApiConfig({ ...apiConfig, llmApiKey: e.target.value })}
                   placeholder="sk-..."
                   className="w-full px-3 py-2 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                 />
                 <div className="text-xs text-gray-500 mt-1">用于内容生成和智能分析功能</div>
+              </div>
+
+              {/* LLM Model */}
+              <div>
+                <label className="block text-xs font-medium text-gray-900 mb-1.5">
+                  模型名称
+                </label>
+                <input
+                  type="text"
+                  value={apiConfig.llmModel}
+                  onChange={(e) => setApiConfig({ ...apiConfig, llmModel: e.target.value })}
+                  placeholder="gpt-4o"
+                  className="w-full px-3 py-2 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                />
+                <div className="text-xs text-gray-500 mt-1">如 gpt-4o, MiniMax-M2.1 等</div>
               </div>
 
               {/* Image Generation API Key */}
@@ -217,8 +281,12 @@ export function Settings() {
             </div>
 
             <div className="mt-4 pt-4 border-t border-gray-100">
-              <button className="flex items-center gap-1.5 px-4 py-2 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors">
-                <Save className="w-3 h-3" />
+              <button
+                onClick={saveApiConfig}
+                disabled={saving}
+                className="flex items-center gap-1.5 px-4 py-2 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors disabled:opacity-50"
+              >
+                {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
                 保存配置
               </button>
             </div>

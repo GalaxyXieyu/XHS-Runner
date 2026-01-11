@@ -4,6 +4,7 @@ import type { Theme } from '../App';
 import { InsightTab } from './workspace/InsightTab';
 import { CreativeTab } from './workspace/CreativeTab';
 import { OperationsTab } from './workspace/OperationsTab';
+import { CaptureScheduleStatus } from './scheduler';
 
 interface ThemeWorkspaceProps {
   theme: Theme;
@@ -65,6 +66,10 @@ export function ThemeWorkspace({ theme }: ThemeWorkspaceProps) {
               )}
             </div>
           </div>
+        </div>
+        {/* 抓取计划状态 */}
+        <div className="mt-4 pt-4 border-t border-gray-100">
+          <CaptureScheduleStatus themeId={theme.id} themeName={theme.name} />
         </div>
       </div>
 

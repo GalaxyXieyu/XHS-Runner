@@ -5,7 +5,7 @@ import { resolveUserDataPath } from './runtime/userDataPath';
 const Database = require('better-sqlite3');
 
 const DB_FILENAME = 'xhs-generator.db';
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 9;
 
 let dbInstance: any;
 
@@ -400,6 +400,99 @@ function migrate(db: any) {
       );
 
       CREATE INDEX IF NOT EXISTS idx_form_assist_records_theme_id ON form_assist_records(theme_id);
+    `);
+  }
+
+  if (currentVersion < 8) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS trend_reports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        theme_id INTEGER NOT NULL,
+        report_date TEXT NOT NULL,
+        stats_json TEXT,
+        analysis TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY(theme_id) REFERENCES themes(id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_trend_reports_theme_id ON trend_reports(theme_id);
+      CREATE INDEX IF NOT EXISTS idx_trend_reports_date ON trend_reports(report_date);
+    `);
+  }
+
+  // Migration v9: 定时任务调度系统
+  if (currentVersion < 9) {
+    // 定时任务表
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS scheduled_jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        job_type TEXT NOT NULL,
+        theme_id INTEGER,
+        keyword_id INTEGER,
+        schedule_type TEXT NOT NULL DEFAULT 'interval',
+        interval_minutes INTEGER,
+        cron_expression TEXT,
+        params_json TEXT,
+        is_enabled INTEGER NOT NULL DEFAULT 1,
+        priority INTEGER NOT NULL DEFAULT 5,
+        last_run_at TEXT,
+        next_run_at TEXT,
+        last_status TEXT,
+        last_error TEXT,
+        run_count INTEGER DEFAULT 0,
+        success_count INTEGER DEFAULT 0,
+        fail_count INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now')),
+        FOREIGN KEY(theme_id) REFERENCES themes(id) ON DELETE CASCADE,
+        FOREIGN KEY(keyword_id) REFERENCES keywords(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_next_run ON scheduled_jobs(next_run_at);
+      CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_enabled ON scheduled_jobs(is_enabled);
+      CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_theme ON scheduled_jobs(theme_id);
+      CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_keyword ON scheduled_jobs(keyword_id);
+    `);
+
+    // 任务执行历史表
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS job_executions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        job_id INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        started_at TEXT,
+        finished_at TEXT,
+        duration_ms INTEGER,
+        result_json TEXT,
+        error_message TEXT,
+        retry_count INTEGER DEFAULT 0,
+        trigger_type TEXT DEFAULT 'scheduled',
+        created_at TEXT DEFAULT (datetime('now')),
+        FOREIGN KEY(job_id) REFERENCES scheduled_jobs(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_job_executions_job ON job_executions(job_id);
+      CREATE INDEX IF NOT EXISTS idx_job_executions_status ON job_executions(status);
+      CREATE INDEX IF NOT EXISTS idx_job_executions_started ON job_executions(started_at);
+    `);
+
+    // 速率限制状态表
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS rate_limit_state (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        scope TEXT NOT NULL,
+        scope_id TEXT,
+        request_count INTEGER DEFAULT 0,
+        window_start TEXT NOT NULL,
+        last_request_at TEXT,
+        is_blocked INTEGER DEFAULT 0,
+        blocked_until TEXT,
+        block_reason TEXT,
+        UNIQUE(scope, scope_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_rate_limit_scope ON rate_limit_state(scope, scope_id);
     `);
   }
 

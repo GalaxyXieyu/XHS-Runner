@@ -26,6 +26,20 @@ const { enqueueInteraction, listInteractions } = require('./server/services/xhs/
 const { enqueuePublish, listPublishes } = require('./server/services/xhs/publishService');
 const { createTheme, listThemes, removeTheme, setThemeStatus, updateTheme } = require('./server/services/xhs/themeService');
 const { login, logout, checkStatus } = require('./server/services/xhs/localService');
+const {
+  Scheduler,
+  createJob,
+  updateJob,
+  deleteJob,
+  getJob,
+  listJobs,
+  listExecutions,
+  getJobByTheme,
+  getJobByKeyword,
+  getRateLimiter,
+} = require('./server/services/scheduler');
+
+let scheduler = null;
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -263,6 +277,93 @@ ipcMain.handle('auth:logout', () => {
 
 ipcMain.handle('auth:checkStatus', () => {
   return checkStatus();
+});
+
+// ============ 调度器 IPC Handlers ============
+
+ipcMain.handle('scheduler:start', () => {
+  if (!scheduler) scheduler = new Scheduler();
+  scheduler.start();
+  return { success: true };
+});
+
+ipcMain.handle('scheduler:stop', () => {
+  if (scheduler) scheduler.stop();
+  return { success: true };
+});
+
+ipcMain.handle('scheduler:pause', () => {
+  if (scheduler) scheduler.pause();
+  return { success: true };
+});
+
+ipcMain.handle('scheduler:resume', () => {
+  if (scheduler) scheduler.resume();
+  return { success: true };
+});
+
+ipcMain.handle('scheduler:status', () => {
+  if (!scheduler) return { running: false, paused: false, queueSize: 0, activeJobs: 0, nextExecution: null };
+  return scheduler.getStatus();
+});
+
+// ============ 任务管理 IPC Handlers ============
+
+ipcMain.handle('jobs:list', (_event, payload) => {
+  return listJobs(payload?.themeId);
+});
+
+ipcMain.handle('jobs:get', (_event, payload) => {
+  return getJob(payload?.id || payload);
+});
+
+ipcMain.handle('jobs:create', (_event, payload) => {
+  return createJob(payload);
+});
+
+ipcMain.handle('jobs:update', (_event, payload) => {
+  const { id, ...updates } = payload;
+  return updateJob(id, updates);
+});
+
+ipcMain.handle('jobs:delete', (_event, payload) => {
+  deleteJob(payload?.id || payload);
+  return { success: true };
+});
+
+ipcMain.handle('jobs:trigger', (_event, payload) => {
+  if (!scheduler) scheduler = new Scheduler();
+  return scheduler.triggerJob(payload?.id || payload);
+});
+
+ipcMain.handle('jobs:byTheme', (_event, payload) => {
+  return getJobByTheme(payload?.themeId || payload);
+});
+
+ipcMain.handle('jobs:byKeyword', (_event, payload) => {
+  return getJobByKeyword(payload?.keywordId || payload);
+});
+
+// ============ 执行历史 IPC Handlers ============
+
+ipcMain.handle('executions:list', (_event, payload) => {
+  return listExecutions(payload?.jobId, payload?.limit);
+});
+
+ipcMain.handle('executions:cancel', (_event, payload) => {
+  if (!scheduler) return { success: false };
+  return { success: scheduler.cancelExecution(payload?.id || payload) };
+});
+
+// ============ 速率限制 IPC Handlers ============
+
+ipcMain.handle('rateLimit:status', () => {
+  return getRateLimiter().getStatus();
+});
+
+ipcMain.handle('rateLimit:unblock', (_event, payload) => {
+  getRateLimiter().unblock(payload.scope, payload.scopeId);
+  return { success: true };
 });
 
 app.whenReady().then(() => {

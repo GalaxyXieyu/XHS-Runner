@@ -97,3 +97,34 @@ contextBridge.exposeInMainWorld('auth', {
   logout: () => ipcRenderer.invoke('auth:logout'),
   checkStatus: () => ipcRenderer.invoke('auth:checkStatus'),
 });
+
+// ============ 调度器 API ============
+
+contextBridge.exposeInMainWorld('scheduler', {
+  start: () => ipcRenderer.invoke('scheduler:start'),
+  stop: () => ipcRenderer.invoke('scheduler:stop'),
+  pause: () => ipcRenderer.invoke('scheduler:pause'),
+  resume: () => ipcRenderer.invoke('scheduler:resume'),
+  status: () => ipcRenderer.invoke('scheduler:status'),
+});
+
+contextBridge.exposeInMainWorld('jobs', {
+  list: (payload) => ipcRenderer.invoke('jobs:list', payload),
+  get: (payload) => ipcRenderer.invoke('jobs:get', payload),
+  create: (payload) => ipcRenderer.invoke('jobs:create', payload),
+  update: (payload) => ipcRenderer.invoke('jobs:update', payload),
+  delete: (payload) => ipcRenderer.invoke('jobs:delete', payload),
+  trigger: (payload) => ipcRenderer.invoke('jobs:trigger', payload),
+  byTheme: (payload) => ipcRenderer.invoke('jobs:byTheme', payload),
+  byKeyword: (payload) => ipcRenderer.invoke('jobs:byKeyword', payload),
+});
+
+contextBridge.exposeInMainWorld('executions', {
+  list: (payload) => ipcRenderer.invoke('executions:list', payload),
+  cancel: (payload) => ipcRenderer.invoke('executions:cancel', payload),
+});
+
+contextBridge.exposeInMainWorld('rateLimit', {
+  status: () => ipcRenderer.invoke('rateLimit:status'),
+  unblock: (payload) => ipcRenderer.invoke('rateLimit:unblock', payload),
+});

@@ -33,6 +33,9 @@ export function getSettings() {
     captureRateLimitMs: getSetting('captureRateLimitMs') ?? 1000,
     captureRetryCount: getSetting('captureRetryCount') ?? 2,
     metricsWindowDays: getSetting('metricsWindowDays') ?? 7,
+    llmBaseUrl: getSetting('llmBaseUrl') ?? '',
+    llmApiKey: getSetting('llmApiKey') ?? '',
+    llmModel: getSetting('llmModel') ?? '',
   };
 }
 

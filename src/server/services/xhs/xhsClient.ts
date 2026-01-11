@@ -267,11 +267,12 @@ function normalizeNoteDetail(payload: any, context: { xsecToken?: string } = {})
   };
 }
 
-function mockNotes(keyword: string, limit: number) {
+function mockNotes(keyword: string, limit: number): NormalizedNote[] {
   return Array.from({ length: limit }, (_value, index) => ({
     id: `mock-${keyword}-${index + 1}`,
     title: `Mock note for ${keyword} #${index + 1}`,
     url: null,
+    desc: null,
   }));
 }
 
