@@ -1,6 +1,6 @@
 import { getDatabase } from '../../db';
 import { storeAsset } from './assetStore';
-import { generateContent } from './nanobananaClient';
+import { generateImage, ImageModel } from './imageProvider';
 import { renderTemplate } from './promptTemplates';
 import { updateTopicStatus } from './topicService';
 
@@ -8,15 +8,25 @@ let isPaused = false;
 let isProcessing = false;
 const queue: number[] = [];
 
-function createTask({ topicId, prompt, templateKey }: { topicId?: number; prompt: string; templateKey?: string }) {
+function createTask({
+  topicId,
+  prompt,
+  templateKey,
+  model,
+}: {
+  topicId?: number;
+  prompt: string;
+  templateKey?: string;
+  model?: ImageModel;
+}) {
   const db = getDatabase();
   const finalPrompt = renderTemplate(templateKey || 'default', { topic: prompt });
   const result = db
     .prepare(
-      `INSERT INTO generation_tasks (topic_id, status, prompt, created_at, updated_at)
-       VALUES (?, 'queued', ?, datetime('now'), datetime('now'))`
+      `INSERT INTO generation_tasks (topic_id, status, prompt, model, created_at, updated_at)
+       VALUES (?, 'queued', ?, ?, datetime('now'), datetime('now'))`
     )
-    .run(topicId || null, finalPrompt);
+    .run(topicId || null, finalPrompt, model || 'nanobanana');
   if (topicId) {
     try {
       updateTopicStatus(topicId, 'generating');
@@ -27,14 +37,14 @@ function createTask({ topicId, prompt, templateKey }: { topicId?: number; prompt
   return { id: result.lastInsertRowid, prompt: finalPrompt };
 }
 
-export function enqueueTask(payload: { topicId?: number; prompt: string; templateKey?: string }) {
+export function enqueueTask(payload: { topicId?: number; prompt: string; templateKey?: string; model?: ImageModel }) {
   const task = createTask(payload);
   queue.push(task.id);
   processQueue();
   return task;
 }
 
-export function enqueueBatch(tasks: Array<{ topicId?: number; prompt: string; templateKey?: string }>) {
+export function enqueueBatch(tasks: Array<{ topicId?: number; prompt: string; templateKey?: string; model?: ImageModel }>) {
   return tasks.map((task) => enqueueTask(task));
 }
 
@@ -83,7 +93,7 @@ async function processQueue() {
 
 async function handleTask(taskId: number) {
   const db = getDatabase();
-  const task = db.prepare('SELECT id, prompt FROM generation_tasks WHERE id = ?').get(taskId);
+  const task = db.prepare('SELECT id, prompt, model FROM generation_tasks WHERE id = ?').get(taskId);
   if (!task) {
     return;
   }
@@ -93,8 +103,8 @@ async function handleTask(taskId: number) {
   ).run(taskId);
 
   try {
-    const result = await generateContent(task.prompt);
-    const filename = `nanobanana-${task.id}.png`;
+    const result = await generateImage({ prompt: task.prompt, model: task.model || 'nanobanana' });
+    const filename = `${task.model || 'nanobanana'}-${task.id}.png`;
     const asset = storeAsset({
       type: 'image',
       filename,
