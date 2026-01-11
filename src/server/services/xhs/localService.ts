@@ -1,12 +1,16 @@
 import path from 'path';
 
-const LOCAL_DIST_ENTRY = path.resolve(__dirname, '../../../mcp/xhs-core/dist/index.js');
+// Support both Electron (electron/mcp) and Next.js (process.cwd()) contexts
+const LOCAL_DIST_ENTRY = path.resolve(process.cwd(), 'electron/mcp/xhs-core/dist/index.js');
 
 let cachedServices: any = null;
 
+// Use eval to bypass webpack's static analysis of require
+const dynamicRequire = eval('require');
+
 function loadXhsModule() {
   try {
-    return require(LOCAL_DIST_ENTRY);
+    return dynamicRequire(LOCAL_DIST_ENTRY);
   } catch (error: any) {
     const message = 'xhs-core dist not found. Build it with: npm run build:xhs-core.';
     const wrapped = new Error(message) as Error & { cause?: unknown };

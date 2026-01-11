@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { TrendingUp, Hash, MessageCircle, RefreshCw, Eye, Heart, Star, Users } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { TrendingUp, Hash, MessageCircle, RefreshCw, Heart, Star, Users } from 'lucide-react';
 import type { Theme } from '../../App';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -7,7 +7,22 @@ interface InsightTabProps {
   theme: Theme;
 }
 
-// Mock data
+interface Topic {
+  id: number;
+  title: string;
+  url: string;
+  author_name: string;
+  author_avatar_url: string;
+  like_count: number;
+  collect_count: number;
+  comment_count: number;
+  cover_url: string;
+  published_at: string;
+  status: string;
+  keyword?: string;
+}
+
+// Mock data for features not yet implemented
 const tagCloudData = [
   { tag: '#防晒', count: 245 },
   { tag: '#夏季护肤', count: 198 },
@@ -33,83 +48,34 @@ const userInsights = [
   { type: '避雷', content: '某品牌防晒闷痘严重，不推荐', count: 98 }
 ];
 
-const competitorNotes = [
-  {
-    id: '1',
-    author: '美妆博主A',
-    title: '2024最火的10款防晒霜测评',
-    publishTime: '2小时前',
-    views: 12500,
-    likes: 856,
-    comments: 234,
-    thumbnail: 'https://images.unsplash.com/photo-1556228578-0d85b1a4d571?w=400'
-  },
-  {
-    id: '2',
-    author: '护肤达人B',
-    title: '夏天必备！学生党平价防晒推荐',
-    publishTime: '5小时前',
-    views: 8900,
-    likes: 623,
-    comments: 156,
-    thumbnail: 'https://images.unsplash.com/photo-1598440947619-2c35fc9aa908?w=400'
-  }
-];
-
-const mockNotes = [
-  {
-    id: '1',
-    title: '夏季防晒霜大测评！这3款真的绝了',
-    author: '护肤小能手',
-    views: 15600,
-    likes: 1234,
-    comments: 456,
-    publishTime: '3天前',
-    thumbnail: 'https://images.unsplash.com/photo-1556228578-0d85b1a4d571?w=400',
-    tags: ['#防晒', '#夏季护肤']
-  },
-  {
-    id: '2',
-    title: '千万别买！防晒霜踩雷合集',
-    author: '美妆达人',
-    views: 23400,
-    likes: 2100,
-    comments: 789,
-    publishTime: '5天前',
-    thumbnail: 'https://images.unsplash.com/photo-1598440947619-2c35fc9aa908?w=400',
-    tags: ['#防晒霜', '#避雷']
-  },
-  {
-    id: '3',
-    title: '学生党必看！平价防晒推荐',
-    author: '学生党小姐姐',
-    views: 18900,
-    likes: 1567,
-    comments: 345,
-    publishTime: '1周前',
-    thumbnail: 'https://images.unsplash.com/photo-1571875257727-256c39da42af?w=400',
-    tags: ['#学生党', '#平价']
-  },
-  {
-    id: '4',
-    title: '敏感肌防晒推荐｜温和不刺激',
-    author: '敏感肌救星',
-    views: 12300,
-    likes: 987,
-    comments: 234,
-    publishTime: '1周前',
-    thumbnail: 'https://images.unsplash.com/photo-1620916566398-39f1143ab7be?w=400',
-    tags: ['#敏感肌', '#防晒']
-  }
-];
-
 export function InsightTab({ theme }: InsightTabProps) {
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [topics, setTopics] = useState<Topic[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadTopics = async () => {
+    try {
+      setLoading(true);
+      const res = await fetch(`/api/topics?themeId=${theme.id}&limit=20`);
+      const data = await res.json();
+      setTopics(data);
+    } catch (e) {
+      console.error('Failed to load topics:', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadTopics();
+  }, [theme.id]);
 
   const handleRefresh = () => {
     setIsRefreshing(true);
-    setTimeout(() => setIsRefreshing(false), 2000);
+    loadTopics().finally(() => setIsRefreshing(false));
   };
+
+  const formatCount = (n: number) => n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
 
   return (
     <div className="space-y-3">
@@ -120,8 +86,8 @@ export function InsightTab({ theme }: InsightTabProps) {
             <span className="text-xs text-gray-500">抓取笔记</span>
             <TrendingUp className="w-3 h-3 text-gray-400" />
           </div>
-          <div className="text-lg font-bold text-gray-900">1,234</div>
-          <div className="text-xs text-gray-500">本周 +186</div>
+          <div className="text-lg font-bold text-gray-900">{topics.length}</div>
+          <div className="text-xs text-gray-500">已抓取</div>
         </div>
 
         <div className="bg-white border border-gray-200 rounded p-2.5">
@@ -229,74 +195,102 @@ export function InsightTab({ theme }: InsightTabProps) {
         </div>
       </div>
 
-      {/* Competitor Updates */}
+      {/* Captured Notes - Top 2 */}
       <div className="bg-white border border-gray-200 rounded p-3">
         <div className="flex items-center gap-1.5 mb-2">
           <Users className="w-3.5 h-3.5 text-gray-700" />
-          <span className="text-xs font-medium text-gray-900">竞品动态</span>
+          <span className="text-xs font-medium text-gray-900">热门笔记</span>
         </div>
-        <div className="space-y-2">
-          {competitorNotes.map((note) => (
-            <div key={note.id} className="flex gap-2 p-2 bg-gray-50 rounded hover:bg-gray-100 transition-colors cursor-pointer">
-              <img
-                src={note.thumbnail}
-                alt={note.title}
-                className="w-16 h-16 object-cover rounded flex-shrink-0"
-              />
-              <div className="flex-1 min-w-0">
-                <div className="text-xs font-medium text-gray-900 mb-0.5 line-clamp-1">{note.title}</div>
-                <div className="text-xs text-gray-500 mb-1">{note.author} · {note.publishTime}</div>
-                <div className="flex items-center gap-2 text-xs text-gray-500">
-                  <span className="flex items-center gap-0.5">
-                    <Eye className="w-3 h-3" />
-                    {(note.views / 1000).toFixed(1)}k
-                  </span>
-                  <span className="flex items-center gap-0.5">
-                    <Heart className="w-3 h-3" />
-                    {note.likes}
-                  </span>
-                  <span className="flex items-center gap-0.5">
-                    <MessageCircle className="w-3 h-3" />
-                    {note.comments}
-                  </span>
+        {loading ? (
+          <div className="text-xs text-gray-500 text-center py-4">加载中...</div>
+        ) : topics.length === 0 ? (
+          <div className="text-xs text-gray-500 text-center py-4">暂无数据，请先抓取笔记</div>
+        ) : (
+          <div className="space-y-2">
+            {topics.slice(0, 2).map((topic) => (
+              <a
+                key={topic.id}
+                href={topic.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex gap-2 p-2 bg-gray-50 rounded hover:bg-gray-100 transition-colors cursor-pointer"
+              >
+                {topic.cover_url && (
+                  <img
+                    src={topic.cover_url}
+                    alt={topic.title}
+                    className="w-16 h-16 object-cover rounded flex-shrink-0"
+                  />
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-medium text-gray-900 mb-0.5 line-clamp-1">{topic.title}</div>
+                  <div className="text-xs text-gray-500 mb-1">{topic.author_name} · {topic.keyword}</div>
+                  <div className="flex items-center gap-2 text-xs text-gray-500">
+                    <span className="flex items-center gap-0.5">
+                      <Heart className="w-3 h-3" />
+                      {formatCount(topic.like_count || 0)}
+                    </span>
+                    <span className="flex items-center gap-0.5">
+                      <Star className="w-3 h-3" />
+                      {formatCount(topic.collect_count || 0)}
+                    </span>
+                    <span className="flex items-center gap-0.5">
+                      <MessageCircle className="w-3 h-3" />
+                      {topic.comment_count || 0}
+                    </span>
+                  </div>
                 </div>
-              </div>
-            </div>
-          ))}
-        </div>
+              </a>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Notes Grid */}
       <div className="bg-white border border-gray-200 rounded p-3">
-        <div className="text-xs font-medium text-gray-900 mb-2">热门笔记</div>
-        <div className="grid grid-cols-4 gap-2">
-          {mockNotes.map((note) => (
-            <div key={note.id} className="group cursor-pointer">
-              <div className="relative mb-1.5 overflow-hidden rounded">
-                <img
-                  src={note.thumbnail}
-                  alt={note.title}
-                  className="w-full h-28 object-cover group-hover:scale-105 transition-transform"
-                />
-                <div className="absolute top-1 right-1 bg-black/60 text-white text-xs px-1 py-0.5 rounded flex items-center gap-0.5">
-                  <Eye className="w-2.5 h-2.5" />
-                  {(note.views / 1000).toFixed(1)}k
+        <div className="text-xs font-medium text-gray-900 mb-2">全部笔记 ({topics.length})</div>
+        {loading ? (
+          <div className="text-xs text-gray-500 text-center py-4">加载中...</div>
+        ) : topics.length === 0 ? (
+          <div className="text-xs text-gray-500 text-center py-4">暂无数据</div>
+        ) : (
+          <div className="grid grid-cols-4 gap-2">
+            {topics.slice(0, 8).map((topic) => (
+              <a
+                key={topic.id}
+                href={topic.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group cursor-pointer"
+              >
+                <div className="relative mb-1.5 overflow-hidden rounded bg-gray-100">
+                  {topic.cover_url ? (
+                    <img
+                      src={topic.cover_url}
+                      alt={topic.title}
+                      className="w-full h-28 object-cover group-hover:scale-105 transition-transform"
+                    />
+                  ) : (
+                    <div className="w-full h-28 flex items-center justify-center text-gray-400 text-xs">无封面</div>
+                  )}
+                  <div className="absolute top-1 right-1 bg-black/60 text-white text-xs px-1 py-0.5 rounded flex items-center gap-0.5">
+                    <Heart className="w-2.5 h-2.5" />
+                    {formatCount(topic.like_count || 0)}
+                  </div>
                 </div>
-              </div>
-              <div className="text-xs font-medium text-gray-900 mb-0.5 line-clamp-2 group-hover:text-red-500 transition-colors">
-                {note.title}
-              </div>
-              <div className="text-xs text-gray-500 mb-1">{note.author}</div>
-              <div className="flex gap-1">
-                {note.tags.slice(0, 2).map((tag, idx) => (
-                  <span key={idx} className="px-1 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">
-                    {tag}
+                <div className="text-xs font-medium text-gray-900 mb-0.5 line-clamp-2 group-hover:text-red-500 transition-colors">
+                  {topic.title}
+                </div>
+                <div className="text-xs text-gray-500 mb-1">{topic.author_name}</div>
+                {topic.keyword && (
+                  <span className="px-1 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">
+                    #{topic.keyword}
                   </span>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
+                )}
+              </a>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

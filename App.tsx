@@ -5,11 +5,16 @@ import { CreativeTab } from './components/workspace/CreativeTab';
 import { OperationsTab } from './components/workspace/OperationsTab';
 import { Settings } from './components/Settings';
 
+export interface Keyword {
+  id: number;
+  value: string;
+}
+
 export interface Theme {
   id: string;
   name: string;
   description: string;
-  keywords: string[];
+  keywords: Keyword[];
   competitors: string[];
   createdAt: string;
   status: 'active' | 'paused' | 'completed';
@@ -35,7 +40,10 @@ function transformTheme(t: any): Theme {
     id: String(t.id),
     name: t.name,
     description: t.description || '',
-    keywords: (t.keywords || []).map((k: any) => k.value || k),
+    keywords: (t.keywords || []).map((k: any) => ({
+      id: k.id,
+      value: k.value || k,
+    })),
     competitors: (t.competitors || []).map((c: any) => c.name || c),
     createdAt: t.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
     status: t.status || 'active',

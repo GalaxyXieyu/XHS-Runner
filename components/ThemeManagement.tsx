@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Search, MoreVertical, Play, Pause, Archive, Trash2, Edit2, TrendingUp, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, Search, MoreVertical, Play, Pause, Archive, Trash2, Edit2, TrendingUp, ChevronDown, ChevronUp, Download, Loader2 } from 'lucide-react';
 import { Theme } from '../App';
 import { InsightTab } from './workspace/InsightTab';
 
@@ -31,6 +31,8 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
   const [editingTheme, setEditingTheme] = useState<Theme | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
+  const [capturing, setCapturing] = useState<string | null>(null);
+  const [captureResult, setCaptureResult] = useState<{ themeId: string; total: number; inserted: number } | null>(null);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -38,6 +40,38 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
     competitors: '',
     status: 'active' as Theme['status']
   });
+
+  const handleCapture = async (theme: Theme) => {
+    if (theme.keywords.length === 0) {
+      alert('该主题没有关键词，无法抓取');
+      return;
+    }
+    setCapturing(theme.id);
+    setCaptureResult(null);
+    let totalInserted = 0;
+    let totalFetched = 0;
+    try {
+      for (const kw of theme.keywords) {
+        const result = window.capture
+          ? await window.capture.run({ keywordId: kw.id, limit: 20 })
+          : await fetch('/api/capture/run', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ keywordId: kw.id, limit: 20 }),
+            }).then(r => r.json());
+        if (result.status === 'fetched') {
+          totalFetched += result.total || 0;
+          totalInserted += result.inserted || 0;
+        }
+      }
+      setCaptureResult({ themeId: theme.id, total: totalFetched, inserted: totalInserted });
+    } catch (err) {
+      console.error('Capture failed:', err);
+      alert('抓取失败: ' + (err as Error).message);
+    } finally {
+      setCapturing(null);
+    }
+  };
 
   // 默认选择第一个主题
   if (!selectedTheme && themes.length > 0) {
@@ -98,7 +132,7 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
     setFormData({
       name: theme.name,
       description: theme.description,
-      keywords: theme.keywords.join(', '),
+      keywords: theme.keywords.map(k => k.value).join(', '),
       competitors: theme.competitors.join(', '),
       status: theme.status
     });
@@ -107,7 +141,7 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
 
   const filteredThemes = themes.filter(theme =>
     theme.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    theme.keywords.some(k => k.toLowerCase().includes(searchQuery.toLowerCase()))
+    theme.keywords.some(k => k.value.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   const statusConfig = {
@@ -151,7 +185,7 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
               <div className="flex flex-wrap gap-1">
                 {selectedTheme.keywords.slice(0, 5).map((keyword, idx) => (
                   <span key={idx} className="px-1.5 py-0.5 bg-gray-100 text-gray-700 rounded text-xs">
-                    {keyword}
+                    {keyword.value}
                   </span>
                 ))}
                 {selectedTheme.keywords.length > 5 && (
@@ -229,6 +263,12 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
                       </span>
                     </div>
 
+                    {captureResult?.themeId === theme.id && (
+                      <div className="mt-2 text-xs text-green-600 bg-green-50 px-2 py-1 rounded">
+                        抓取完成: 获取 {captureResult.total} 条，新增 {captureResult.inserted} 条
+                      </div>
+                    )}
+
                     {/* Actions */}
                     <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity">
                       <div className="relative group/menu">
@@ -250,6 +290,21 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
                           >
                             <Edit2 className="w-3 h-3" />
                             编辑
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCapture(theme);
+                            }}
+                            disabled={capturing === theme.id}
+                            className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-1.5 disabled:opacity-50"
+                          >
+                            {capturing === theme.id ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Download className="w-3 h-3" />
+                            )}
+                            {capturing === theme.id ? '抓取中...' : '抓取笔记'}
                           </button>
                           {theme.status === 'active' && (
                             <button
