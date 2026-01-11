@@ -16,6 +16,16 @@ export interface Theme {
   description: string;
   keywords: Keyword[];
   competitors: string[];
+  config?: {
+    goal?: string;
+    persona?: string;
+    tone?: string;
+    contentTypes?: string[];
+    forbiddenTags?: string[];
+    promptProfileId?: number;
+    dailyOutputCount?: number;
+    minQualityScore?: number;
+  } | null;
   createdAt: string;
   status: 'active' | 'paused' | 'completed';
 }
@@ -45,6 +55,7 @@ function transformTheme(t: any): Theme {
       value: k.value || k,
     })),
     competitors: (t.competitors || []).map((c: any) => c.name || c),
+    config: t.config || null,
     createdAt: t.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
     status: t.status || 'active',
   };

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Key, QrCode, Zap, Save, LogOut, Loader2, CheckCircle, XCircle } from 'lucide-react';
+import { PromptProfileManager } from './PromptProfileManager';
 
 declare global {
   interface Window {
@@ -293,6 +294,8 @@ export function Settings() {
           </div>
         </div>
       </div>
+
+      <PromptProfileManager />
 
       {/* System Parameters - Full Width */}
       <div className="bg-white border border-gray-200 rounded">

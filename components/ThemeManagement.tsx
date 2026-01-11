@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Plus, Search, MoreVertical, Play, Pause, Archive, Trash2, Edit2, TrendingUp, ChevronDown, ChevronUp, Download, Loader2 } from 'lucide-react';
 import { Theme } from '../App';
 import { InsightTab } from './workspace/InsightTab';
@@ -33,13 +33,36 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
   const [isExpanded, setIsExpanded] = useState(false);
   const [capturing, setCapturing] = useState<string | null>(null);
   const [captureResult, setCaptureResult] = useState<{ themeId: string; total: number; inserted: number } | null>(null);
+  const [promptProfiles, setPromptProfiles] = useState<any[]>([]);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
     keywords: '',
     competitors: '',
-    status: 'active' as Theme['status']
+    status: 'active' as Theme['status'],
+    goal: '',
+    persona: '',
+    tone: '',
+    contentTypes: '',
+    forbiddenTags: '',
+    promptProfileId: '',
+    dailyOutputCount: '',
+    minQualityScore: ''
   });
+
+  useEffect(() => {
+    const loadProfiles = async () => {
+      try {
+        const res = await fetch('/api/prompt-profiles');
+        const data = await res.json();
+        setPromptProfiles(Array.isArray(data) ? data : []);
+      } catch (error) {
+        console.error('Failed to load prompt profiles:', error);
+        setPromptProfiles([]);
+      }
+    };
+    loadProfiles();
+  }, []);
 
   const handleCapture = async (theme: Theme) => {
     if (theme.keywords.length === 0) {
@@ -80,12 +103,28 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
 
   const handleCreateTheme = async (e: React.FormEvent) => {
     e.preventDefault();
+    const toNumber = (value: string) => {
+      if (!value) return undefined;
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : undefined;
+    };
+    const config = {
+      goal: formData.goal || undefined,
+      persona: formData.persona || undefined,
+      tone: formData.tone || undefined,
+      contentTypes: formData.contentTypes.split(',').map(v => v.trim()).filter(Boolean),
+      forbiddenTags: formData.forbiddenTags.split(',').map(v => v.trim()).filter(Boolean),
+      promptProfileId: toNumber(formData.promptProfileId),
+      dailyOutputCount: toNumber(formData.dailyOutputCount),
+      minQualityScore: toNumber(formData.minQualityScore),
+    };
     const payload = {
       name: formData.name,
       description: formData.description,
       keywords: formData.keywords.split(',').map(k => k.trim()).filter(Boolean),
       competitors: formData.competitors.split(',').map(c => c.trim()).filter(Boolean),
       status: formData.status,
+      config,
     };
 
     try {
@@ -99,7 +138,21 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
       console.error('Failed to save theme:', err);
     }
 
-    setFormData({ name: '', description: '', keywords: '', competitors: '', status: 'active' });
+    setFormData({
+      name: '',
+      description: '',
+      keywords: '',
+      competitors: '',
+      status: 'active',
+      goal: '',
+      persona: '',
+      tone: '',
+      contentTypes: '',
+      forbiddenTags: '',
+      promptProfileId: '',
+      dailyOutputCount: '',
+      minQualityScore: ''
+    });
     setShowCreateModal(false);
     setEditingTheme(null);
   };
@@ -134,7 +187,15 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
       description: theme.description,
       keywords: theme.keywords.map(k => k.value).join(', '),
       competitors: theme.competitors.join(', '),
-      status: theme.status
+      status: theme.status,
+      goal: theme.config?.goal || '',
+      persona: theme.config?.persona || '',
+      tone: theme.config?.tone || '',
+      contentTypes: theme.config?.contentTypes?.join(', ') || '',
+      forbiddenTags: theme.config?.forbiddenTags?.join(', ') || '',
+      promptProfileId: theme.config?.promptProfileId ? String(theme.config.promptProfileId) : '',
+      dailyOutputCount: theme.config?.dailyOutputCount ? String(theme.config.dailyOutputCount) : '',
+      minQualityScore: theme.config?.minQualityScore ? String(theme.config.minQualityScore) : ''
     });
     setShowCreateModal(true);
   };
@@ -205,7 +266,15 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
                 description: '',
                 keywords: '',
                 competitors: '',
-                status: 'active'
+                status: 'active',
+                goal: '',
+                persona: '',
+                tone: '',
+                contentTypes: '',
+                forbiddenTags: '',
+                promptProfileId: '',
+                dailyOutputCount: '',
+                minQualityScore: ''
               });
               setShowCreateModal(true);
             }}
@@ -454,6 +523,99 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
                   <option value="paused">已暂停</option>
                   <option value="completed">已完成</option>
                 </select>
+              </div>
+
+              <div className="border-t border-gray-100 pt-3">
+                <div className="text-xs font-medium text-gray-800 mb-2">内容生成配置</div>
+                <div className="space-y-2">
+                  <div>
+                    <label className="block text-xs text-gray-700 mb-1">目标</label>
+                    <input
+                      type="text"
+                      value={formData.goal}
+                      onChange={(e) => setFormData({ ...formData, goal: e.target.value })}
+                      placeholder="收藏优先 / 评论优先 / 涨粉优先"
+                      className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-700 mb-1">受众画像</label>
+                    <input
+                      type="text"
+                      value={formData.persona}
+                      onChange={(e) => setFormData({ ...formData, persona: e.target.value })}
+                      placeholder="例如：25-35岁职场女性"
+                      className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-700 mb-1">语气</label>
+                    <input
+                      type="text"
+                      value={formData.tone}
+                      onChange={(e) => setFormData({ ...formData, tone: e.target.value })}
+                      placeholder="干货 / 亲和 / 专业"
+                      className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-700 mb-1">内容结构偏好</label>
+                    <input
+                      type="text"
+                      value={formData.contentTypes}
+                      onChange={(e) => setFormData({ ...formData, contentTypes: e.target.value })}
+                      placeholder="用逗号分隔，例如：清单, 教程, 对比"
+                      className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-700 mb-1">禁用标签</label>
+                    <input
+                      type="text"
+                      value={formData.forbiddenTags}
+                      onChange={(e) => setFormData({ ...formData, forbiddenTags: e.target.value })}
+                      placeholder="用逗号分隔，例如：医疗, 博彩"
+                      className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-700 mb-1">默认模板</label>
+                    <select
+                      value={formData.promptProfileId}
+                      onChange={(e) => setFormData({ ...formData, promptProfileId: e.target.value })}
+                      className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
+                    >
+                      <option value="">未选择</option>
+                      {promptProfiles.map((profile) => (
+                        <option key={profile.id} value={String(profile.id)}>
+                          {profile.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs text-gray-700 mb-1">每日产出数</label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={formData.dailyOutputCount}
+                        onChange={(e) => setFormData({ ...formData, dailyOutputCount: e.target.value })}
+                        className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-700 mb-1">质量阈值</label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={formData.minQualityScore}
+                        onChange={(e) => setFormData({ ...formData, minQualityScore: e.target.value })}
+                        className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div className="flex gap-2 pt-2">
