@@ -5,7 +5,7 @@ import { resolveUserDataPath } from './runtime/userDataPath';
 const Database = require('better-sqlite3');
 
 const DB_FILENAME = 'xhs-generator.db';
-const SCHEMA_VERSION = 9;
+const SCHEMA_VERSION = 10;
 
 let dbInstance: any;
 
@@ -493,6 +493,27 @@ function migrate(db: any) {
       );
 
       CREATE INDEX IF NOT EXISTS idx_rate_limit_scope ON rate_limit_state(scope, scope_id);
+    `);
+  }
+
+  if (currentVersion < 10) {
+    const themeColumns = db.prepare("PRAGMA table_info('themes')").all().map((col: any) => col.name);
+    if (!themeColumns.includes('config_json')) {
+      db.exec("ALTER TABLE themes ADD COLUMN config_json TEXT");
+    }
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS prompt_profiles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        system_prompt TEXT NOT NULL,
+        user_template TEXT NOT NULL,
+        model TEXT,
+        temperature REAL,
+        max_tokens INTEGER,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
     `);
   }
 

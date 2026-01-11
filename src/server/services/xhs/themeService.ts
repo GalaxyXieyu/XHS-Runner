@@ -42,7 +42,7 @@ export function listThemes() {
   const db = getDatabase();
   const themes = db
     .prepare(
-      `SELECT id, name, description, status, analytics_json, created_at, updated_at
+      `SELECT id, name, description, status, analytics_json, config_json, created_at, updated_at
        FROM themes
        ORDER BY id DESC`
     )
@@ -51,6 +51,7 @@ export function listThemes() {
   return themes.map((theme: any) => ({
     ...theme,
     analytics: parseJson(theme.analytics_json),
+    config: parseJson(theme.config_json),
     keywords: listThemeKeywords(db, theme.id),
     competitors: listThemeCompetitors(db, theme.id),
   }));
@@ -67,14 +68,15 @@ export function createTheme(payload: Record<string, any>) {
   const description = payload.description ? String(payload.description) : null;
   const status = payload.status || 'active';
   const analyticsJson = payload.analytics ? JSON.stringify(payload.analytics) : null;
+  const configJson = payload.config ? JSON.stringify(payload.config) : null;
 
   const db = getDatabase();
   const result = db
     .prepare(
-      `INSERT INTO themes (name, description, status, analytics_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))`
+      `INSERT INTO themes (name, description, status, analytics_json, config_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
     )
-    .run(name, description, status, analyticsJson);
+    .run(name, description, status, analyticsJson, configJson);
 
   const themeId = result.lastInsertRowid;
   if (Array.isArray(payload.keywords)) {
@@ -107,9 +109,14 @@ export function createTheme(payload: Record<string, any>) {
     });
   }
 
-  return db
-    .prepare('SELECT id, name, description, status, analytics_json, created_at, updated_at FROM themes WHERE id = ?')
+  const theme = db
+    .prepare('SELECT id, name, description, status, analytics_json, config_json, created_at, updated_at FROM themes WHERE id = ?')
     .get(themeId);
+  return {
+    ...theme,
+    analytics: parseJson(theme?.analytics_json ?? null),
+    config: parseJson(theme?.config_json ?? null),
+  };
 }
 
 export function updateTheme(payload: Record<string, any>) {
@@ -130,6 +137,7 @@ export function updateTheme(payload: Record<string, any>) {
     description: payload.description,
     status: payload.status,
     analytics_json: payload.analytics ? JSON.stringify(payload.analytics) : undefined,
+    config_json: payload.config ? JSON.stringify(payload.config) : undefined,
   };
 
   db.prepare(
@@ -138,13 +146,26 @@ export function updateTheme(payload: Record<string, any>) {
          description = COALESCE(?, description),
          status = COALESCE(?, status),
          analytics_json = COALESCE(?, analytics_json),
+         config_json = COALESCE(?, config_json),
          updated_at = datetime('now')
      WHERE id = ?`
-  ).run(updates.name, updates.description, updates.status, updates.analytics_json, payload.id);
+  ).run(
+    updates.name,
+    updates.description,
+    updates.status,
+    updates.analytics_json,
+    updates.config_json,
+    payload.id
+  );
 
-  return db
-    .prepare('SELECT id, name, description, status, analytics_json, created_at, updated_at FROM themes WHERE id = ?')
+  const theme = db
+    .prepare('SELECT id, name, description, status, analytics_json, config_json, created_at, updated_at FROM themes WHERE id = ?')
     .get(payload.id);
+  return {
+    ...theme,
+    analytics: parseJson(theme?.analytics_json ?? null),
+    config: parseJson(theme?.config_json ?? null),
+  };
 }
 
 export function removeTheme(id: number) {
