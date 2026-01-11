@@ -5,7 +5,7 @@ import { resolveUserDataPath } from './runtime/userDataPath';
 const Database = require('better-sqlite3');
 
 const DB_FILENAME = 'xhs-generator.db';
-const SCHEMA_VERSION = 10;
+const SCHEMA_VERSION = 11;
 
 let dbInstance: any;
 
@@ -515,6 +515,19 @@ function migrate(db: any) {
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
     `);
+  }
+
+  if (currentVersion < 11) {
+    const creativeColumns = db.prepare("PRAGMA table_info('creatives')").all().map((col: any) => col.name);
+    if (!creativeColumns.includes('source_topic_ids')) {
+      db.exec('ALTER TABLE creatives ADD COLUMN source_topic_ids TEXT');
+    }
+    if (!creativeColumns.includes('cover_prompt')) {
+      db.exec('ALTER TABLE creatives ADD COLUMN cover_prompt TEXT');
+    }
+    if (!creativeColumns.includes('rationale_json')) {
+      db.exec('ALTER TABLE creatives ADD COLUMN rationale_json TEXT');
+    }
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
