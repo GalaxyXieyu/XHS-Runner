@@ -1,6 +1,6 @@
 import { getDatabase } from '../../db';
 import { getSetting, getSettings, setSetting } from '../../settings';
-import { fetchTopNotes } from './xhsClient';
+import { fetchTopNotes, fetchNoteDetail } from './xhsClient';
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -186,14 +186,25 @@ export async function runCapture(keywordId: number, limit = 50) {
   const notes = await fetchWithRetry(keyword.value, limit, settings.captureRetryCount);
 
   let inserted = 0;
-  notes.forEach((note: any) => {
+  for (const note of notes) {
     if (note && note.id) {
-      const rowId = insertTopic(keywordId, keyword.theme_id, note);
+      // 获取笔记详情以填充 desc 字段
+      let enrichedNote = note;
+      try {
+        await sleep(300); // 避免请求过快
+        const detail = await fetchNoteDetail(note.id, { xsecToken: (note as any).xsec_token });
+        if (detail?.desc) {
+          enrichedNote = { ...note, desc: detail.desc };
+        }
+      } catch (e) {
+        console.warn(`[capture] Failed to fetch detail for ${note.id}:`, e);
+      }
+      const rowId = insertTopic(keywordId, keyword.theme_id, enrichedNote);
       if (rowId) {
         inserted += 1;
       }
     }
-  });
+  }
 
   const now = new Date().toISOString();
   setSetting(cacheKey, now);

@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
-import { TrendingUp, Hash, MessageCircle, RefreshCw, Heart, Star, Users } from 'lucide-react';
+import { TrendingUp, Hash, MessageCircle, RefreshCw, Heart, Star, Users, Loader2, Sparkles, Calendar, ArrowUpDown, FileText } from 'lucide-react';
 import type { Theme } from '../../App';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface InsightTabProps {
   theme: Theme;
@@ -22,108 +21,253 @@ interface Topic {
   keyword?: string;
 }
 
-// Mock data for features not yet implemented
-const tagCloudData = [
-  { tag: '#防晒', count: 245 },
-  { tag: '#夏季护肤', count: 198 },
-  { tag: '#防晒霜测评', count: 176 },
-  { tag: '#美白', count: 154 },
-  { tag: '#敏感肌', count: 132 },
-  { tag: '#油皮', count: 121 },
-  { tag: '#学生党', count: 98 },
-  { tag: '#平价好物', count: 87 }
-];
+interface TagData {
+  tag: string;
+  count: number;
+  weight?: number;
+}
 
-const titlePatterns = [
-  { pattern: '千万别...', count: 45, example: '千万别买这些防晒霜！踩雷合集' },
-  { pattern: '3秒教会你...', count: 38, example: '3秒教会你挑选防晒霜的秘诀' },
-  { pattern: '实测...款', count: 32, example: '实测10款防晒霜，这3款真的绝了' },
-  { pattern: '新手必看', count: 28, example: '新手必看！防晒选购避坑指南' }
-];
+interface TopTitle {
+  title: string;
+  like_count: number;
+  collect_count: number;
+  comment_count: number;
+}
 
-const userInsights = [
-  { type: '痛点', content: '夏天防晒霜容易搓泥，和底妆不兼容', count: 187 },
-  { type: '需求', content: '求推荐适合油皮的清爽型防晒', count: 156 },
-  { type: '疑问', content: '防晒霜需要卸妆吗？', count: 143 },
-  { type: '避雷', content: '某品牌防晒闷痘严重，不推荐', count: 98 }
-];
+type SortBy = 'engagement' | 'likes' | 'collects' | 'comments' | 'recent';
 
 export function InsightTab({ theme }: InsightTabProps) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [topics, setTopics] = useState<Topic[]>([]);
   const [loading, setLoading] = useState(true);
+  const [tags, setTags] = useState<TagData[]>([]);
+  const [topTitles, setTopTitles] = useState<TopTitle[]>([]);
+  const [analysis, setAnalysis] = useState<string>('');
+  const [analyzing, setAnalyzing] = useState(false);
 
-  const loadTopics = async () => {
+  // 趋势报告
+  const [trendReport, setTrendReport] = useState<{ analysis: string; report_date: string } | null>(null);
+  const [generatingTrend, setGeneratingTrend] = useState(false);
+
+  // 筛选参数
+  const [days, setDays] = useState<number>(0);  // 0=全部, 7, 30
+  const [sortBy, setSortBy] = useState<SortBy>('engagement');
+
+  const loadData = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`/api/topics?themeId=${theme.id}&limit=20`);
-      const data = await res.json();
-      setTopics(data);
+      const params = new URLSearchParams({ themeId: String(theme.id) });
+      if (days > 0) params.set('days', String(days));
+      if (sortBy !== 'engagement') params.set('sortBy', sortBy);
+
+      const [topicsRes, insightsRes, trendRes] = await Promise.all([
+        fetch(`/api/topics?themeId=${theme.id}&limit=20`),
+        fetch(`/api/insights?${params}`),
+        fetch(`/api/insights/trend?themeId=${theme.id}`)
+      ]);
+      const topicsData = await topicsRes.json();
+      const insightsData = await insightsRes.json();
+      const trendData = await trendRes.json();
+
+      setTopics(topicsData);
+      setTags(insightsData.tags || []);
+      setTopTitles(insightsData.topTitles || []);
+      setTrendReport(trendData.latest || null);
     } catch (e) {
-      console.error('Failed to load topics:', e);
+      console.error('Failed to load data:', e);
     } finally {
       setLoading(false);
     }
   };
 
+  const runAnalysis = async () => {
+    setAnalyzing(true);
+    try {
+      const res = await fetch('/api/insights/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ themeId: theme.id, days, sortBy })
+      });
+      const data = await res.json();
+      setAnalysis(data.analysis || '分析失败');
+    } catch (e) {
+      setAnalysis('分析失败: ' + (e as Error).message);
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  const generateTrendReport = async () => {
+    setGeneratingTrend(true);
+    try {
+      const res = await fetch(`/api/insights/trend?themeId=${theme.id}`, {
+        method: 'POST'
+      });
+      const data = await res.json();
+      setTrendReport({ analysis: data.analysis, report_date: data.stats?.date || new Date().toISOString().split('T')[0] });
+      loadData(); // 刷新历史数据
+    } catch (e) {
+      console.error('Failed to generate trend report:', e);
+    } finally {
+      setGeneratingTrend(false);
+    }
+  };
+
   useEffect(() => {
-    loadTopics();
-  }, [theme.id]);
+    loadData();
+    setAnalysis('');
+  }, [theme.id, days, sortBy]);
 
   const handleRefresh = () => {
     setIsRefreshing(true);
-    loadTopics().finally(() => setIsRefreshing(false));
+    loadData().finally(() => setIsRefreshing(false));
   };
 
   const formatCount = (n: number) => n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
 
   return (
     <div className="space-y-3">
-      {/* Stats Cards */}
-      <div className="grid grid-cols-4 gap-3">
-        <div className="bg-white border border-gray-200 rounded p-2.5">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs text-gray-500">抓取笔记</span>
-            <TrendingUp className="w-3 h-3 text-gray-400" />
+      {/* Trend Report Card - Compact */}
+      <div className="bg-gradient-to-r from-red-50 to-orange-50 border border-red-100 rounded-lg p-3">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <FileText className="w-4 h-4 text-red-500" />
+            <span className="text-sm font-medium text-gray-900">趋势报告</span>
+            {trendReport && <span className="text-xs text-gray-500">{trendReport.report_date}</span>}
           </div>
-          <div className="text-lg font-bold text-gray-900">{topics.length}</div>
-          <div className="text-xs text-gray-500">已抓取</div>
+          <button
+            onClick={generateTrendReport}
+            disabled={generatingTrend}
+            className="px-2.5 py-1 bg-red-500 text-white text-xs rounded-lg hover:bg-red-600 flex items-center gap-1 disabled:opacity-50"
+          >
+            {generatingTrend ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+            {generatingTrend ? '生成中...' : '生成报告'}
+          </button>
         </div>
+        {trendReport?.analysis ? (
+          <div className="text-xs text-gray-600 leading-relaxed bg-white rounded-lg p-2.5 max-h-20 overflow-y-auto">{trendReport.analysis}</div>
+        ) : (
+          <div className="text-xs text-gray-400 bg-white rounded-lg p-2.5 text-center">点击"生成报告"获取AI趋势分析</div>
+        )}
+      </div>
 
-        <div className="bg-white border border-gray-200 rounded p-2.5">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs text-gray-500">热门标签</span>
-            <Hash className="w-3 h-3 text-gray-400" />
-          </div>
-          <div className="text-lg font-bold text-gray-900">245</div>
-          <div className="text-xs text-gray-500">覆盖率 89%</div>
+      {/* Filter Bar */}
+      <div className="bg-white border border-gray-200 rounded-lg p-2.5 flex items-center gap-4">
+        <div className="flex items-center gap-1.5">
+          <Calendar className="w-3.5 h-3.5 text-gray-500" />
+          <select
+            value={days}
+            onChange={(e) => setDays(Number(e.target.value))}
+            className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500"
+          >
+            <option value={0}>全部时间</option>
+            <option value={7}>近7天</option>
+            <option value={30}>近30天</option>
+          </select>
         </div>
-
-        <div className="bg-white border border-gray-200 rounded p-2.5">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs text-gray-500">评论分析</span>
-            <MessageCircle className="w-3 h-3 text-gray-400" />
-          </div>
-          <div className="text-lg font-bold text-gray-900">8,765</div>
-          <div className="text-xs text-gray-500">痛点 +23</div>
+        <div className="flex items-center gap-1.5">
+          <ArrowUpDown className="w-3.5 h-3.5 text-gray-500" />
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as SortBy)}
+            className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500"
+          >
+            <option value="engagement">综合互动</option>
+            <option value="likes">点赞数</option>
+            <option value="collects">收藏数</option>
+            <option value="comments">评论数</option>
+            <option value="recent">最新发布</option>
+          </select>
         </div>
-
-        <div className="bg-white border border-gray-200 rounded p-2.5">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs text-gray-500">竞品动态</span>
-            <Users className="w-3 h-3 text-gray-400" />
-          </div>
-          <div className="text-lg font-bold text-gray-900">12</div>
-          <div className="text-xs text-gray-500">今日更新</div>
+        <div className="text-xs text-gray-400 ml-auto">
+          标签按互动加权排序
         </div>
       </div>
 
-      {/* Top Tags */}
-      <div className="bg-white border border-gray-200 rounded p-3">
+      {/* Stats Cards */}
+      <div className="grid grid-cols-4 gap-3">
+        <div className="bg-white border border-gray-200 rounded-lg p-3">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs text-gray-500">抓取笔记</span>
+            <TrendingUp className="w-3.5 h-3.5 text-red-400" />
+          </div>
+          <div className="text-xl font-bold text-gray-900">{topics.length}</div>
+          <div className="text-xs text-gray-400">已抓取</div>
+        </div>
+
+        <div className="bg-white border border-gray-200 rounded-lg p-3">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs text-gray-500">热门标签</span>
+            <Hash className="w-3.5 h-3.5 text-blue-400" />
+          </div>
+          <div className="text-xl font-bold text-gray-900">{tags.length}</div>
+          <div className="text-xs text-gray-400">已提取</div>
+        </div>
+
+        <div className="bg-white border border-gray-200 rounded-lg p-3">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs text-gray-500">Top标题</span>
+            <Star className="w-3.5 h-3.5 text-yellow-400" />
+          </div>
+          <div className="text-xl font-bold text-gray-900">{topTitles.length}</div>
+          <div className="text-xs text-gray-400">已分析</div>
+        </div>
+
+        <div className="bg-white border border-gray-200 rounded-lg p-3">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs text-gray-500">总互动</span>
+            <Users className="w-3.5 h-3.5 text-green-400" />
+          </div>
+          <div className="text-xl font-bold text-gray-900">{formatCount(topics.reduce((sum, t) => sum + (t.like_count || 0) + (t.collect_count || 0), 0))}</div>
+          <div className="text-xs text-gray-400">点赞+收藏</div>
+        </div>
+      </div>
+
+      {/* Top Titles with AI Analysis */}
+      <div className="bg-white border border-gray-200 rounded-lg p-3">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-1.5">
-            <Hash className="w-3.5 h-3.5 text-gray-700" />
-            <span className="text-xs font-medium text-gray-900">热门标签</span>
+            <Star className="w-4 h-4 text-yellow-500" />
+            <span className="text-sm font-medium text-gray-900">爆款标题 Top10</span>
+          </div>
+          <button
+            onClick={runAnalysis}
+            disabled={analyzing || topTitles.length < 5}
+            className="px-2.5 py-1 bg-purple-500 text-white text-xs rounded-lg hover:bg-purple-600 flex items-center gap-1 disabled:opacity-50 transition-colors"
+          >
+            {analyzing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+            {analyzing ? '分析中...' : '生成分析'}
+          </button>
+        </div>
+        {/* AI Analysis Result */}
+        {analysis && (
+          <div className="text-xs text-gray-700 leading-relaxed whitespace-pre-wrap bg-purple-50 rounded-lg p-2.5 mb-3 max-h-28 overflow-y-auto">{analysis}</div>
+        )}
+        {/* Title List */}
+        {topTitles.length > 0 ? (
+          <div className="grid grid-cols-2 gap-2 max-h-52 overflow-y-auto pr-1">
+            {topTitles.map((t, idx) => (
+              <div key={idx} className="p-2.5 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                <div className="text-xs text-gray-900 line-clamp-1 mb-1.5 font-medium">{idx + 1}. {t.title}</div>
+                <div className="flex gap-3 text-xs text-gray-500">
+                  <span className="flex items-center gap-1"><Heart className="w-3 h-3 text-red-400" />{formatCount(t.like_count)}</span>
+                  <span className="flex items-center gap-1"><Star className="w-3 h-3 text-yellow-400" />{formatCount(t.collect_count)}</span>
+                  <span className="flex items-center gap-1"><MessageCircle className="w-3 h-3 text-blue-400" />{t.comment_count}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-xs text-gray-500 text-center py-6">暂无数据</div>
+        )}
+      </div>
+
+      {/* Top Tags */}
+      <div className="bg-white border border-gray-200 rounded-lg p-3">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-1.5">
+            <Hash className="w-4 h-4 text-blue-500" />
+            <span className="text-sm font-medium text-gray-900">热门标签</span>
           </div>
           <button
             onClick={handleRefresh}
@@ -134,108 +278,60 @@ export function InsightTab({ theme }: InsightTabProps) {
             刷新
           </button>
         </div>
-        <div className="h-48">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={tagCloudData.slice(0, 6)} layout="vertical">
-              <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-              <XAxis type="number" style={{ fontSize: '10px' }} />
-              <YAxis dataKey="tag" type="category" width={80} style={{ fontSize: '10px' }} />
-              <Tooltip />
-              <Bar dataKey="count" fill="#EF4444" radius={[0, 4, 4, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-        <div className="mt-2 pt-2 border-t border-gray-100 flex flex-wrap gap-1">
-          {tagCloudData.slice(0, 8).map((item, idx) => (
-            <span key={idx} className="px-1.5 py-0.5 bg-gray-100 text-gray-700 text-xs rounded">
-              {item.tag} · {item.count}
-            </span>
-          ))}
-        </div>
-      </div>
-
-      {/* Two Column Layout */}
-      <div className="grid grid-cols-2 gap-3">
-        {/* Title Patterns */}
-        <div className="bg-white border border-gray-200 rounded p-3">
-          <div className="flex items-center gap-1.5 mb-2">
-            <Star className="w-3.5 h-3.5 text-gray-700" />
-            <span className="text-xs font-medium text-gray-900">爆款标题公式</span>
-          </div>
-          <div className="space-y-1.5">
-            {titlePatterns.map((pattern, idx) => (
-              <div key={idx} className="p-2 bg-gray-50 rounded">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-medium text-gray-900">{pattern.pattern}</span>
-                  <span className="text-xs text-gray-500">{pattern.count}次</span>
-                </div>
-                <p className="text-xs text-gray-600 line-clamp-1">{pattern.example}</p>
-              </div>
+        {tags.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5">
+            {tags.slice(0, 15).map((item, idx) => (
+              <span key={idx} className="px-2 py-1 bg-blue-50 text-blue-600 text-xs rounded-lg">
+                {item.tag} · {item.count}
+              </span>
             ))}
           </div>
-        </div>
-
-        {/* User Insights */}
-        <div className="bg-white border border-gray-200 rounded p-3">
-          <div className="flex items-center gap-1.5 mb-2">
-            <MessageCircle className="w-3.5 h-3.5 text-gray-700" />
-            <span className="text-xs font-medium text-gray-900">用户心声</span>
-          </div>
-          <div className="space-y-1.5">
-            {userInsights.map((insight, idx) => (
-              <div key={idx} className="p-2 bg-gray-50 rounded border-l-2 border-red-500">
-                <div className="flex items-center justify-between mb-0.5">
-                  <span className="text-xs font-medium text-gray-900">{insight.type}</span>
-                  <span className="text-xs text-gray-500">{insight.count}条</span>
-                </div>
-                <p className="text-xs text-gray-600">{insight.content}</p>
-              </div>
-            ))}
-          </div>
-        </div>
+        ) : (
+          <div className="text-xs text-gray-500 text-center py-4">暂无数据，请先抓取笔记</div>
+        )}
       </div>
 
       {/* Captured Notes - Top 2 */}
-      <div className="bg-white border border-gray-200 rounded p-3">
-        <div className="flex items-center gap-1.5 mb-2">
-          <Users className="w-3.5 h-3.5 text-gray-700" />
-          <span className="text-xs font-medium text-gray-900">热门笔记</span>
+      <div className="bg-white border border-gray-200 rounded-lg p-3">
+        <div className="flex items-center gap-1.5 mb-3">
+          <Users className="w-4 h-4 text-green-500" />
+          <span className="text-sm font-medium text-gray-900">热门笔记</span>
         </div>
         {loading ? (
-          <div className="text-xs text-gray-500 text-center py-4">加载中...</div>
+          <div className="text-xs text-gray-500 text-center py-6">加载中...</div>
         ) : topics.length === 0 ? (
-          <div className="text-xs text-gray-500 text-center py-4">暂无数据，请先抓取笔记</div>
+          <div className="text-xs text-gray-500 text-center py-6">暂无数据，请先抓取笔记</div>
         ) : (
-          <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-3">
             {topics.slice(0, 2).map((topic) => (
               <a
                 key={topic.id}
                 href={topic.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex gap-2 p-2 bg-gray-50 rounded hover:bg-gray-100 transition-colors cursor-pointer"
+                className="flex gap-3 p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
               >
                 {topic.cover_url && (
                   <img
                     src={topic.cover_url}
                     alt={topic.title}
-                    className="w-16 h-16 object-cover rounded flex-shrink-0"
+                    className="w-20 h-20 object-cover rounded-lg flex-shrink-0"
                   />
                 )}
                 <div className="flex-1 min-w-0">
-                  <div className="text-xs font-medium text-gray-900 mb-0.5 line-clamp-1">{topic.title}</div>
-                  <div className="text-xs text-gray-500 mb-1">{topic.author_name} · {topic.keyword}</div>
-                  <div className="flex items-center gap-2 text-xs text-gray-500">
-                    <span className="flex items-center gap-0.5">
-                      <Heart className="w-3 h-3" />
+                  <div className="text-sm font-medium text-gray-900 mb-1 line-clamp-2">{topic.title}</div>
+                  <div className="text-xs text-gray-500 mb-2">{topic.author_name} · {topic.keyword}</div>
+                  <div className="flex items-center gap-3 text-xs text-gray-500">
+                    <span className="flex items-center gap-1">
+                      <Heart className="w-3 h-3 text-red-400" />
                       {formatCount(topic.like_count || 0)}
                     </span>
-                    <span className="flex items-center gap-0.5">
-                      <Star className="w-3 h-3" />
+                    <span className="flex items-center gap-1">
+                      <Star className="w-3 h-3 text-yellow-400" />
                       {formatCount(topic.collect_count || 0)}
                     </span>
-                    <span className="flex items-center gap-0.5">
-                      <MessageCircle className="w-3 h-3" />
+                    <span className="flex items-center gap-1">
+                      <MessageCircle className="w-3 h-3 text-blue-400" />
                       {topic.comment_count || 0}
                     </span>
                   </div>
@@ -247,14 +343,14 @@ export function InsightTab({ theme }: InsightTabProps) {
       </div>
 
       {/* Notes Grid */}
-      <div className="bg-white border border-gray-200 rounded p-3">
-        <div className="text-xs font-medium text-gray-900 mb-2">全部笔记 ({topics.length})</div>
+      <div className="bg-white border border-gray-200 rounded-lg p-3">
+        <div className="text-sm font-medium text-gray-900 mb-3">全部笔记 ({topics.length})</div>
         {loading ? (
-          <div className="text-xs text-gray-500 text-center py-4">加载中...</div>
+          <div className="text-xs text-gray-500 text-center py-6">加载中...</div>
         ) : topics.length === 0 ? (
-          <div className="text-xs text-gray-500 text-center py-4">暂无数据</div>
+          <div className="text-xs text-gray-500 text-center py-6">暂无数据</div>
         ) : (
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-4 gap-3">
             {topics.slice(0, 8).map((topic) => (
               <a
                 key={topic.id}
@@ -263,27 +359,27 @@ export function InsightTab({ theme }: InsightTabProps) {
                 rel="noopener noreferrer"
                 className="group cursor-pointer"
               >
-                <div className="relative mb-1.5 overflow-hidden rounded bg-gray-100">
+                <div className="relative mb-2 overflow-hidden rounded-lg bg-gray-100">
                   {topic.cover_url ? (
                     <img
                       src={topic.cover_url}
                       alt={topic.title}
-                      className="w-full h-28 object-cover group-hover:scale-105 transition-transform"
+                      className="w-full h-32 object-cover group-hover:scale-105 transition-transform"
                     />
                   ) : (
-                    <div className="w-full h-28 flex items-center justify-center text-gray-400 text-xs">无封面</div>
+                    <div className="w-full h-32 flex items-center justify-center text-gray-400 text-xs">无封面</div>
                   )}
-                  <div className="absolute top-1 right-1 bg-black/60 text-white text-xs px-1 py-0.5 rounded flex items-center gap-0.5">
-                    <Heart className="w-2.5 h-2.5" />
+                  <div className="absolute top-1.5 right-1.5 bg-black/60 text-white text-xs px-1.5 py-0.5 rounded-md flex items-center gap-1">
+                    <Heart className="w-3 h-3" />
                     {formatCount(topic.like_count || 0)}
                   </div>
                 </div>
-                <div className="text-xs font-medium text-gray-900 mb-0.5 line-clamp-2 group-hover:text-red-500 transition-colors">
+                <div className="text-xs font-medium text-gray-900 mb-1 line-clamp-2 group-hover:text-red-500 transition-colors">
                   {topic.title}
                 </div>
                 <div className="text-xs text-gray-500 mb-1">{topic.author_name}</div>
                 {topic.keyword && (
-                  <span className="px-1 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">
+                  <span className="px-1.5 py-0.5 bg-gray-100 text-gray-600 text-xs rounded-md">
                     #{topic.keyword}
                   </span>
                 )}
