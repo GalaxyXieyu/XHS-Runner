@@ -12,42 +12,28 @@ const STOP_WORDS = new Set(['的', '了', '是', '在', '我', '有', '和', '�
 // 从标题和正文中提取标签，支持互动加权
 function extractTags(rows: { title: string; desc?: string | null; like_count: number; collect_count: number }[]): { tag: string; count: number; weight: number }[] {
   const tagData: Record<string, { count: number; weight: number }> = {};
-  const patterns = [/[#＃]([^\s#＃]+)/g, /【([^】]+)】/g, /\*([^*]+)\*/g];
-  const keywordPattern = /([\u4e00-\u9fa5]{2,8})/g;
+  // 匹配显式的 #标签（中文/英文/数字，2-20字符），标签后可能是空格、tab、换行或另一个#
+  const hashtagPattern = /[#＃]([\u4e00-\u9fa5a-zA-Z0-9]+)/g;
 
   for (const row of rows) {
     const engagement = row.like_count + row.collect_count * 2;
     const seen = new Set<string>();
-    const textSources = [row.title, row.desc].filter(Boolean) as string[];
 
-    // 提取显式标签（从标题和正文）
-    for (const text of textSources) {
-      for (const pattern of patterns) {
-        for (const match of text.matchAll(pattern)) {
-          const tag = match[1].trim();
-          if (tag.length >= 2 && !STOP_WORDS.has(tag) && !seen.has(tag)) {
-            seen.add(tag);
-            if (!tagData[tag]) tagData[tag] = { count: 0, weight: 0 };
-            tagData[tag].count++;
-            tagData[tag].weight += engagement;
-          }
-        }
-      }
-    }
-    // 提取中文关键词（仅从标题，避免正文噪音）
-    for (const match of row.title.matchAll(keywordPattern)) {
-      const kw = match[1];
-      if (kw.length >= 2 && kw.length <= 6 && !STOP_WORDS.has(kw) && !seen.has(kw)) {
-        seen.add(kw);
-        if (!tagData[kw]) tagData[kw] = { count: 0, weight: 0 };
-        tagData[kw].count++;
-        tagData[kw].weight += engagement;
+    // 只从正文中提取显式 #标签
+    const text = row.desc || '';
+    for (const match of text.matchAll(hashtagPattern)) {
+      const tag = match[1].trim();
+      if (tag.length >= 2 && tag.length <= 20 && !STOP_WORDS.has(tag) && !seen.has(tag)) {
+        seen.add(tag);
+        if (!tagData[tag]) tagData[tag] = { count: 0, weight: 0 };
+        tagData[tag].count++;
+        tagData[tag].weight += engagement;
       }
     }
   }
 
   return Object.entries(tagData)
-    .filter(([_, d]) => d.count >= 2)
+    .filter(([_, d]) => d.count >= 1)
     .sort((a, b) => b[1].weight - a[1].weight)  // 按互动加权排序
     .slice(0, 20)
     .map(([tag, d]) => ({ tag: `#${tag}`, count: d.count, weight: d.weight }));
@@ -123,10 +109,33 @@ export async function analyzeTitlePatterns(themeId: number, filter?: InsightFilt
   }
 }
 
+export function getThemeStats(themeId: number, filter?: InsightFilter) {
+  const db = getDatabase();
+  const timeFilter = buildTimeFilter(filter?.days);
+  const row = db.prepare(
+    `SELECT COUNT(*) as totalNotes,
+            COALESCE(SUM(like_count), 0) as totalLikes,
+            COALESCE(SUM(collect_count), 0) as totalCollects,
+            COALESCE(AVG(like_count + collect_count * 2), 0) as avgEngagement
+     FROM topics WHERE theme_id = ? ${timeFilter}`
+  ).get(themeId) as { totalNotes: number; totalLikes: number; totalCollects: number; avgEngagement: number };
+  return row;
+}
+
 export function getInsightData(themeId: number, filter?: InsightFilter) {
+  const tags = getTagStats(themeId, filter);
+  const topTitles = getTopTitles(themeId, 10, filter);
+  const stats = getThemeStats(themeId, filter);
   return {
-    tags: getTagStats(themeId, filter),
-    topTitles: getTopTitles(themeId, 10, filter)
+    tags,
+    topTitles,
+    stats: {
+      totalNotes: stats.totalNotes,
+      totalTags: tags.length,
+      totalTitles: topTitles.length,
+      totalEngagement: stats.totalLikes + stats.totalCollects,
+      avgEngagement: Math.round(stats.avgEngagement)
+    }
   };
 }
 

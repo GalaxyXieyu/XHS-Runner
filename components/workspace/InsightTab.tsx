@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { TrendingUp, Hash, MessageCircle, RefreshCw, Heart, Star, Users, Loader2, Sparkles, Calendar, ArrowUpDown, FileText } from 'lucide-react';
+import { TrendingUp, Hash, MessageCircle, RefreshCw, Heart, Star, Users, Loader2, Sparkles, Calendar, ArrowUpDown, FileText, List, Cloud } from 'lucide-react';
 import type { Theme } from '../../App';
 
 interface InsightTabProps {
@@ -34,6 +34,14 @@ interface TopTitle {
   comment_count: number;
 }
 
+interface InsightStats {
+  totalNotes: number;
+  totalTags: number;
+  totalTitles: number;
+  totalEngagement: number;
+  avgEngagement: number;
+}
+
 type SortBy = 'engagement' | 'likes' | 'collects' | 'comments' | 'recent';
 
 export function InsightTab({ theme }: InsightTabProps) {
@@ -42,6 +50,7 @@ export function InsightTab({ theme }: InsightTabProps) {
   const [loading, setLoading] = useState(true);
   const [tags, setTags] = useState<TagData[]>([]);
   const [topTitles, setTopTitles] = useState<TopTitle[]>([]);
+  const [stats, setStats] = useState<InsightStats | null>(null);
   const [analysis, setAnalysis] = useState<string>('');
   const [analyzing, setAnalyzing] = useState(false);
 
@@ -52,6 +61,7 @@ export function InsightTab({ theme }: InsightTabProps) {
   // 筛选参数
   const [days, setDays] = useState<number>(0);  // 0=全部, 7, 30
   const [sortBy, setSortBy] = useState<SortBy>('engagement');
+  const [tagView, setTagView] = useState<'list' | 'cloud'>('list');
 
   const loadData = async () => {
     try {
@@ -72,6 +82,7 @@ export function InsightTab({ theme }: InsightTabProps) {
       setTopics(topicsData);
       setTags(insightsData.tags || []);
       setTopTitles(insightsData.topTitles || []);
+      setStats(insightsData.stats || null);
       setTrendReport(trendData.latest || null);
     } catch (e) {
       console.error('Failed to load data:', e);
@@ -128,17 +139,17 @@ export function InsightTab({ theme }: InsightTabProps) {
   return (
     <div className="space-y-3">
       {/* Trend Report Card - Compact */}
-      <div className="bg-gradient-to-r from-red-50 to-orange-50 border border-red-100 rounded-lg p-3">
+      <div className="bg-gradient-to-r from-red-50 to-orange-50 border border-red-100 rounded-lg p-3 overflow-hidden">
         <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <FileText className="w-4 h-4 text-red-500" />
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <FileText className="w-4 h-4 text-red-500 shrink-0" />
             <span className="text-sm font-medium text-gray-900">趋势报告</span>
-            {trendReport && <span className="text-xs text-gray-500">{trendReport.report_date}</span>}
+            {trendReport && <span className="text-xs text-gray-500 truncate">{trendReport.report_date}</span>}
           </div>
           <button
             onClick={generateTrendReport}
             disabled={generatingTrend}
-            className="px-2.5 py-1 bg-red-500 text-white text-xs rounded-lg hover:bg-red-600 flex items-center gap-1 disabled:opacity-50"
+            className="ml-2 px-2.5 py-1 bg-red-500 text-white text-xs rounded-lg hover:bg-red-600 flex items-center gap-1 disabled:opacity-50 shrink-0 whitespace-nowrap"
           >
             {generatingTrend ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
             {generatingTrend ? '生成中...' : '生成报告'}
@@ -191,8 +202,8 @@ export function InsightTab({ theme }: InsightTabProps) {
             <span className="text-xs text-gray-500">抓取笔记</span>
             <TrendingUp className="w-3.5 h-3.5 text-red-400" />
           </div>
-          <div className="text-xl font-bold text-gray-900">{topics.length}</div>
-          <div className="text-xs text-gray-400">已抓取</div>
+          <div className="text-xl font-bold text-gray-900">{stats?.totalNotes || 0}</div>
+          <div className="text-xs text-gray-400">总计</div>
         </div>
 
         <div className="bg-white border border-gray-200 rounded-lg p-3">
@@ -200,17 +211,17 @@ export function InsightTab({ theme }: InsightTabProps) {
             <span className="text-xs text-gray-500">热门标签</span>
             <Hash className="w-3.5 h-3.5 text-blue-400" />
           </div>
-          <div className="text-xl font-bold text-gray-900">{tags.length}</div>
+          <div className="text-xl font-bold text-gray-900">{stats?.totalTags || 0}</div>
           <div className="text-xs text-gray-400">已提取</div>
         </div>
 
         <div className="bg-white border border-gray-200 rounded-lg p-3">
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-xs text-gray-500">Top标题</span>
+            <span className="text-xs text-gray-500">平均互动</span>
             <Star className="w-3.5 h-3.5 text-yellow-400" />
           </div>
-          <div className="text-xl font-bold text-gray-900">{topTitles.length}</div>
-          <div className="text-xs text-gray-400">已分析</div>
+          <div className="text-xl font-bold text-gray-900">{formatCount(stats?.avgEngagement || 0)}</div>
+          <div className="text-xs text-gray-400">每篇</div>
         </div>
 
         <div className="bg-white border border-gray-200 rounded-lg p-3">
@@ -218,22 +229,22 @@ export function InsightTab({ theme }: InsightTabProps) {
             <span className="text-xs text-gray-500">总互动</span>
             <Users className="w-3.5 h-3.5 text-green-400" />
           </div>
-          <div className="text-xl font-bold text-gray-900">{formatCount(topics.reduce((sum, t) => sum + (t.like_count || 0) + (t.collect_count || 0), 0))}</div>
+          <div className="text-xl font-bold text-gray-900">{formatCount(stats?.totalEngagement || 0)}</div>
           <div className="text-xs text-gray-400">点赞+收藏</div>
         </div>
       </div>
 
       {/* Top Titles with AI Analysis */}
-      <div className="bg-white border border-gray-200 rounded-lg p-3">
+      <div className="bg-white border border-gray-200 rounded-lg p-3 overflow-hidden">
         <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-1.5">
-            <Star className="w-4 h-4 text-yellow-500" />
+          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+            <Star className="w-4 h-4 text-yellow-500 shrink-0" />
             <span className="text-sm font-medium text-gray-900">爆款标题 Top10</span>
           </div>
           <button
             onClick={runAnalysis}
             disabled={analyzing || topTitles.length < 5}
-            className="px-2.5 py-1 bg-purple-500 text-white text-xs rounded-lg hover:bg-purple-600 flex items-center gap-1 disabled:opacity-50 transition-colors"
+            className="ml-2 px-2.5 py-1 bg-purple-500 text-white text-xs rounded-lg hover:bg-purple-600 flex items-center gap-1 disabled:opacity-50 transition-colors shrink-0 whitespace-nowrap"
           >
             {analyzing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
             {analyzing ? '分析中...' : '生成分析'}
@@ -262,30 +273,70 @@ export function InsightTab({ theme }: InsightTabProps) {
         )}
       </div>
 
-      {/* Top Tags */}
+      {/* Tag Word Cloud */}
       <div className="bg-white border border-gray-200 rounded-lg p-3">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-1.5">
             <Hash className="w-4 h-4 text-blue-500" />
             <span className="text-sm font-medium text-gray-900">热门标签</span>
           </div>
-          <button
-            onClick={handleRefresh}
-            disabled={isRefreshing}
-            className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
-          >
-            <RefreshCw className={`w-3 h-3 ${isRefreshing ? 'animate-spin' : ''}`} />
-            刷新
-          </button>
+          <div className="flex items-center gap-2">
+            <div className="flex bg-gray-100 rounded-lg p-0.5">
+              <button
+                onClick={() => setTagView('list')}
+                className={`p-1.5 rounded-md transition-colors ${tagView === 'list' ? 'bg-white shadow-sm' : 'hover:bg-gray-200'}`}
+                title="列表视图"
+              >
+                <List className="w-3.5 h-3.5 text-gray-600" />
+              </button>
+              <button
+                onClick={() => setTagView('cloud')}
+                className={`p-1.5 rounded-md transition-colors ${tagView === 'cloud' ? 'bg-white shadow-sm' : 'hover:bg-gray-200'}`}
+                title="词云视图"
+              >
+                <Cloud className="w-3.5 h-3.5 text-gray-600" />
+              </button>
+            </div>
+            <button
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
+            >
+              <RefreshCw className={`w-3 h-3 ${isRefreshing ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
         </div>
         {tags.length > 0 ? (
-          <div className="flex flex-wrap gap-1.5">
-            {tags.slice(0, 15).map((item, idx) => (
-              <span key={idx} className="px-2 py-1 bg-blue-50 text-blue-600 text-xs rounded-lg">
-                {item.tag} · {item.count}
-              </span>
-            ))}
-          </div>
+          tagView === 'list' ? (
+            <div className="flex flex-wrap gap-1.5">
+              {tags.slice(0, 15).map((item, idx) => (
+                <span key={idx} className="px-2 py-1 bg-blue-50 text-blue-600 text-xs rounded-lg">
+                  {item.tag} · {item.count}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center justify-center gap-3 py-6 min-h-[140px] bg-gradient-to-br from-slate-50 to-blue-50 rounded-lg">
+              {(() => {
+                const maxWeight = Math.max(...tags.map(t => t.weight || t.count));
+                const colors = ['text-red-500', 'text-blue-600', 'text-emerald-500', 'text-purple-500', 'text-orange-500', 'text-pink-500', 'text-cyan-600', 'text-indigo-500', 'text-amber-500', 'text-teal-500'];
+                return tags.slice(0, 20).map((item, idx) => {
+                  const ratio = (item.weight || item.count) / maxWeight;
+                  const fontSize = 14 + ratio * 18;
+                  return (
+                    <span
+                      key={idx}
+                      className={`${colors[idx % colors.length]} hover:scale-110 cursor-default transition-transform`}
+                      style={{ fontSize: `${fontSize}px`, fontWeight: ratio > 0.6 ? 700 : ratio > 0.3 ? 500 : 400 }}
+                      title={`${item.tag}: ${item.count}次, 权重${item.weight || 0}`}
+                    >
+                      {item.tag}
+                    </span>
+                  );
+                });
+              })()}
+            </div>
+          )
         ) : (
           <div className="text-xs text-gray-500 text-center py-4">暂无数据，请先抓取笔记</div>
         )}

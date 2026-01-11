@@ -210,34 +210,77 @@ export class FeedService extends BaseService {
       try {
         const detailUrl = makeFeedDetailUrl(feedId, xsecToken);
         await this.getBrowserManager().navigateWithRetry(page, detailUrl);
-        await sleep(1000);
+        await sleep(2000);
 
+        // Try extracting from __INITIAL_STATE__ first
         const state = await extractInitialState(page);
-
         const noteData = state?.note as Record<string, unknown>;
-        if (!state || !noteData || !noteData.noteDetailMap) {
-          throw new FeedParsingError(`Could not extract note details for feed: ${feedId}`, {
+
+        if (noteData?.noteDetailMap) {
+          const noteDetailMap = noteData.noteDetailMap as Record<string, unknown>;
+          if (feedId in noteDetailMap) {
+            const detail = noteDetailMap[feedId] as Record<string, unknown>;
+            return { success: true, feedId, detail, url: detailUrl };
+          }
+        }
+
+        // Fallback: extract from DOM directly
+        const domDetail = await page.evaluate(() => {
+          const result: Record<string, unknown> = {};
+
+          // Title - look for note title specifically
+          const titleEl = document.querySelector('#detail-title, .note-content .title, [class*="noteDetail"] [class*="title"]');
+          if (titleEl) result.title = titleEl.textContent?.trim();
+
+          // Description/content - use specific selectors to avoid matching notification text
+          // Priority: 1) #detail-desc 2) note-text class 3) meta description
+          const descEl = document.querySelector('#detail-desc, .note-text, .note-content .desc, [class*="noteDetail"] [class*="desc"]');
+          if (descEl) {
+            const text = descEl.textContent?.trim();
+            // Filter out notification-like text (very short or contains "通知")
+            if (text && text.length > 20 && !text.includes('通知')) {
+              result.desc = text;
+            }
+          }
+
+          // Fallback to meta tag if no valid desc found
+          if (!result.desc) {
+            const metaDesc = document.querySelector('meta[name="description"]');
+            if (metaDesc) {
+              result.desc = metaDesc.getAttribute('content');
+            }
+          }
+
+          // Author
+          const authorEl = document.querySelector('.author-wrapper .username, [class*="author"] [class*="name"]');
+          if (authorEl) result.authorName = authorEl.textContent?.trim();
+
+          // Interaction counts
+          const likeEl = document.querySelector('[class*="like"] [class*="count"], .like-wrapper .count');
+          if (likeEl) result.likeCount = likeEl.textContent?.trim();
+
+          const collectEl = document.querySelector('[class*="collect"] [class*="count"], .collect-wrapper .count');
+          if (collectEl) result.collectCount = collectEl.textContent?.trim();
+
+          const commentEl = document.querySelector('[class*="chat"] [class*="count"], .chat-wrapper .count');
+          if (commentEl) result.commentCount = commentEl.textContent?.trim();
+
+          return result;
+        });
+
+        if (domDetail && (domDetail.desc || domDetail.title)) {
+          return {
+            success: true,
             feedId,
+            detail: domDetail,
             url: detailUrl,
-          });
+          };
         }
 
-        const noteDetailMap = noteData.noteDetailMap as Record<string, unknown>;
-        if (!(feedId in noteDetailMap)) {
-          throw new FeedNotFoundError(`Feed ${feedId} not found in note details`, {
-            feedId,
-            availableFeeds: Object.keys(noteDetailMap),
-          });
-        }
-
-        const detail = noteDetailMap[feedId] as Record<string, unknown>;
-
-        return {
-          success: true,
+        throw new FeedParsingError(`Could not extract note details for feed: ${feedId}`, {
           feedId,
-          detail,
           url: detailUrl,
-        };
+        });
       } finally {
         await page.close();
       }

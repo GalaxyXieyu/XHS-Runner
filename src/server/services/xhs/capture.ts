@@ -6,9 +6,9 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function getKeyword(id: number) {
+function getKeyword(id: number): { id: number; value: string; theme_id: number | null } | undefined {
   const db = getDatabase();
-  return db.prepare('SELECT id, value, theme_id FROM keywords WHERE id = ?').get(id);
+  return db.prepare('SELECT id, value, theme_id FROM keywords WHERE id = ?').get(id) as { id: number; value: string; theme_id: number | null } | undefined;
 }
 
 function listRecentTopics(keywordId: number, limit: number) {
@@ -185,19 +185,27 @@ export async function runCapture(keywordId: number, limit = 50) {
   await enforceRateLimit(settings.captureRateLimitMs);
   const notes = await fetchWithRetry(keyword.value, limit, settings.captureRetryCount);
 
+  // 打印原始数据看看搜索结果的结构
+  if (notes.length > 0) {
+    console.log('[capture] First note raw data:', JSON.stringify(notes[0], null, 2));
+  }
+
   let inserted = 0;
   for (const note of notes) {
     if (note && note.id) {
-      // 获取笔记详情以填充 desc 字段
       let enrichedNote = note;
-      try {
-        await sleep(300); // 避免请求过快
-        const detail = await fetchNoteDetail(note.id, { xsecToken: (note as any).xsec_token });
-        if (detail?.desc) {
-          enrichedNote = { ...note, desc: detail.desc };
+      const xsecToken = (note as any).xsec_token;
+      if (xsecToken && !note.desc) {
+        try {
+          console.log(`[capture] Fetching detail for ${note.id}...`);
+          const detail = await fetchNoteDetail(note.id, { xsecToken });
+          if (detail?.desc) {
+            enrichedNote = { ...note, desc: detail.desc };
+            console.log(`[capture] Got desc for ${note.id}: ${detail.desc.slice(0, 50)}...`);
+          }
+        } catch (e) {
+          console.warn(`[capture] Failed to fetch detail for ${note.id}:`, e);
         }
-      } catch (e) {
-        console.warn(`[capture] Failed to fetch detail for ${note.id}:`, e);
       }
       const rowId = insertTopic(keywordId, keyword.theme_id, enrichedNote);
       if (rowId) {
