@@ -1,7 +1,7 @@
 // 任务执行器 - 执行具体任务并处理超时/重试
 
 import { getDatabase } from '../../db';
-import { ScheduledJob, JobExecution, ExecutionResult, CaptureJobParams } from './types';
+import { ScheduledJob, JobExecution, ExecutionResult, CaptureJobParams, DailyGenerateJobParams } from './types';
 import { getRateLimiter } from './rateLimiter';
 
 export interface ExecutionContext {
@@ -14,7 +14,7 @@ export interface ExecutionContext {
 
 export type JobHandler = (
   job: ScheduledJob,
-  params: CaptureJobParams,
+  params: CaptureJobParams | DailyGenerateJobParams,
   context: ExecutionContext
 ) => Promise<ExecutionResult>;
 
@@ -41,7 +41,7 @@ export class JobExecutor {
       return { success: false, error: `未知任务类型: ${job.job_type}`, duration_ms: 0 };
     }
 
-    const params: CaptureJobParams = job.params_json ? JSON.parse(job.params_json) : {};
+    const params: CaptureJobParams | DailyGenerateJobParams = job.params_json ? JSON.parse(job.params_json) : {};
     const timeoutMs = params.timeoutMs || this.defaultTimeoutMs;
     const abortController = new AbortController();
 

@@ -15,6 +15,7 @@ import { JobQueue } from './jobQueue';
 import { JobExecutor } from './jobExecutor';
 import { getNextRunTime } from './cronParser';
 import { handleCaptureJob } from './jobs/captureJob';
+import { handleDailyGenerateJob } from './jobs/dailyGenerateJob';
 
 export class Scheduler {
   private config: SchedulerConfig;
@@ -35,6 +36,7 @@ export class Scheduler {
     // 注册任务处理器
     this.executor.registerHandler('capture_keyword', handleCaptureJob);
     this.executor.registerHandler('capture_theme', handleCaptureJob);
+    this.executor.registerHandler('daily_generate', handleDailyGenerateJob);
   }
 
   // 启动调度器

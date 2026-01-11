@@ -2,7 +2,7 @@
 
 // ============ 任务类型 ============
 
-export type JobType = 'capture_theme' | 'capture_keyword';
+export type JobType = 'capture_theme' | 'capture_keyword' | 'daily_generate';
 export type ScheduleType = 'interval' | 'cron';
 export type JobStatus = 'success' | 'failed' | 'skipped';
 export type ExecutionStatus = 'pending' | 'running' | 'success' | 'failed' | 'canceled' | 'timeout';
@@ -67,6 +67,14 @@ export interface CaptureJobParams {
   timeoutMs?: number;
 }
 
+export interface DailyGenerateJobParams {
+  outputCount?: number;
+  output_count?: number;
+  days?: number;
+  goal?: string;
+  timeoutMs?: number;
+}
+
 // ============ 创建/更新 DTO ============
 
 export interface CreateJobInput {
@@ -77,7 +85,7 @@ export interface CreateJobInput {
   schedule_type: ScheduleType;
   interval_minutes?: number;
   cron_expression?: string;
-  params?: CaptureJobParams;
+  params?: CaptureJobParams | DailyGenerateJobParams;
   is_enabled?: boolean;
   priority?: number;
 }
@@ -87,7 +95,7 @@ export interface UpdateJobInput {
   schedule_type?: ScheduleType;
   interval_minutes?: number;
   cron_expression?: string;
-  params?: CaptureJobParams;
+  params?: CaptureJobParams | DailyGenerateJobParams;
   is_enabled?: boolean;
   priority?: number;
 }
