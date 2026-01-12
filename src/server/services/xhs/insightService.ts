@@ -6,6 +6,103 @@ export interface InsightFilter {
   sortBy?: 'engagement' | 'likes' | 'collects' | 'comments' | 'recent';
 }
 
+// 获取 LLM 配置（优先使用指定的 provider，否则使用默认设置）
+async function getLLMConfig(providerId?: number): Promise<{ baseUrl: string; apiKey: string; model: string } | null> {
+  if (providerId) {
+    const db = getDatabase();
+    const provider = db.prepare('SELECT base_url, api_key, model_name FROM llm_providers WHERE id = ?').get(providerId) as any;
+    if (provider?.base_url && provider?.api_key && provider?.model_name) {
+      return { baseUrl: provider.base_url, apiKey: provider.api_key, model: provider.model_name };
+    }
+  }
+  // 回退到默认设置
+  const settings = await getSettings();
+  if (settings.llmBaseUrl && settings.llmApiKey && settings.llmModel) {
+    return { baseUrl: settings.llmBaseUrl, apiKey: settings.llmApiKey, model: settings.llmModel };
+  }
+  return null;
+}
+
+// 导出给 API 使用的 LLM 配置获取函数
+export async function getLLMConfigForAPI(providerId?: number): Promise<{ baseUrl: string; apiKey: string; model: string } | null> {
+  return getLLMConfig(providerId);
+}
+
+// 获取分析提示词数据（供 API 使用）
+export function getAnalysisPromptData(themeId: number, filter?: InsightFilter, promptId?: number): { prompt?: string; error?: string } {
+  const topTitles = getTopTitles(themeId, 50, filter);
+  if (topTitles.length < 5) {
+    return { error: '数据不足，请先抓取更多笔记' };
+  }
+
+  const titleList = topTitles.slice(0, 30).map((t, i) =>
+    `${i + 1}. ${t.title} (赞:${t.like_count}, 藏:${t.collect_count}, 评:${t.comment_count})`
+  ).join('\n');
+
+  let prompt: string;
+  if (promptId) {
+    const customPrompt = getPromptProfile(promptId);
+    if (customPrompt) {
+      prompt = customPrompt.system_prompt + '\n\n' + (customPrompt.user_template || '').replace('{{titles}}', titleList);
+    } else {
+      prompt = getDefaultAnalysisPrompt(titleList);
+    }
+  } else {
+    prompt = getDefaultAnalysisPrompt(titleList);
+  }
+
+  return { prompt };
+}
+
+// 获取趋势报告提示词数据（供 API 使用）
+export function getTrendPromptData(themeId: number): { prompt?: string; stats?: any; error?: string } {
+  const today = getTodayDate();
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+  const todayStats = getDayStats(themeId, today);
+  const yesterdayStats = getDayStats(themeId, yesterdayStr);
+
+  const topTitles = getTopTitles(themeId, 20, { days: 7 });
+  const titleList = topTitles.slice(0, 15).map((t, i) => `${i + 1}. ${t.title}`).join('\n');
+
+  const prompt = `作为小红书运营分析师，根据以下数据生成简短的趋势报告：
+
+今日数据：新增${todayStats.newNotes}篇，点赞${todayStats.totalLikes}，收藏${todayStats.totalCollects}
+昨日数据：新增${yesterdayStats.newNotes}篇，点赞${yesterdayStats.totalLikes}，收藏${yesterdayStats.totalCollects}
+热门标签：${todayStats.topTags.map(t => t.tag).join('、') || '暂无'}
+
+近期热门标题：
+${titleList || '暂无数据'}
+
+请用3-4句话总结：1)数据变化趋势 2)内容热点方向 3)创作建议
+直接输出分析，不要输出思考过程。`;
+
+  return { prompt, stats: todayStats };
+}
+
+// 保存趋势报告到数据库
+export function saveTrendReport(themeId: number, stats: any, analysis: string) {
+  const db = getDatabase();
+  const today = getTodayDate();
+  db.prepare(
+    `INSERT OR REPLACE INTO trend_reports (theme_id, report_date, stats_json, analysis, created_at)
+     VALUES (?, ?, ?, ?, datetime('now'))`
+  ).run(themeId, today, JSON.stringify(stats), cleanLLMResponse(analysis));
+}
+
+// 获取提示词模板
+function getPromptProfile(promptId: number): { system_prompt: string; user_template: string } | null {
+  const db = getDatabase();
+  return db.prepare('SELECT system_prompt, user_template FROM prompt_profiles WHERE id = ?').get(promptId) as any;
+}
+
+// 默认分析提示词
+function getDefaultAnalysisPrompt(titleList: string): string {
+  return `分析以下小红书爆款笔记标题的共同特点，总结3-5条爆款标题公式：\n\n${titleList}\n\n请用简洁的中文回答，每条公式用一行，格式如：\n1. 公式名称：具体说明\n\n注意：直接输出分析结果，不要输出思考过程。`;
+}
+
 // 停用词列表
 const STOP_WORDS = new Set(['的', '了', '是', '在', '我', '有', '和', '就', '不', '人', '都', '一', '一个', '上', '也', '很', '到', '说', '要', '去', '你', '会', '着', '没有', '看', '好', '自己', '这', '那', '什么', '怎么', '为什么', '可以', '这个', '那个', '还是', '但是', '如果', '因为', '所以', '然后', '或者', '而且', '虽然', '不过', '只是', '已经', '一直', '还有', '真的', '其实', '感觉', '觉得', '知道', '应该', '可能', '需要', '希望', '喜欢', '想要', '开始', '时候', '现在', '今天', '明天', '昨天']);
 
@@ -83,7 +180,7 @@ function cleanLLMResponse(content: string): string {
 }
 
 export async function analyzeTitlePatterns(themeId: number, filter?: InsightFilter): Promise<string> {
-  const settings = getSettings();
+  const settings = await getSettings();
   if (!settings.llmBaseUrl || !settings.llmApiKey || !settings.llmModel) return '请先配置LLM API';
 
   const topTitles = getTopTitles(themeId, 50, filter);
@@ -106,6 +203,71 @@ export async function analyzeTitlePatterns(themeId: number, filter?: InsightFilt
     return cleanLLMResponse(content);
   } catch (e) {
     return '分析失败: ' + (e as Error).message;
+  }
+}
+
+export async function* analyzeTitlePatternsStream(themeId: number, filter?: InsightFilter, providerId?: number, promptId?: number): AsyncGenerator<string> {
+  const llmConfig = await getLLMConfig(providerId);
+  if (!llmConfig) {
+    yield '请先配置LLM API';
+    return;
+  }
+
+  const topTitles = getTopTitles(themeId, 50, filter);
+  if (topTitles.length < 5) {
+    yield '数据不足，请先抓取更多笔记';
+    return;
+  }
+
+  const titleList = topTitles.slice(0, 30).map((t, i) =>
+    `${i + 1}. ${t.title} (赞:${t.like_count}, 藏:${t.collect_count}, 评:${t.comment_count})`
+  ).join('\n');
+
+  // 获取自定义提示词或使用默认
+  let prompt: string;
+  if (promptId) {
+    const customPrompt = getPromptProfile(promptId);
+    if (customPrompt) {
+      prompt = customPrompt.system_prompt + '\n\n' + (customPrompt.user_template || '').replace('{{titles}}', titleList);
+    } else {
+      prompt = getDefaultAnalysisPrompt(titleList);
+    }
+  } else {
+    prompt = getDefaultAnalysisPrompt(titleList);
+  }
+
+  const res = await fetch(`${llmConfig.baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${llmConfig.apiKey}` },
+    body: JSON.stringify({ model: llmConfig.model, messages: [{ role: 'user', content: prompt }], max_tokens: 500, stream: true })
+  });
+
+  if (!res.body) {
+    yield '流式响应失败';
+    return;
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+        try {
+          const json = JSON.parse(line.slice(6));
+          const content = json.choices?.[0]?.delta?.content;
+          if (content) yield content;
+        } catch {}
+      }
+    }
   }
 }
 
@@ -196,7 +358,7 @@ export async function generateTrendReport(themeId: number): Promise<{ stats: Tre
   const yesterdayStats = getDayStats(themeId, yesterdayStr);
 
   // 生成AI分析
-  const settings = getSettings();
+  const settings = await getSettings();
   let analysis = '';
 
   if (settings.llmBaseUrl && settings.llmApiKey && settings.llmModel) {
@@ -236,6 +398,85 @@ ${titleList || '暂无数据'}
   ).run(themeId, today, JSON.stringify(todayStats), analysis);
 
   return { stats: todayStats, analysis };
+}
+
+export async function* generateTrendReportStream(themeId: number, providerId?: number): AsyncGenerator<{ stats: TrendStats } | string> {
+  const today = getTodayDate();
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+  const todayStats = getDayStats(themeId, today);
+  const yesterdayStats = getDayStats(themeId, yesterdayStr);
+
+  // 先返回统计数据
+  yield { stats: todayStats };
+
+  const llmConfig = await getLLMConfig(providerId);
+  if (!llmConfig) {
+    yield '请先配置LLM API';
+    return;
+  }
+
+  const topTitles = getTopTitles(themeId, 20, { days: 7 });
+  const titleList = topTitles.slice(0, 15).map((t, i) => `${i + 1}. ${t.title}`).join('\n');
+
+  const prompt = `作为小红书运营分析师，根据以下数据生成简短的趋势报告：
+
+今日数据：新增${todayStats.newNotes}篇，点赞${todayStats.totalLikes}，收藏${todayStats.totalCollects}
+昨日数据：新增${yesterdayStats.newNotes}篇，点赞${yesterdayStats.totalLikes}，收藏${yesterdayStats.totalCollects}
+热门标签：${todayStats.topTags.map(t => t.tag).join('、') || '暂无'}
+
+近期热门标题：
+${titleList || '暂无数据'}
+
+请用3-4句话总结：1)数据变化趋势 2)内容热点方向 3)创作建议
+直接输出分析，不要输出思考过程。`;
+
+  const res = await fetch(`${llmConfig.baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${llmConfig.apiKey}` },
+    body: JSON.stringify({ model: llmConfig.model, messages: [{ role: 'user', content: prompt }], max_tokens: 300, stream: true })
+  });
+
+  if (!res.body) {
+    yield '流式响应失败';
+    return;
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let fullAnalysis = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+        try {
+          const json = JSON.parse(line.slice(6));
+          const content = json.choices?.[0]?.delta?.content;
+          if (content) {
+            fullAnalysis += content;
+            yield content;
+          }
+        } catch {}
+      }
+    }
+  }
+
+  // 保存报告到数据库
+  const db = getDatabase();
+  db.prepare(
+    `INSERT OR REPLACE INTO trend_reports (theme_id, report_date, stats_json, analysis, created_at)
+     VALUES (?, ?, ?, ?, datetime('now'))`
+  ).run(themeId, today, JSON.stringify(todayStats), cleanLLMResponse(fullAnalysis));
 }
 
 // 获取最新趋势报告

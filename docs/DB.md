@@ -1,4 +1,9 @@
-# Local Database
+# Database
+
+## Provider Switch
+- `XHS_DB_PROVIDER=supabase|sqlite` controls which backend is used (default: `supabase`).
+- `sqlite` uses a local file under Electron userData (`xhs-generator.db`).
+- `supabase` uses Postgres via Supabase (requires `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY`).
 
 ## Location
 The database is stored under the Electron userData directory as xhs-generator.db.

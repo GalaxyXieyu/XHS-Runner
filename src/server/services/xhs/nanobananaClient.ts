@@ -4,9 +4,9 @@ const DEFAULT_IMAGE_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=';
 
 export async function generateContent(prompt: string) {
-  const mode = process.env.NANOBANANA_MODE || getSetting('nanobananaMode') || 'mock';
-  const endpoint = process.env.NANOBANANA_ENDPOINT || getSetting('nanobananaEndpoint');
-  const apiKey = process.env.NANOBANANA_API_KEY || getSetting('nanobananaApiKey');
+  const mode = process.env.NANOBANANA_MODE || (await getSetting('nanobananaMode')) || 'mock';
+  const endpoint = process.env.NANOBANANA_ENDPOINT || (await getSetting('nanobananaEndpoint'));
+  const apiKey = process.env.NANOBANANA_API_KEY || (await getSetting('nanobananaApiKey'));
 
   if (mode === 'mock' || !endpoint) {
     return {

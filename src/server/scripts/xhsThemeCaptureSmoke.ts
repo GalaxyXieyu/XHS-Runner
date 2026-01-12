@@ -82,7 +82,7 @@ async function run() {
     throw new Error('No keywords provided for capture smoke test.');
   }
 
-  setSettings({ captureEnabled: true });
+  await setSettings({ captureEnabled: true });
 
   if (!skipLogin) {
     console.log('[xhs-theme-smoke] checking login status...');
@@ -91,7 +91,7 @@ async function run() {
   }
 
   console.log('[xhs-theme-smoke] creating theme with keywords:', keywords);
-  const theme = createTheme({
+  const theme = await createTheme({
     name: themeName,
     description: themeDescription,
     keywords,

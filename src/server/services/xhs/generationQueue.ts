@@ -1,4 +1,4 @@
-import { getDatabase } from '../../db';
+import { supabase } from '../../supabase';
 import { storeAsset } from './assetStore';
 import { generateImage, ImageModel } from './imageProvider';
 import { renderTemplate } from './promptTemplates';
@@ -8,7 +8,7 @@ let isPaused = false;
 let isProcessing = false;
 const queue: number[] = [];
 
-function createTask({
+async function createTask({
   topicId,
   prompt,
   templateKey,
@@ -19,33 +19,43 @@ function createTask({
   templateKey?: string;
   model?: ImageModel;
 }) {
-  const db = getDatabase();
   const finalPrompt = renderTemplate(templateKey || 'default', { topic: prompt });
-  const result = db
-    .prepare(
-      `INSERT INTO generation_tasks (topic_id, status, prompt, model, created_at, updated_at)
-       VALUES (?, 'queued', ?, ?, datetime('now'), datetime('now'))`
-    )
-    .run(topicId || null, finalPrompt, model || 'nanobanana');
+
+  const { data } = await supabase
+    .from('generation_tasks')
+    .insert({
+      topic_id: topicId || null,
+      status: 'queued',
+      prompt: finalPrompt,
+      model: model || 'nanobanana'
+    })
+    .select('id')
+    .single();
+
   if (topicId) {
     try {
-      updateTopicStatus(topicId, 'generating');
-    } catch (error) {
-      // Ignore invalid transitions for now.
+      await updateTopicStatus(topicId, 'generating');
+    } catch {
+      // Ignore invalid transitions
     }
   }
-  return { id: result.lastInsertRowid, prompt: finalPrompt };
+
+  return { id: data!.id, prompt: finalPrompt };
 }
 
-export function enqueueTask(payload: { topicId?: number; prompt: string; templateKey?: string; model?: ImageModel }) {
-  const task = createTask(payload);
+export async function enqueueTask(payload: { topicId?: number; prompt: string; templateKey?: string; model?: ImageModel }) {
+  const task = await createTask(payload);
   queue.push(task.id);
   processQueue();
   return task;
 }
 
-export function enqueueBatch(tasks: Array<{ topicId?: number; prompt: string; templateKey?: string; model?: ImageModel }>) {
-  return tasks.map((task) => enqueueTask(task));
+export async function enqueueBatch(tasks: Array<{ topicId?: number; prompt: string; templateKey?: string; model?: ImageModel }>) {
+  const results = [];
+  for (const task of tasks) {
+    results.push(await enqueueTask(task));
+  }
+  return results;
 }
 
 export function pauseQueue() {
@@ -59,15 +69,17 @@ export function resumeQueue() {
   return { paused: false, queued: queue.length };
 }
 
-export function cancelTask(taskId: number) {
-  const db = getDatabase();
+export async function cancelTask(taskId: number) {
   const index = queue.indexOf(taskId);
   if (index >= 0) {
     queue.splice(index, 1);
   }
-  db.prepare(
-    `UPDATE generation_tasks SET status = 'canceled', updated_at = datetime('now') WHERE id = ?`
-  ).run(taskId);
+
+  await supabase
+    .from('generation_tasks')
+    .update({ status: 'canceled', updated_at: new Date().toISOString() })
+    .eq('id', taskId);
+
   return { id: taskId, status: 'canceled' };
 }
 
@@ -92,15 +104,18 @@ async function processQueue() {
 }
 
 async function handleTask(taskId: number) {
-  const db = getDatabase();
-  const task = db.prepare('SELECT id, prompt, model FROM generation_tasks WHERE id = ?').get(taskId);
-  if (!task) {
-    return;
-  }
+  const { data: task } = await supabase
+    .from('generation_tasks')
+    .select('id, prompt, model, topic_id')
+    .eq('id', taskId)
+    .single();
 
-  db.prepare(
-    `UPDATE generation_tasks SET status = 'generating', updated_at = datetime('now') WHERE id = ?`
-  ).run(taskId);
+  if (!task) return;
+
+  await supabase
+    .from('generation_tasks')
+    .update({ status: 'generating', updated_at: new Date().toISOString() })
+    .eq('id', taskId);
 
   try {
     const result = await generateImage({ prompt: task.prompt, model: task.model || 'nanobanana' });
@@ -116,31 +131,29 @@ async function handleTask(taskId: number) {
       },
     });
 
-    db.prepare(
-      `UPDATE generation_tasks
-       SET status = 'done', result_asset_id = ?, updated_at = datetime('now')
-       WHERE id = ?`
-    ).run(asset.id, taskId);
-    const taskRow = db.prepare('SELECT topic_id FROM generation_tasks WHERE id = ?').get(taskId);
-    if (taskRow?.topic_id) {
+    await supabase
+      .from('generation_tasks')
+      .update({ status: 'done', result_asset_id: asset.id, updated_at: new Date().toISOString() })
+      .eq('id', taskId);
+
+    if (task.topic_id) {
       try {
-        updateTopicStatus(taskRow.topic_id, 'reviewing');
-      } catch (error) {
-        // Ignore invalid transitions for now.
+        await updateTopicStatus(task.topic_id, 'reviewing');
+      } catch {
+        // Ignore invalid transitions
       }
     }
-  } catch (error) {
-    db.prepare(
-      `UPDATE generation_tasks
-       SET status = 'failed', updated_at = datetime('now')
-       WHERE id = ?`
-    ).run(taskId);
-    const taskRow = db.prepare('SELECT topic_id FROM generation_tasks WHERE id = ?').get(taskId);
-    if (taskRow?.topic_id) {
+  } catch {
+    await supabase
+      .from('generation_tasks')
+      .update({ status: 'failed', updated_at: new Date().toISOString() })
+      .eq('id', taskId);
+
+    if (task.topic_id) {
       try {
-        updateTopicStatus(taskRow.topic_id, 'failed');
-      } catch (error) {
-        // Ignore invalid transitions for now.
+        await updateTopicStatus(task.topic_id, 'failed');
+      } catch {
+        // Ignore invalid transitions
       }
     }
   }

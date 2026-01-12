@@ -133,7 +133,7 @@ function insertTopic(
 }
 
 async function enforceRateLimit(rateLimitMs: number) {
-  const lastRequestAt = getSetting('capture:lastRequestAt');
+  const lastRequestAt = await getSetting('capture:lastRequestAt');
   if (!lastRequestAt || !rateLimitMs) {
     return;
   }
@@ -159,7 +159,7 @@ async function fetchWithRetry(keyword: string, limit: number, retryCount: number
 }
 
 export async function runCapture(keywordId: number, limit = 50) {
-  const settings = getSettings();
+  const settings = await getSettings();
   if (!settings.captureEnabled) {
     throw new Error('Capture is disabled by settings');
   }
@@ -170,7 +170,7 @@ export async function runCapture(keywordId: number, limit = 50) {
   }
 
   const cacheKey = `capture:last:${keywordId}`;
-  const lastCaptureAt = getSetting(cacheKey);
+  const lastCaptureAt = await getSetting(cacheKey);
   const cacheWindowMs = settings.captureFrequencyMinutes * 60 * 1000;
   if (lastCaptureAt) {
     const elapsed = Date.now() - new Date(lastCaptureAt).getTime();
@@ -191,20 +191,33 @@ export async function runCapture(keywordId: number, limit = 50) {
   }
 
   let inserted = 0;
-  for (const note of notes) {
+  for (let i = 0; i < notes.length; i++) {
+    const note = notes[i];
     if (note && note.id) {
+      // 每个笔记之间间隔 2-4 秒随机延迟
+      if (i > 0) {
+        const delay = 2000 + Math.random() * 2000;
+        await sleep(delay);
+      }
+
       let enrichedNote = note;
       const xsecToken = (note as any).xsec_token;
       if (xsecToken && !note.desc) {
-        try {
-          console.log(`[capture] Fetching detail for ${note.id}...`);
-          const detail = await fetchNoteDetail(note.id, { xsecToken });
-          if (detail?.desc) {
-            enrichedNote = { ...note, desc: detail.desc };
-            console.log(`[capture] Got desc for ${note.id}: ${detail.desc.slice(0, 50)}...`);
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          try {
+            console.log(`[capture] Fetching detail for ${note.id} (attempt ${attempt})...`);
+            const detail = await fetchNoteDetail(note.id, { xsecToken });
+            if (detail?.desc) {
+              enrichedNote = { ...note, desc: detail.desc };
+              console.log(`[capture] Got desc for ${note.id}: ${detail.desc.slice(0, 50)}...`);
+              break;
+            } else {
+              console.log(`[capture] No desc in detail for ${note.id}:`, JSON.stringify(detail, null, 2));
+            }
+          } catch (e: any) {
+            console.warn(`[capture] Attempt ${attempt} failed for ${note.id}:`, e.message);
+            if (attempt < 2) await sleep(2000);
           }
-        } catch (e) {
-          console.warn(`[capture] Failed to fetch detail for ${note.id}:`, e);
         }
       }
       const rowId = insertTopic(keywordId, keyword.theme_id, enrichedNote);
@@ -215,8 +228,7 @@ export async function runCapture(keywordId: number, limit = 50) {
   }
 
   const now = new Date().toISOString();
-  setSetting(cacheKey, now);
-  setSetting('capture:lastRequestAt', now);
+  await Promise.all([setSetting(cacheKey, now), setSetting('capture:lastRequestAt', now)]);
 
   return {
     status: 'fetched',

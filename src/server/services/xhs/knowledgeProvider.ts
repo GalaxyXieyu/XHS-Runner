@@ -44,8 +44,8 @@ export class GraphitiProvider implements KnowledgeProvider {
   }
 }
 
-export function getKnowledgeProvider(): KnowledgeProvider {
-  const configured = getSetting('graphitiBaseUrl') || process.env.GRAPHITI_BASE_URL;
+export async function getKnowledgeProvider(): Promise<KnowledgeProvider> {
+  const configured = (await getSetting('graphitiBaseUrl')) || process.env.GRAPHITI_BASE_URL;
   if (configured) {
     return new GraphitiProvider(String(configured));
   }
