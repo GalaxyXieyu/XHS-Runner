@@ -288,8 +288,8 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
         {/* Expanded View */}
         {isExpanded && (
           <div className="border-t border-gray-200 p-3 bg-gray-50">
-            <div className="max-w-6xl mx-auto">
-              <div className="relative mb-3">
+            <div className="w-full">
+              <div className="relative mb-3 max-w-xl">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
                 <input
                   type="text"
@@ -300,11 +300,11 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
                 />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 max-h-96 overflow-y-auto">
+              <div className="flex flex-wrap gap-2">
                 {filteredThemes.map((theme) => (
                   <div
                     key={theme.id}
-                    className={`group relative p-3 rounded border cursor-pointer transition-all ${
+                    className={`group relative p-3 rounded border cursor-pointer transition-all w-64 flex-shrink-0 ${
                       selectedTheme?.id === theme.id
                         ? 'bg-red-50 border-red-200'
                         : 'bg-white border-gray-200 hover:border-gray-300'
@@ -321,7 +321,7 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
                         <div className="text-xs text-gray-500 line-clamp-2">{theme.description}</div>
                       </div>
                     </div>
-                    
+
                     <div className="flex items-center gap-2 text-xs text-gray-400 mt-2">
                       <span>{theme.keywords.length} 关键词</span>
                       <span>·</span>
@@ -339,7 +339,7 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
                     )}
 
                     {/* Actions */}
-                    <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity z-20">
                       <div className="relative group/menu">
                         <button
                           onClick={(e) => {
@@ -349,7 +349,7 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
                         >
                           <MoreVertical className="w-3.5 h-3.5 text-gray-500" />
                         </button>
-                        <div className="hidden group-hover/menu:block absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg py-1 z-10 min-w-[120px]">
+                        <div className="hidden group-hover/menu:block absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg py-1 z-50 min-w-[120px]">
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -427,7 +427,7 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
                 ))}
 
                 {filteredThemes.length === 0 && (
-                  <div className="col-span-full text-center py-8">
+                  <div className="w-full text-center py-8">
                     <div className="text-xs text-gray-400">暂无主题</div>
                   </div>
                 )}
@@ -461,7 +461,7 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
 
       {/* Create/Edit Theme Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4">
           <div className="bg-white rounded-lg p-4 max-w-md w-full">
             <div className="text-sm font-medium text-gray-900 mb-3">
               {editingTheme ? '编辑主题' : '创建新主题'}

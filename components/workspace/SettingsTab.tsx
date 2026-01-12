@@ -19,6 +19,8 @@ interface LLMConfig {
   configured: boolean;
 }
 
+// 注意：base_url 已在接口中定义
+
 interface PromptTemplate {
   id: number;
   name: string;
@@ -57,13 +59,57 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
   const [showPromptModal, setShowPromptModal] = useState(false);
   const [rulesSubTab, setRulesSubTab] = useState<'manage' | 'test'>('manage');
   const [promptTemplates, setPromptTemplates] = useState<PromptTemplate[]>([]);
+  const [captureEnabled, setCaptureEnabled] = useState(false);
+
+  // Form refs for modals
+  const llmFormRef = {
+    name: null as HTMLInputElement | null,
+    provider: null as HTMLSelectElement | null,
+    baseUrl: null as HTMLInputElement | null,
+    apiKey: null as HTMLInputElement | null,
+    model: null as HTMLInputElement | null,
+  };
+  const promptFormRef = {
+    name: null as HTMLInputElement | null,
+    category: null as HTMLSelectElement | null,
+    description: null as HTMLInputElement | null,
+    content: null as HTMLTextAreaElement | null,
+  };
+  const extensionFormRef = {
+    apiKey: null as HTMLInputElement | null,
+    endpoint: null as HTMLInputElement | null,
+  };
 
   // Load data on mount
   useEffect(() => {
     loadLlmProviders();
     loadPromptProfiles();
     loadExtensionServices();
+    loadCaptureEnabled();
   }, []);
+
+  const loadCaptureEnabled = async () => {
+    try {
+      const res = await fetch('/api/settings');
+      const data = await res.json();
+      setCaptureEnabled(data.captureEnabled ?? false);
+    } catch (e) {
+      console.error('Failed to load settings:', e);
+    }
+  };
+
+  const handleCaptureToggle = async (enabled: boolean) => {
+    setCaptureEnabled(enabled);
+    try {
+      await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ captureEnabled: enabled }),
+      });
+    } catch (e) {
+      console.error('Failed to save capture setting:', e);
+    }
+  };
 
   const loadLlmProviders = async () => {
     try {
@@ -85,14 +131,14 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
 
   const loadPromptProfiles = async () => {
     try {
-      let data: any[];
+      let data: any;
       if (window.promptProfiles) {
         data = await window.promptProfiles.list();
       } else {
         const res = await fetch('/api/prompt-profiles');
         data = await res.json();
       }
-      setPromptTemplates(data);
+      setPromptTemplates(Array.isArray(data) ? data : []);
     } catch (e) {
       console.error('Failed to load prompt profiles:', e);
     }
@@ -100,14 +146,14 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
 
   const loadExtensionServices = async () => {
     try {
-      let data: any[];
+      let data: any;
       if (window.extensionServices) {
         data = await window.extensionServices.list();
       } else {
         const res = await fetch('/api/extension-services');
         data = await res.json();
       }
-      setExtensionServices(data);
+      setExtensionServices(Array.isArray(data) ? data : []);
     } catch (e) {
       console.error('Failed to load extension services:', e);
     }
@@ -168,6 +214,149 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
     };
     checkAuth();
   }, []);
+
+  // CRUD handlers for LLM providers
+  const handleSaveLLM = async () => {
+    const name = llmFormRef.name?.value?.trim();
+    const provider_type = llmFormRef.provider?.value;
+    const base_url = llmFormRef.baseUrl?.value?.trim();
+    const api_key = llmFormRef.apiKey?.value?.trim();
+    const model_name = llmFormRef.model?.value?.trim();
+    if (!name) return;
+
+    try {
+      if (selectedLLM) {
+        // Update
+        if (window.llmProviders) {
+          await window.llmProviders.update({ id: selectedLLM.id, name, provider_type, base_url, api_key, model_name });
+        } else {
+          await fetch(`/api/llm-providers/${selectedLLM.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, provider_type, base_url, api_key, model_name }),
+          });
+        }
+      } else {
+        // Create
+        if (window.llmProviders) {
+          await window.llmProviders.create({ name, provider_type, base_url, api_key, model_name });
+        } else {
+          await fetch('/api/llm-providers', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, provider_type, base_url, api_key, model_name }),
+          });
+        }
+      }
+      await loadLlmProviders();
+    } catch (e) {
+      console.error('Failed to save LLM provider:', e);
+    }
+    setShowLLMModal(false);
+    setSelectedLLM(null);
+  };
+
+  const handleDeleteLLM = async (id: number) => {
+    try {
+      if (window.llmProviders) {
+        await window.llmProviders.delete(id);
+      } else {
+        await fetch(`/api/llm-providers/${id}`, { method: 'DELETE' });
+      }
+      await loadLlmProviders();
+    } catch (e) {
+      console.error('Failed to delete LLM provider:', e);
+    }
+  };
+
+  // CRUD handlers for prompt profiles
+  const handleSavePrompt = async () => {
+    const name = promptFormRef.name?.value?.trim();
+    const category = promptFormRef.category?.value;
+    const description = promptFormRef.description?.value?.trim();
+    const system_prompt = promptFormRef.content?.value?.trim();
+    if (!name) return;
+
+    try {
+      if (selectedPrompt) {
+        if (window.promptProfiles) {
+          await window.promptProfiles.update({ id: selectedPrompt.id, name, category, description, system_prompt });
+        } else {
+          await fetch(`/api/prompt-profiles/${selectedPrompt.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, category, description, system_prompt }),
+          });
+        }
+      } else {
+        if (window.promptProfiles) {
+          await window.promptProfiles.create({ name, category, description, system_prompt });
+        } else {
+          await fetch('/api/prompt-profiles', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, category, description, system_prompt }),
+          });
+        }
+      }
+      await loadPromptProfiles();
+    } catch (e) {
+      console.error('Failed to save prompt profile:', e);
+    }
+    setShowPromptModal(false);
+    setSelectedPrompt(null);
+  };
+
+  const handleDeletePrompt = async (id: number) => {
+    try {
+      if (window.promptProfiles) {
+        await window.promptProfiles.delete(id);
+      } else {
+        await fetch(`/api/prompt-profiles/${id}`, { method: 'DELETE' });
+      }
+      await loadPromptProfiles();
+    } catch (e) {
+      console.error('Failed to delete prompt profile:', e);
+    }
+  };
+
+  // CRUD handlers for extension services
+  const handleSaveExtension = async () => {
+    if (!selectedAPI) return;
+    const api_key = extensionFormRef.apiKey?.value?.trim();
+    const endpoint = extensionFormRef.endpoint?.value?.trim();
+    const service = defaultExtensionTypes.find(s => s.service_type === selectedAPI);
+    if (!service) return;
+
+    try {
+      const existing = extensionServices.find(s => s.service_type === selectedAPI);
+      if (existing) {
+        if (window.extensionServices) {
+          await window.extensionServices.update({ id: existing.id, api_key, endpoint, is_enabled: 1 });
+        } else {
+          await fetch(`/api/extension-services/${existing.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ api_key, endpoint, is_enabled: 1 }),
+          });
+        }
+      } else {
+        if (window.extensionServices) {
+          await window.extensionServices.create({ service_type: selectedAPI, name: service.name, api_key, endpoint, is_enabled: 1 });
+        } else {
+          await fetch('/api/extension-services', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ service_type: selectedAPI, name: service.name, api_key, endpoint, is_enabled: 1 }),
+          });
+        }
+      }
+      await loadExtensionServices();
+    } catch (e) {
+      console.error('Failed to save extension service:', e);
+    }
+    setSelectedAPI(null);
+  };
 
   return (
     <div className="h-full flex bg-gray-50">
@@ -368,9 +557,7 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
                           <Edit2 className="w-3 h-3 text-gray-500" />
                         </button>
                         <button
-                          onClick={() => {
-                            setLlmConfigs(llmConfigs.filter(c => c.id !== config.id));
-                          }}
+                          onClick={() => handleDeleteLLM(config.id)}
                           className="p-1 hover:bg-red-50 rounded"
                         >
                           <Trash2 className="w-3 h-3 text-red-500" />
@@ -434,6 +621,7 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
                     <div>
                       <label className="block text-xs text-gray-700 mb-1">名称</label>
                       <input
+                        ref={el => { llmFormRef.name = el; }}
                         type="text"
                         defaultValue={selectedLLM?.name}
                         placeholder="例如：GPT-4"
@@ -443,19 +631,32 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
                     <div>
                       <label className="block text-xs text-gray-700 mb-1">API Provider</label>
                       <select
-                        defaultValue={selectedLLM?.provider_type}
+                        ref={el => { llmFormRef.provider = el; }}
+                        defaultValue={selectedLLM?.provider_type || 'OpenAI'}
                         className="w-full px-3 py-2 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
                       >
-                        <option>OpenAI</option>
-                        <option>Anthropic</option>
-                        <option>Google AI</option>
-                        <option>Azure OpenAI</option>
+                        <option value="openai">OpenAI</option>
+                        <option value="anthropic">Anthropic</option>
+                        <option value="google">Google AI</option>
+                        <option value="azure">Azure OpenAI</option>
                       </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-700 mb-1">Base URL</label>
+                      <input
+                        ref={el => { llmFormRef.baseUrl = el; }}
+                        type="text"
+                        defaultValue={selectedLLM?.base_url}
+                        placeholder="https://api.openai.com/v1"
+                        className="w-full px-3 py-2 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
+                      />
                     </div>
                     <div>
                       <label className="block text-xs text-gray-700 mb-1">API Key</label>
                       <input
+                        ref={el => { llmFormRef.apiKey = el; }}
                         type="password"
+                        defaultValue={selectedLLM?.api_key}
                         placeholder="sk-..."
                         className="w-full px-3 py-2 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
                       />
@@ -463,6 +664,7 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
                     <div>
                       <label className="block text-xs text-gray-700 mb-1">Model</label>
                       <input
+                        ref={el => { llmFormRef.model = el; }}
                         type="text"
                         defaultValue={selectedLLM?.model_name}
                         placeholder="gpt-4"
@@ -481,10 +683,7 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
                       取消
                     </button>
                     <button
-                      onClick={() => {
-                        setShowLLMModal(false);
-                        setSelectedLLM(null);
-                      }}
+                      onClick={handleSaveLLM}
                       className="flex-1 px-3 py-1.5 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
                     >
                       保存
@@ -505,7 +704,9 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
                     <div>
                       <label className="block text-xs text-gray-700 mb-1">API Key</label>
                       <input
+                        ref={el => { extensionFormRef.apiKey = el; }}
                         type="password"
+                        defaultValue={extensionServices.find(s => s.service_type === selectedAPI)?.api_key}
                         placeholder="输入 API Key"
                         className="w-full px-3 py-2 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
                       />
@@ -513,7 +714,9 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
                     <div>
                       <label className="block text-xs text-gray-700 mb-1">API Endpoint (可选)</label>
                       <input
+                        ref={el => { extensionFormRef.endpoint = el; }}
                         type="text"
+                        defaultValue={extensionServices.find(s => s.service_type === selectedAPI)?.endpoint}
                         placeholder="https://..."
                         className="w-full px-3 py-2 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
                       />
@@ -527,7 +730,7 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
                       取消
                     </button>
                     <button
-                      onClick={() => setSelectedAPI(null)}
+                      onClick={handleSaveExtension}
                       className="flex-1 px-3 py-1.5 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
                     >
                       保存
@@ -622,9 +825,7 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
                           <Edit2 className="w-3 h-3 text-gray-500" />
                         </button>
                         <button
-                          onClick={() => {
-                            setPromptTemplates(promptTemplates.filter(p => p.id !== prompt.id));
-                          }}
+                          onClick={() => handleDeletePrompt(prompt.id)}
                           className="p-1 hover:bg-red-50 rounded"
                         >
                           <Trash2 className="w-3 h-3 text-red-500" />
@@ -650,7 +851,9 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
 
             {/* Test Sub Tab */}
             {rulesSubTab === 'test' && (
-              <PromptPlayground prompts={promptTemplates} />
+              <div className="h-[calc(100vh-280px)] overflow-visible">
+                <PromptPlayground prompts={promptTemplates} />
+              </div>
             )}
 
             {/* Prompt Modal */}
@@ -664,6 +867,7 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
                     <div>
                       <label className="block text-xs text-gray-700 mb-1">名称</label>
                       <input
+                        ref={el => { promptFormRef.name = el; }}
                         type="text"
                         defaultValue={selectedPrompt?.name}
                         placeholder="例如：小红书爆款标题"
@@ -673,18 +877,20 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
                     <div>
                       <label className="block text-xs text-gray-700 mb-1">分类</label>
                       <select
-                        defaultValue={selectedPrompt?.category}
+                        ref={el => { promptFormRef.category = el; }}
+                        defaultValue={selectedPrompt?.category || '标题生成'}
                         className="w-full px-3 py-2 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
                       >
-                        <option>标题生成</option>
-                        <option>正文生成</option>
-                        <option>互动回复</option>
-                        <option>其他</option>
+                        <option value="标题生成">标题生成</option>
+                        <option value="正文生成">正文生成</option>
+                        <option value="互动回复">互动回复</option>
+                        <option value="其他">其他</option>
                       </select>
                     </div>
                     <div>
                       <label className="block text-xs text-gray-700 mb-1">描述</label>
                       <input
+                        ref={el => { promptFormRef.description = el; }}
                         type="text"
                         defaultValue={selectedPrompt?.description}
                         placeholder="简短描述这个提示词的用途"
@@ -694,6 +900,7 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
                     <div>
                       <label className="block text-xs text-gray-700 mb-1">提示词内容</label>
                       <textarea
+                        ref={el => { promptFormRef.content = el; }}
                         rows={8}
                         defaultValue={selectedPrompt?.system_prompt}
                         placeholder="输入提示词内容，使用 {input} 作为占位符..."
@@ -715,10 +922,7 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
                       取消
                     </button>
                     <button
-                      onClick={() => {
-                        setShowPromptModal(false);
-                        setSelectedPrompt(null);
-                      }}
+                      onClick={handleSavePrompt}
                       className="flex-1 px-3 py-1.5 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
                     >
                       保存
@@ -742,6 +946,15 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
               <div className="bg-white border border-gray-200 rounded p-4">
                 <div className="text-xs font-medium text-gray-900 mb-3">自动化功能</div>
                 <div className="space-y-2">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={captureEnabled}
+                      onChange={(e) => handleCaptureToggle(e.target.checked)}
+                      className="w-3.5 h-3.5 text-red-500 rounded"
+                    />
+                    <span className="text-xs text-gray-700">启用笔记抓取</span>
+                  </label>
                   <label className="flex items-center gap-2">
                     <input type="checkbox" className="w-3.5 h-3.5 text-red-500 rounded" />
                     <span className="text-xs text-gray-700">启用自动回复</span>

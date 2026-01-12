@@ -17,14 +17,38 @@ async function ensureInit() {
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     await ensureInit();
-    const { analyzeTitlePatterns } = await import('../../../src/server/services/xhs/insightService');
-    
+
     if (req.method === 'POST') {
-      const { themeId, days, sortBy } = req.body;
+      const { themeId, days, sortBy, providerId, promptId } = req.body;
       if (!themeId) return res.status(400).json({ error: 'themeId required' });
-      const filter = { days, sortBy };
-      const analysis = await analyzeTitlePatterns(themeId, filter);
-      return res.status(200).json({ analysis });
+
+      const { getAnalysisPromptData, getLLMConfigForAPI } = await import('../../../src/server/services/xhs/insightService');
+
+      const promptData = getAnalysisPromptData(themeId, { days, sortBy }, promptId);
+      if (promptData.error) {
+        return res.status(400).json({ error: promptData.error });
+      }
+
+      const llmConfig = await getLLMConfigForAPI(providerId);
+      if (!llmConfig) {
+        return res.status(400).json({ error: '请先配置LLM API' });
+      }
+
+      // Use Vercel AI SDK streamText
+      const { streamText } = await import('ai');
+      const { createOpenAI } = await import('@ai-sdk/openai');
+
+      const openai = createOpenAI({
+        baseURL: llmConfig.baseUrl,
+        apiKey: llmConfig.apiKey,
+      });
+
+      const result = streamText({
+        model: openai(llmConfig.model),
+        prompt: promptData.prompt!,
+      });
+
+      return result.toTextStreamResponse();
     }
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (error: any) {

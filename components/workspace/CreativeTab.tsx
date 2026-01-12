@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Check, Edit2, RefreshCw, Search, X } from 'lucide-react';
+import { Check, Edit2, Image, RefreshCw, Search, X } from 'lucide-react';
 import { Theme } from '../../App';
 
 interface CreativeItem {
@@ -9,6 +9,7 @@ interface CreativeItem {
   tags: string[];
   status: 'draft' | 'ready' | 'published';
   createdAt: string;
+  coverPrompt?: string;
 }
 
 interface CreativeTabProps {
@@ -24,7 +25,8 @@ function normalizeCreative(row: any): CreativeItem {
     content: row.content || '',
     tags: Array.isArray(row.tags) ? row.tags : [],
     status: row.status || 'draft',
-    createdAt: row.created_at?.split('T')[0] || new Date().toISOString().split('T')[0]
+    createdAt: row.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
+    coverPrompt: row.cover_prompt || '',
   };
 }
 
@@ -34,6 +36,32 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
   const [searchQuery, setSearchQuery] = useState('');
   const [editing, setEditing] = useState<CreativeItem | null>(null);
   const [editForm, setEditForm] = useState({ content: '', tags: '' });
+  const [generating, setGenerating] = useState<number | null>(null);
+
+  const handleGenerate = async (item: CreativeItem) => {
+    const prompt = item.coverPrompt || item.title || item.content.slice(0, 100);
+    if (!prompt) return;
+
+    setGenerating(item.id);
+    try {
+      const res = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, model: 'jimeng' }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        alert(`生成失败: ${data.error}`);
+      } else {
+        alert(`已加入生成队列，任务ID: ${data.taskId}`);
+      }
+    } catch (error) {
+      console.error('Generate failed:', error);
+      alert('生成请求失败');
+    } finally {
+      setGenerating(null);
+    }
+  };
 
   const loadCreatives = async () => {
     setLoading(true);
@@ -213,6 +241,14 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
                 >
                   <Edit2 className="w-3 h-3" />
                   编辑
+                </button>
+                <button
+                  onClick={() => handleGenerate(item)}
+                  disabled={generating === item.id}
+                  className="text-xs text-purple-500 hover:text-purple-700 inline-flex items-center gap-1 disabled:opacity-50"
+                >
+                  <Image className="w-3 h-3" />
+                  {generating === item.id ? '生成中' : '生成图'}
                 </button>
               </div>
             </div>

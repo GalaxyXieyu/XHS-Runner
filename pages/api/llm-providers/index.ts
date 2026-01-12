@@ -17,7 +17,7 @@ async function ensureInit() {
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   await ensureInit();
   const { getDatabase } = await import('../../../src/server/db');
-  const db = getDatabase();
+  const db = getDatabase() as any;
 
   if (req.method === 'GET') {
     const providers = db.prepare('SELECT * FROM llm_providers ORDER BY is_default DESC, created_at DESC').all();

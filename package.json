@@ -4,7 +4,7 @@
   "private": true,
   "main": "electron/main.js",
   "scripts": {
-    "postinstall": "electron-rebuild",
+    "postinstall": "node scripts/electronRebuild.js",
     "dev": "npm run build:server && XHS_USER_DATA_PATH=\"$HOME/Library/Application Support/xhs-generator\" concurrently -k \"next dev\" \"wait-on http://localhost:3000 && electron .\"",
     "dev:next": "next dev",
     "dev:electron": "npm run build:server && wait-on http://localhost:3000 && electron .",
@@ -17,9 +17,11 @@
     "dist": "npm run build:server && electron-builder",
     "dist:mac": "npm run build:server && electron-builder --mac",
     "dist:win": "npm run build:server && electron-builder --win",
-    "rebuild": "electron-rebuild"
+    "rebuild": "node scripts/electronRebuild.js"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^3.0.7",
+    "@ai-sdk/react": "^3.0.29",
     "@radix-ui/react-accordion": "^1.2.3",
     "@radix-ui/react-alert-dialog": "^1.1.6",
     "@radix-ui/react-aspect-ratio": "^1.1.2",
@@ -46,6 +48,8 @@
     "@radix-ui/react-toggle": "^1.1.2",
     "@radix-ui/react-toggle-group": "^1.1.2",
     "@radix-ui/react-tooltip": "^1.1.8",
+    "@supabase/supabase-js": "^2.90.1",
+    "ai": "^6.0.27",
     "better-sqlite3": "11.7.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "*",

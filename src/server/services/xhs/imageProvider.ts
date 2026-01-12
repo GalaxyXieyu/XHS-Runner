@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { generateContent } from './nanobananaClient';
 import { getSetting } from '../../settings';
+import { getExtensionServiceByType } from '../extensionService';
 
 export type ImageModel = 'nanobanana' | 'jimeng';
 
@@ -282,18 +283,47 @@ async function generateJimengImage(params: {
   });
 }
 
-function getJimengConfig() {
+async function getJimengConfig() {
+  // 优先从 extension_services 表读取
+  const [imageService, imagehostService] = await Promise.all([
+    getExtensionServiceByType('image'),
+    getExtensionServiceByType('imagehost')
+  ]);
+
+  let accessKey = '';
+  let secretKey = '';
+  let superbedToken = '';
+
+  if (imageService?.config_json) {
+    try {
+      const config = JSON.parse(imageService.config_json);
+      accessKey = config.volcengine_access_key || '';
+      secretKey = config.volcengine_secret_key || '';
+    } catch {}
+  }
+
+  if (imagehostService?.api_key) {
+    superbedToken = imagehostService.api_key;
+  }
+
+  // Fallback 到 settings 表
+  const [fallbackAccessKey, fallbackSecretKey, fallbackSuperbedToken] = await Promise.all([
+    getSetting('volcengineAccessKey'),
+    getSetting('volcengineSecretKey'),
+    getSetting('superbedToken')
+  ]);
+
   return {
-    accessKey: getSetting('volcengineAccessKey') || '',
-    secretKey: getSetting('volcengineSecretKey') || '',
-    superbedToken: getSetting('superbedToken') || '',
+    accessKey: accessKey || fallbackAccessKey || '',
+    secretKey: secretKey || fallbackSecretKey || '',
+    superbedToken: superbedToken || fallbackSuperbedToken || '',
   };
 }
 
 export async function generateImage(input: ImageGenerateInput): Promise<ImageGenerateResult> {
   const model = input.model || 'nanobanana';
   if (model === 'jimeng') {
-    const { accessKey, secretKey, superbedToken } = getJimengConfig();
+    const { accessKey, secretKey, superbedToken } = await getJimengConfig();
     return generateJimengImage({
       prompt: input.prompt,
       images: input.images,

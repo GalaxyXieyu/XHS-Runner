@@ -17,7 +17,7 @@ async function ensureInit() {
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   await ensureInit();
   const { getDatabase } = await import('../../../src/server/db');
-  const db = getDatabase();
+  const db = getDatabase() as any;
   const { id } = req.query;
 
   if (req.method === 'PUT') {

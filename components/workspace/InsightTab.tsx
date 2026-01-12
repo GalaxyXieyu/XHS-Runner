@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
-import { TrendingUp, Hash, MessageCircle, RefreshCw, Heart, Star, Users, Loader2, Sparkles, Calendar, ArrowUpDown, FileText, List, Cloud } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { useCompletion } from '@ai-sdk/react';
+import { TrendingUp, Hash, MessageCircle, RefreshCw, Heart, Star, Users, Loader2, Sparkles, Calendar, ArrowUpDown, FileText, List, Cloud, Settings2 } from 'lucide-react';
 import type { Theme } from '../../App';
 
 interface InsightTabProps {
@@ -42,6 +43,23 @@ interface InsightStats {
   avgEngagement: number;
 }
 
+interface LLMProvider {
+  id: number;
+  name: string;
+  base_url: string;
+  api_key: string;
+  model_name: string;
+  is_default: number;
+}
+
+interface PromptProfile {
+  id: number;
+  name: string;
+  category: string;
+  system_prompt: string;
+  user_template: string;
+}
+
 type SortBy = 'engagement' | 'likes' | 'collects' | 'comments' | 'recent';
 
 export function InsightTab({ theme }: InsightTabProps) {
@@ -51,17 +69,66 @@ export function InsightTab({ theme }: InsightTabProps) {
   const [tags, setTags] = useState<TagData[]>([]);
   const [topTitles, setTopTitles] = useState<TopTitle[]>([]);
   const [stats, setStats] = useState<InsightStats | null>(null);
-  const [analysis, setAnalysis] = useState<string>('');
-  const [analyzing, setAnalyzing] = useState(false);
 
   // 趋势报告
   const [trendReport, setTrendReport] = useState<{ analysis: string; report_date: string } | null>(null);
-  const [generatingTrend, setGeneratingTrend] = useState(false);
 
   // 筛选参数
   const [days, setDays] = useState<number>(0);  // 0=全部, 7, 30
   const [sortBy, setSortBy] = useState<SortBy>('engagement');
   const [tagView, setTagView] = useState<'list' | 'cloud'>('list');
+
+  // 模型和提示词选择
+  const [llmProviders, setLlmProviders] = useState<LLMProvider[]>([]);
+  const [promptProfiles, setPromptProfiles] = useState<PromptProfile[]>([]);
+  const [selectedProviderId, setSelectedProviderId] = useState<number | null>(null);
+  const [selectedPromptId, setSelectedPromptId] = useState<number | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
+
+  // 使用 Vercel AI SDK 的 useCompletion hook 实现打字机效果
+  const {
+    completion: analysis,
+    isLoading: analyzing,
+    complete: runAnalysis,
+  } = useCompletion({
+    api: '/api/insights/analyze',
+    body: {
+      themeId: theme.id,
+      days,
+      sortBy,
+      providerId: selectedProviderId,
+      promptId: selectedPromptId,
+    },
+  });
+
+  const {
+    completion: trendAnalysis,
+    isLoading: generatingTrend,
+    complete: generateTrend,
+  } = useCompletion({
+    api: `/api/insights/trend?themeId=${theme.id}`,
+    body: {
+      providerId: selectedProviderId,
+    },
+    onFinish: () => {
+      // 更新趋势报告日期
+      setTrendReport(prev => prev ? { ...prev, analysis: '' } : { analysis: '', report_date: new Date().toISOString().split('T')[0] });
+    },
+  });
+
+  // 加载模型和提示词列表
+  useEffect(() => {
+    Promise.all([
+      fetch('/api/llm-providers').then(r => r.json()),
+      fetch('/api/prompt-profiles').then(r => r.json())
+    ]).then(([providers, profiles]) => {
+      setLlmProviders(providers);
+      setPromptProfiles(profiles.filter((p: PromptProfile) => p.category === '分析' || p.category === 'analysis'));
+      // 默认选择 is_default 的模型
+      const defaultProvider = providers.find((p: LLMProvider) => p.is_default);
+      if (defaultProvider) setSelectedProviderId(defaultProvider.id);
+    });
+  }, []);
 
   const loadData = async () => {
     try {
@@ -91,42 +158,19 @@ export function InsightTab({ theme }: InsightTabProps) {
     }
   };
 
-  const runAnalysis = async () => {
-    setAnalyzing(true);
-    try {
-      const res = await fetch('/api/insights/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ themeId: theme.id, days, sortBy })
-      });
-      const data = await res.json();
-      setAnalysis(data.analysis || '分析失败');
-    } catch (e) {
-      setAnalysis('分析失败: ' + (e as Error).message);
-    } finally {
-      setAnalyzing(false);
-    }
-  };
+  // 触发标题分析
+  const handleRunAnalysis = useCallback(() => {
+    runAnalysis('');
+  }, [runAnalysis]);
 
-  const generateTrendReport = async () => {
-    setGeneratingTrend(true);
-    try {
-      const res = await fetch(`/api/insights/trend?themeId=${theme.id}`, {
-        method: 'POST'
-      });
-      const data = await res.json();
-      setTrendReport({ analysis: data.analysis, report_date: data.stats?.date || new Date().toISOString().split('T')[0] });
-      loadData(); // 刷新历史数据
-    } catch (e) {
-      console.error('Failed to generate trend report:', e);
-    } finally {
-      setGeneratingTrend(false);
-    }
-  };
+  // 触发趋势报告生成
+  const handleGenerateTrend = useCallback(() => {
+    setTrendReport({ analysis: '', report_date: new Date().toISOString().split('T')[0] });
+    generateTrend('');
+  }, [generateTrend]);
 
   useEffect(() => {
     loadData();
-    setAnalysis('');
   }, [theme.id, days, sortBy]);
 
   const handleRefresh = () => {
@@ -147,7 +191,7 @@ export function InsightTab({ theme }: InsightTabProps) {
             {trendReport && <span className="text-xs text-gray-500 truncate">{trendReport.report_date}</span>}
           </div>
           <button
-            onClick={generateTrendReport}
+            onClick={handleGenerateTrend}
             disabled={generatingTrend}
             className="ml-2 px-3 py-1.5 bg-red-500 text-white text-xs font-medium rounded hover:bg-red-600 flex items-center gap-1.5 disabled:opacity-50 shrink-0 whitespace-nowrap transition-colors"
           >
@@ -155,8 +199,8 @@ export function InsightTab({ theme }: InsightTabProps) {
             <span>{generatingTrend ? '生成中...' : '生成报告'}</span>
           </button>
         </div>
-        {trendReport?.analysis ? (
-          <div className="text-xs text-gray-600 leading-relaxed bg-white rounded-lg p-2.5 max-h-20 overflow-y-auto">{trendReport.analysis}</div>
+        {(generatingTrend ? trendAnalysis : trendReport?.analysis) ? (
+          <div className="text-xs text-gray-600 leading-relaxed bg-white rounded-lg p-2.5 max-h-20 overflow-y-auto">{generatingTrend ? trendAnalysis : trendReport?.analysis}</div>
         ) : (
           <div className="text-xs text-gray-400 bg-white rounded-lg p-2.5 text-center">点击"生成报告"获取AI趋势分析</div>
         )}
@@ -190,10 +234,54 @@ export function InsightTab({ theme }: InsightTabProps) {
             <option value="recent">最新发布</option>
           </select>
         </div>
+        {/* AI 设置按钮 */}
+        <button
+          onClick={() => setShowSettings(!showSettings)}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg border transition-colors ${
+            showSettings ? 'bg-purple-50 border-purple-200 text-purple-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+          }`}
+        >
+          <Settings2 className="w-3.5 h-3.5" />
+          AI设置
+        </button>
         <div className="text-xs text-gray-400 ml-auto">
           标签按互动加权排序
         </div>
       </div>
+
+      {/* AI Settings Panel */}
+      {showSettings && (
+        <div className="bg-purple-50 border border-purple-100 rounded-lg p-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">选择模型</label>
+              <select
+                value={selectedProviderId || ''}
+                onChange={(e) => setSelectedProviderId(e.target.value ? Number(e.target.value) : null)}
+                className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/20"
+              >
+                <option value="">使用默认设置</option>
+                {llmProviders.map(p => (
+                  <option key={p.id} value={p.id}>{p.name} ({p.model_name})</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">分析提示词</label>
+              <select
+                value={selectedPromptId || ''}
+                onChange={(e) => setSelectedPromptId(e.target.value ? Number(e.target.value) : null)}
+                className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/20"
+              >
+                <option value="">使用默认提示词</option>
+                {promptProfiles.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-4 gap-3">
@@ -242,7 +330,7 @@ export function InsightTab({ theme }: InsightTabProps) {
             <span className="text-sm font-medium text-gray-900">爆款标题 Top10</span>
           </div>
           <button
-            onClick={runAnalysis}
+            onClick={handleRunAnalysis}
             disabled={analyzing || topTitles.length < 5}
             className="ml-2 px-3 py-1.5 bg-purple-500 text-white text-xs font-medium rounded hover:bg-purple-600 flex items-center gap-1.5 disabled:opacity-50 transition-colors shrink-0 whitespace-nowrap"
           >

@@ -4,6 +4,7 @@ out/
 dist/
 *.log
 .DS_Store
+.env.local
 data/
 data/
 plan/
@@ -11,3 +12,4 @@ electron/server/
 tsconfig.tsbuildinfo
 issues/*
 !issues/*.csv
+src/lib/*.js

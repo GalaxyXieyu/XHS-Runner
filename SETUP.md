@@ -29,9 +29,9 @@ ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ npm install
 如果遇到问题，手动执行：
 ```bash
 npm run rebuild
-# 或
-npx electron-rebuild
 ```
+
+说明：`rebuild/postinstall` 会把 electron headers 缓存到项目内的 `./.electron-gyp/`，避免写入 `~/.electron-gyp` 导致的权限问题。
 
 ### 3. Next.js 构建缓存问题
 

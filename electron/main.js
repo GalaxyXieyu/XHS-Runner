@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const { setUserDataPath } = require('./server/runtime/userDataPath');
 const { initializeDatabase } = require('./server/db');
@@ -73,7 +73,8 @@ function createWindow() {
   win.loadURL(startUrl);
 }
 
-ipcMain.handle('settings:get', () => {
+function registerIpcHandlers() {
+  ipcMain.handle('settings:get', () => {
   return getSettings();
 });
 
@@ -433,21 +434,54 @@ ipcMain.handle('extensionServices:update', (_event, payload) => {
 });
 
 ipcMain.handle('extensionServices:delete', (_event, id) => {
-  return deleteExtensionService(id);
-});
-
-app.whenReady().then(() => {
-  setUserDataPath(app.getPath('userData'));
-  initializeDatabase();
-  logger.info('app_ready', { config: getConfig() });
-  createWindow();
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
+    return deleteExtensionService(id);
   });
-});
+}
+
+function formatDatabaseInitError(error) {
+  const message = error && error.message ? String(error.message) : String(error);
+  return [
+    '数据库初始化失败，通常是 better-sqlite3 原生模块与 Electron ABI 不匹配导致。',
+    '',
+    `请在项目根目录执行：npm run rebuild`,
+    '如果仍然失败：删除 node_modules 后重新 npm install',
+    '',
+    `运行时版本：node=${process.versions.node} electron=${process.versions.electron} abi=${process.versions.modules}`,
+    '',
+    `原始错误：${message}`,
+  ].join('\n');
+}
+
+app
+  .whenReady()
+  .then(() => {
+    setUserDataPath(app.getPath('userData'));
+    try {
+      initializeDatabase();
+    } catch (error) {
+      const details = formatDatabaseInitError(error);
+      logger.error('database_init_failed', { error: details });
+      dialog.showErrorBox('XHS Runner 启动失败', details);
+      app.quit();
+      return;
+    }
+
+    registerIpcHandlers();
+    logger.info('app_ready', { config: getConfig() });
+    createWindow();
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+      }
+    });
+  })
+  .catch((error) => {
+    const message = error && error.message ? String(error.message) : String(error);
+    logger.error('app_ready_failed', { error: message });
+    dialog.showErrorBox('XHS Runner 启动失败', message);
+    app.quit();
+  });
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
