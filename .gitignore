@@ -9,4 +9,5 @@ data/
 plan/
 electron/server/
 tsconfig.tsbuildinfo
-issues/
+issues/*
+!issues/*.csv
