@@ -12,7 +12,7 @@ export function listPromptProfiles() {
   const db = getDatabase();
   return db
     .prepare(
-      `SELECT id, name, system_prompt, user_template, model, temperature, max_tokens, created_at, updated_at
+      `SELECT id, name, system_prompt, user_template, model, temperature, max_tokens, category, description, created_at, updated_at
        FROM prompt_profiles
        ORDER BY id DESC`
     )
@@ -26,7 +26,7 @@ export function getPromptProfile(id: number) {
   const db = getDatabase();
   return db
     .prepare(
-      `SELECT id, name, system_prompt, user_template, model, temperature, max_tokens, created_at, updated_at
+      `SELECT id, name, system_prompt, user_template, model, temperature, max_tokens, category, description, created_at, updated_at
        FROM prompt_profiles
        WHERE id = ?`
     )
@@ -54,15 +54,17 @@ export function createPromptProfile(payload: Record<string, any>) {
   const model = payload.model ? String(payload.model) : null;
   const temperature = toNumber(payload.temperature);
   const maxTokens = toNumber(payload.max_tokens ?? payload.maxTokens);
+  const category = payload.category ? String(payload.category) : null;
+  const description = payload.description ? String(payload.description) : null;
 
   const db = getDatabase();
   const result = db
     .prepare(
       `INSERT INTO prompt_profiles
-       (name, system_prompt, user_template, model, temperature, max_tokens, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+       (name, system_prompt, user_template, model, temperature, max_tokens, category, description, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
     )
-    .run(name, systemPrompt, userTemplate, model, temperature, maxTokens);
+    .run(name, systemPrompt, userTemplate, model, temperature, maxTokens, category, description);
 
   return getPromptProfile(result.lastInsertRowid as number);
 }
@@ -87,6 +89,8 @@ export function updatePromptProfile(payload: Record<string, any>) {
     model: payload.model ? String(payload.model) : undefined,
     temperature: payload.temperature !== undefined ? toNumber(payload.temperature) : undefined,
     max_tokens: payload.max_tokens !== undefined || payload.maxTokens !== undefined ? toNumber(payload.max_tokens ?? payload.maxTokens) : undefined,
+    category: payload.category !== undefined ? (payload.category ? String(payload.category) : null) : undefined,
+    description: payload.description !== undefined ? (payload.description ? String(payload.description) : null) : undefined,
   };
 
   db.prepare(
@@ -97,6 +101,8 @@ export function updatePromptProfile(payload: Record<string, any>) {
          model = COALESCE(?, model),
          temperature = COALESCE(?, temperature),
          max_tokens = COALESCE(?, max_tokens),
+         category = COALESCE(?, category),
+         description = COALESCE(?, description),
          updated_at = datetime('now')
      WHERE id = ?`
   ).run(
@@ -106,8 +112,19 @@ export function updatePromptProfile(payload: Record<string, any>) {
     updates.model,
     updates.temperature,
     updates.max_tokens,
+    updates.category,
+    updates.description,
     payload.id
   );
 
   return getPromptProfile(payload.id);
+}
+
+export function deletePromptProfile(id: number): boolean {
+  if (!id) {
+    throw new Error('promptProfiles:delete requires id');
+  }
+  const db = getDatabase();
+  const result = db.prepare('DELETE FROM prompt_profiles WHERE id = ?').run(id);
+  return result.changes > 0;
 }

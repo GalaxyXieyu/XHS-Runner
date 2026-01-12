@@ -327,7 +327,7 @@ export async function fetchNoteDetail(noteId: string, options: Record<string, an
   const rawDetail = detail?.detail || detail;
   return normalizeNoteDetail(
     {
-      data: { note: rawDetail, comments: rawDetail?.comments || [] },
+      data: { note: rawDetail, comments: (rawDetail as any)?.comments || [] },
       result: rawDetail,
       note: rawDetail,
     },

@@ -128,3 +128,26 @@ contextBridge.exposeInMainWorld('rateLimit', {
   status: () => ipcRenderer.invoke('rateLimit:status'),
   unblock: (payload) => ipcRenderer.invoke('rateLimit:unblock', payload),
 });
+
+// ============ 设置页 API ============
+
+contextBridge.exposeInMainWorld('llmProviders', {
+  list: () => ipcRenderer.invoke('llmProviders:list'),
+  create: (payload) => ipcRenderer.invoke('llmProviders:create', payload),
+  update: (payload) => ipcRenderer.invoke('llmProviders:update', payload),
+  delete: (id) => ipcRenderer.invoke('llmProviders:delete', id),
+});
+
+contextBridge.exposeInMainWorld('promptProfiles', {
+  list: () => ipcRenderer.invoke('promptProfiles:list'),
+  create: (payload) => ipcRenderer.invoke('promptProfiles:create', payload),
+  update: (payload) => ipcRenderer.invoke('promptProfiles:update', payload),
+  delete: (id) => ipcRenderer.invoke('promptProfiles:delete', id),
+});
+
+contextBridge.exposeInMainWorld('extensionServices', {
+  list: () => ipcRenderer.invoke('extensionServices:list'),
+  create: (payload) => ipcRenderer.invoke('extensionServices:create', payload),
+  update: (payload) => ipcRenderer.invoke('extensionServices:update', payload),
+  delete: (id) => ipcRenderer.invoke('extensionServices:delete', id),
+});

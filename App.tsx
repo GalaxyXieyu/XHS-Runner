@@ -3,7 +3,7 @@ import { FolderKanban, Sparkles, BarChart3, Settings as SettingsIcon } from 'luc
 import { ThemeManagement } from './components/ThemeManagement';
 import { CreativeTab } from './components/workspace/CreativeTab';
 import { OperationsTab } from './components/workspace/OperationsTab';
-import { Settings } from './components/Settings';
+import { SettingsTab } from './components/workspace/SettingsTab';
 
 export interface Keyword {
   id: number;
@@ -28,21 +28,6 @@ export interface Theme {
   } | null;
   createdAt: string;
   status: 'active' | 'paused' | 'completed';
-}
-
-declare global {
-  interface Window {
-    themes?: {
-      list: () => Promise<any[]>;
-      create: (payload: any) => Promise<any>;
-      update: (payload: any) => Promise<any>;
-      remove: (payload: any) => Promise<any>;
-      setStatus: (payload: any) => Promise<any>;
-    };
-    capture?: {
-      run: (payload: { keywordId: number; limit?: number }) => Promise<any>;
-    };
-  }
 }
 
 function transformTheme(t: any): Theme {
@@ -177,7 +162,7 @@ export default function App() {
             />
           )}
           {currentView === 'operations' && selectedTheme && <OperationsTab theme={selectedTheme} />}
-          {currentView === 'settings' && <Settings />}
+          {currentView === 'settings' && <SettingsTab theme={selectedTheme!} />}
           
           {!selectedTheme && currentView !== 'themes' && currentView !== 'settings' && (
             <div className="flex items-center justify-center h-full">

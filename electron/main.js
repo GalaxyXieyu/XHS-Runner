@@ -27,6 +27,24 @@ const { enqueuePublish, listPublishes } = require('./server/services/xhs/publish
 const { createTheme, listThemes, removeTheme, setThemeStatus, updateTheme } = require('./server/services/xhs/themeService');
 const { login, logout, checkStatus } = require('./server/services/xhs/localService');
 const {
+  listLlmProviders,
+  createLlmProvider,
+  updateLlmProvider,
+  deleteLlmProvider,
+} = require('./server/services/xhs/llmProviderService');
+const {
+  listPromptProfiles,
+  createPromptProfile,
+  updatePromptProfile,
+  deletePromptProfile,
+} = require('./server/services/xhs/promptProfileService');
+const {
+  listExtensionServices,
+  createExtensionService,
+  updateExtensionService,
+  deleteExtensionService,
+} = require('./server/services/xhs/extensionService');
+const {
   Scheduler,
   createJob,
   updateJob,
@@ -364,6 +382,58 @@ ipcMain.handle('rateLimit:status', () => {
 ipcMain.handle('rateLimit:unblock', (_event, payload) => {
   getRateLimiter().unblock(payload.scope, payload.scopeId);
   return { success: true };
+});
+
+// ============ 设置页 IPC Handlers ============
+
+ipcMain.handle('llmProviders:list', () => {
+  return listLlmProviders();
+});
+
+ipcMain.handle('llmProviders:create', (_event, payload) => {
+  return createLlmProvider(payload);
+});
+
+ipcMain.handle('llmProviders:update', (_event, payload) => {
+  const { id, ...updates } = payload;
+  return updateLlmProvider(id, updates);
+});
+
+ipcMain.handle('llmProviders:delete', (_event, id) => {
+  return deleteLlmProvider(id);
+});
+
+ipcMain.handle('promptProfiles:list', () => {
+  return listPromptProfiles();
+});
+
+ipcMain.handle('promptProfiles:create', (_event, payload) => {
+  return createPromptProfile(payload);
+});
+
+ipcMain.handle('promptProfiles:update', (_event, payload) => {
+  return updatePromptProfile(payload);
+});
+
+ipcMain.handle('promptProfiles:delete', (_event, id) => {
+  return deletePromptProfile(id);
+});
+
+ipcMain.handle('extensionServices:list', () => {
+  return listExtensionServices();
+});
+
+ipcMain.handle('extensionServices:create', (_event, payload) => {
+  return createExtensionService(payload);
+});
+
+ipcMain.handle('extensionServices:update', (_event, payload) => {
+  const { id, ...updates } = payload;
+  return updateExtensionService(id, updates);
+});
+
+ipcMain.handle('extensionServices:delete', (_event, id) => {
+  return deleteExtensionService(id);
 });
 
 app.whenReady().then(() => {

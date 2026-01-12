@@ -32,7 +32,7 @@ export function ThemeManager({
     onCreateTheme({
       name: formData.name,
       description: formData.description,
-      keywords: formData.keywords.split(',').map(k => k.trim()).filter(Boolean),
+      keywords: formData.keywords.split(',').map(k => k.trim()).filter(Boolean) as any,
       competitors: formData.competitors.split(',').map(c => c.trim()).filter(Boolean),
       status: formData.status
     });
@@ -137,7 +137,7 @@ export function ThemeManager({
                 <div className="flex flex-wrap gap-1">
                   {theme.keywords.slice(0, 3).map((keyword, idx) => (
                     <span key={idx} className="px-2 py-1 bg-red-50 text-red-600 text-xs rounded-lg">
-                      {keyword}
+                      {typeof keyword === 'string' ? keyword : keyword.value}
                     </span>
                   ))}
                   {theme.keywords.length > 3 && (

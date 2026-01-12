@@ -1,15 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Loader2, CheckCircle, XCircle, LogOut, Info } from 'lucide-react';
-
-declare global {
-  interface Window {
-    auth?: {
-      login: (options?: { timeout?: number }) => Promise<any>;
-      logout: () => Promise<any>;
-      checkStatus: () => Promise<any>;
-    };
-  }
-}
+import { Loader2, CheckCircle, XCircle, LogOut, Smartphone, ScanLine, Shield } from 'lucide-react';
 
 type AuthStatus = 'checking' | 'logged_in' | 'logged_out' | 'logging_in' | 'error';
 
@@ -96,75 +86,116 @@ export function AccountTab() {
   };
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h3 className="text-sm font-semibold text-gray-900 mb-1">小红书账号</h3>
-        <p className="text-xs text-gray-500">连接你的小红书账号以使用数据抓取功能</p>
+    <div className="space-y-5 max-w-2xl">
+      {/* 状态卡片 */}
+      <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+        <div className="p-6">
+          {authStatus === 'checking' && (
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 bg-gray-100 rounded-lg flex items-center justify-center">
+                <Loader2 className="w-7 h-7 text-gray-400 animate-spin" />
+              </div>
+              <div>
+                <div className="text-sm font-medium text-gray-900">正在检查登录状态</div>
+                <div className="text-xs text-gray-500 mt-0.5">请稍候...</div>
+              </div>
+            </div>
+          )}
+
+          {authStatus === 'logging_in' && (
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 bg-red-50 rounded-lg flex items-center justify-center">
+                <ScanLine className="w-7 h-7 text-red-500 animate-pulse" />
+              </div>
+              <div>
+                <div className="text-sm font-medium text-gray-900">等待扫码登录</div>
+                <div className="text-xs text-gray-500 mt-0.5">请在弹出的浏览器窗口中扫码</div>
+              </div>
+            </div>
+          )}
+
+          {authStatus === 'logged_in' && (
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 bg-green-50 rounded-lg flex items-center justify-center">
+                  <CheckCircle className="w-7 h-7 text-green-500" />
+                </div>
+                <div>
+                  <div className="text-sm font-medium text-gray-900">已连接小红书账号</div>
+                  {profile?.userId && (
+                    <div className="text-xs text-gray-500 mt-0.5">用户ID: {profile.userId}</div>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="px-4 py-2 text-xs font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors inline-flex items-center gap-1.5"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                退出登录
+              </button>
+            </div>
+          )}
+
+          {(authStatus === 'logged_out' || authStatus === 'error') && (
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 bg-gray-100 rounded-lg flex items-center justify-center">
+                  <XCircle className="w-7 h-7 text-gray-400" />
+                </div>
+                <div>
+                  <div className="text-sm font-medium text-gray-900">未连接账号</div>
+                  <div className="text-xs text-gray-500 mt-0.5">点击右侧按钮开始登录</div>
+                </div>
+              </div>
+              <button
+                onClick={handleLogin}
+                className="px-5 py-2.5 text-xs font-medium bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+              >
+                开始登录
+              </button>
+            </div>
+          )}
+        </div>
+
+        {authError && (
+          <div className="px-6 py-3 bg-red-50 border-t border-red-100">
+            <div className="text-xs text-red-600">{authError}</div>
+          </div>
+        )}
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-8 text-center">
-        {authStatus === 'checking' && (
-          <>
-            <Loader2 className="w-12 h-12 text-gray-300 mx-auto mb-4 animate-spin" />
-            <div className="text-sm text-gray-600">正在检查登录状态...</div>
-          </>
-        )}
-        {authStatus === 'logging_in' && (
-          <>
-            <Loader2 className="w-12 h-12 text-blue-500 mx-auto mb-4 animate-spin" />
-            <div className="text-sm text-gray-700 mb-1">请在弹出的浏览器窗口中扫码登录</div>
-            <div className="text-xs text-gray-500">登录成功后窗口会自动关闭</div>
-          </>
-        )}
-        {authStatus === 'logged_in' && (
-          <>
-            <div className="w-12 h-12 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-4">
-              <CheckCircle className="w-7 h-7 text-green-500" />
+      {/* 使用说明 */}
+      <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-5">
+        <div className="text-xs font-semibold text-gray-900 mb-4">登录步骤</div>
+        <div className="space-y-3">
+          <div className="flex items-start gap-3">
+            <div className="w-6 h-6 bg-red-50 rounded-lg flex items-center justify-center flex-shrink-0">
+              <Smartphone className="w-3.5 h-3.5 text-red-500" />
             </div>
-            <div className="text-sm text-green-700 font-medium mb-1">已登录</div>
-            {profile?.userId && (
-              <div className="text-xs text-gray-500 mb-4">用户ID: {profile.userId}</div>
-            )}
-            <button
-              onClick={handleLogout}
-              className="px-4 py-2 text-sm bg-white text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors inline-flex items-center gap-2"
-            >
-              <LogOut className="w-4 h-4" />
-              退出登录
-            </button>
-          </>
-        )}
-        {(authStatus === 'logged_out' || authStatus === 'error') && (
-          <>
-            <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <XCircle className="w-7 h-7 text-gray-400" />
+            <div>
+              <div className="text-xs font-medium text-gray-800">打开小红书 APP</div>
+              <div className="text-[11px] text-gray-500 mt-0.5">确保已登录你的小红书账号</div>
             </div>
-            <div className="text-sm text-gray-600 mb-4">未登录，点击下方按钮开始登录</div>
-            <button
-              onClick={handleLogin}
-              className="px-6 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              开始登录
-            </button>
-          </>
-        )}
-      </div>
-
-      {authError && (
-        <div className="p-3 bg-red-50 border border-red-100 rounded-lg">
-          <div className="text-sm text-red-700">{authError}</div>
-        </div>
-      )}
-
-      <div className="p-4 bg-blue-50 border border-blue-100 rounded-lg">
-        <div className="flex items-center gap-2 text-sm text-blue-900 font-medium mb-2">
-          <Info className="w-4 h-4" />
-          使用说明
-        </div>
-        <div className="text-xs text-blue-700 space-y-1 ml-6">
-          <p>1. 点击"开始登录"后会打开浏览器窗口</p>
-          <p>2. 使用小红书 APP 扫描二维码完成登录</p>
-          <p>3. 登录成功后窗口会自动关闭</p>
+          </div>
+          <div className="flex items-start gap-3">
+            <div className="w-6 h-6 bg-red-50 rounded-lg flex items-center justify-center flex-shrink-0">
+              <ScanLine className="w-3.5 h-3.5 text-red-500" />
+            </div>
+            <div>
+              <div className="text-xs font-medium text-gray-800">扫描二维码</div>
+              <div className="text-[11px] text-gray-500 mt-0.5">点击"开始登录"后，在弹出窗口扫码</div>
+            </div>
+          </div>
+          <div className="flex items-start gap-3">
+            <div className="w-6 h-6 bg-red-50 rounded-lg flex items-center justify-center flex-shrink-0">
+              <Shield className="w-3.5 h-3.5 text-red-500" />
+            </div>
+            <div>
+              <div className="text-xs font-medium text-gray-800">授权完成</div>
+              <div className="text-[11px] text-gray-500 mt-0.5">登录成功后窗口会自动关闭</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

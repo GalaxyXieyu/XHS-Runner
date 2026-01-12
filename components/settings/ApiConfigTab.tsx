@@ -122,7 +122,7 @@ export function ApiConfigTab() {
               <div
                 key={p.id}
                 onClick={() => openEdit(p)}
-                className={`group relative p-4 bg-white border rounded-xl cursor-pointer transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 ${p.is_default ? 'border-blue-500/30 ring-1 ring-blue-500/10' : 'border-gray-200 hover:border-blue-200'}`}
+                className={`group relative p-4 bg-white border rounded-lg cursor-pointer transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 ${p.is_default ? 'border-blue-500/30 ring-1 ring-blue-500/10' : 'border-gray-200 hover:border-blue-200'}`}
               >
                 {p.is_default && (
                   <div className="absolute top-3 right-3 z-10">
@@ -150,7 +150,7 @@ export function ApiConfigTab() {
           {/* 添加卡片 */}
           <div
             onClick={openNew}
-            className="group relative p-4 border border-dashed border-gray-300 rounded-xl cursor-pointer transition-all duration-200 hover:border-blue-400 hover:bg-blue-50/30 hover:shadow-sm flex flex-col items-center justify-center min-h-[88px]"
+            className="group relative p-4 border border-dashed border-gray-300 rounded-lg cursor-pointer transition-all duration-200 hover:border-blue-400 hover:bg-blue-50/30 hover:shadow-sm flex flex-col items-center justify-center min-h-[88px]"
           >
             <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center text-gray-400 mb-1.5 group-hover:bg-blue-100 group-hover:text-blue-500 transition-colors">
               <Plus className="w-4 h-4" />
@@ -170,7 +170,7 @@ export function ApiConfigTab() {
           {/* 图像生成 */}
           <div
             onClick={() => setShowOtherModal('image')}
-            className="group p-4 bg-white border border-gray-200 rounded-xl cursor-pointer transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 hover:border-purple-200"
+            className="group p-4 bg-white border border-gray-200 rounded-lg cursor-pointer transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 hover:border-purple-200"
           >
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center text-white shadow-sm shrink-0">
@@ -187,7 +187,7 @@ export function ApiConfigTab() {
           {/* Nanobanana */}
           <div
             onClick={() => setShowOtherModal('nanobanana')}
-            className="group p-4 bg-white border border-gray-200 rounded-xl cursor-pointer transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 hover:border-amber-200"
+            className="group p-4 bg-white border border-gray-200 rounded-lg cursor-pointer transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 hover:border-amber-200"
           >
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-white shadow-sm shrink-0">
@@ -206,14 +206,14 @@ export function ApiConfigTab() {
       {/* LLM 配置弹窗 */}
       {showForm && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-50 p-4" onClick={() => setShowForm(false)}>
-          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 border border-gray-100" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-lg w-full max-w-lg shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 border border-gray-100" onClick={e => e.stopPropagation()}>
             {/* 头部 */}
             <div className="relative px-6 pt-6 pb-5 bg-gradient-to-b from-gray-50 to-white border-b border-gray-100">
               <button onClick={() => setShowForm(false)} className="absolute top-4 right-4 p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
                 <X className="w-4 h-4" />
               </button>
               <div className="flex items-center gap-4">
-                <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${getStyle(form.provider_type).gradient} flex items-center justify-center text-white shadow-lg ring-2 ring-white`}>
+                <div className={`w-12 h-12 rounded-lg bg-gradient-to-br ${getStyle(form.provider_type).gradient} flex items-center justify-center text-white shadow-lg ring-2 ring-white`}>
                   {getStyle(form.provider_type).icon}
                 </div>
                 <div>
@@ -285,7 +285,7 @@ export function ApiConfigTab() {
                 </div>
                 
                 <div className="pt-1">
-                  <label className="flex items-center gap-3 p-3 bg-gray-50/50 border border-gray-100 rounded-xl cursor-pointer hover:bg-blue-50/50 hover:border-blue-200 transition-all group">
+                  <label className="flex items-center gap-3 p-3 bg-gray-50/50 border border-gray-100 rounded-lg cursor-pointer hover:bg-blue-50/50 hover:border-blue-200 transition-all group">
                     <div className="relative flex items-center">
                       <input type="checkbox" checked={form.is_default} onChange={e => setForm({ ...form, is_default: e.target.checked })} className="peer w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 transition-all" />
                     </div>
@@ -319,13 +319,13 @@ export function ApiConfigTab() {
       {/* 图像生成配置弹窗 */}
       {showOtherModal === 'image' && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-50 p-4" onClick={() => setShowOtherModal(null)}>
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 border border-gray-100" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-lg w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 border border-gray-100" onClick={e => e.stopPropagation()}>
             <div className="relative px-6 pt-6 pb-5 bg-gradient-to-b from-purple-50/50 to-white border-b border-gray-100">
               <button onClick={() => setShowOtherModal(null)} className="absolute top-4 right-4 p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
                 <X className="w-4 h-4" />
               </button>
               <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center text-white shadow-lg ring-2 ring-white">
+                <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center text-white shadow-lg ring-2 ring-white">
                   <Image className="w-6 h-6" />
                 </div>
                 <div>
@@ -355,13 +355,13 @@ export function ApiConfigTab() {
       {/* Nanobanana 配置弹窗 */}
       {showOtherModal === 'nanobanana' && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-50 p-4" onClick={() => setShowOtherModal(null)}>
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 border border-gray-100" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-lg w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 border border-gray-100" onClick={e => e.stopPropagation()}>
             <div className="relative px-6 pt-6 pb-5 bg-gradient-to-b from-amber-50/50 to-white border-b border-gray-100">
               <button onClick={() => setShowOtherModal(null)} className="absolute top-4 right-4 p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
                 <X className="w-4 h-4" />
               </button>
               <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-white shadow-lg ring-2 ring-white">
+                <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-white shadow-lg ring-2 ring-white">
                   <Sparkles className="w-6 h-6" />
                 </div>
                 <div>

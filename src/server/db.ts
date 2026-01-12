@@ -5,7 +5,7 @@ import { resolveUserDataPath } from './runtime/userDataPath';
 const Database = require('better-sqlite3');
 
 const DB_FILENAME = 'xhs-generator.db';
-const SCHEMA_VERSION = 13;
+const SCHEMA_VERSION = 14;
 
 let dbInstance: any;
 
@@ -551,6 +551,32 @@ function migrate(db: any) {
         is_default INTEGER DEFAULT 0,
         is_enabled INTEGER DEFAULT 1,
         icon TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
+  }
+
+  if (currentVersion < 14) {
+    // prompt_profiles 新增 category 和 description 字段
+    const ppColumns = db.prepare("PRAGMA table_info('prompt_profiles')").all().map((col: any) => col.name);
+    if (!ppColumns.includes('category')) {
+      db.exec("ALTER TABLE prompt_profiles ADD COLUMN category TEXT");
+    }
+    if (!ppColumns.includes('description')) {
+      db.exec("ALTER TABLE prompt_profiles ADD COLUMN description TEXT");
+    }
+
+    // 新建 extension_services 表
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS extension_services (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        service_type TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        api_key TEXT,
+        endpoint TEXT,
+        config_json TEXT,
+        is_enabled INTEGER DEFAULT 0,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
       );

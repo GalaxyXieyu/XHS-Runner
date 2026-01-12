@@ -53,7 +53,7 @@ export function ThemeWorkspace({ theme }: ThemeWorkspaceProps) {
                 <div className="flex flex-wrap gap-1">
                   {theme.keywords.map((keyword, idx) => (
                     <span key={idx} className="px-2 py-1 bg-red-50 text-red-600 text-xs rounded-lg">
-                      {keyword}
+                      {typeof keyword === 'string' ? keyword : keyword.value}
                     </span>
                   ))}
                 </div>
@@ -69,7 +69,7 @@ export function ThemeWorkspace({ theme }: ThemeWorkspaceProps) {
         </div>
         {/* 抓取计划状态 */}
         <div className="mt-4 pt-4 border-t border-gray-100">
-          <CaptureScheduleStatus themeId={theme.id} themeName={theme.name} />
+          <CaptureScheduleStatus themeId={Number(theme.id)} themeName={theme.name} />
         </div>
       </div>
 

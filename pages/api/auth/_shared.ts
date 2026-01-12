@@ -1,9 +1,11 @@
-let cachedAuthService: any = null;
+import { getConfig } from '../../../src/server/services/xhs/shared/config';
+import { AuthService } from '../../../src/server/services/xhs/core/auth';
 
-export async function getAuthService() {
+let cachedAuthService: AuthService | null = null;
+
+export function getAuthService() {
   if (cachedAuthService) return cachedAuthService;
-  const mod = await import('../../../electron/mcp/xhs-core/dist/index.js') as any;
-  const config = mod.getConfig();
-  cachedAuthService = new mod.AuthService(config);
+  const config = getConfig();
+  cachedAuthService = new AuthService(config);
   return cachedAuthService;
 }
