@@ -30,6 +30,32 @@
 - 允许在客户端直连（前提：RLS 生效）：themes/keywords/topics 等非敏感业务数据的 CRUD。
 - 必须走 Server/Edge（避免敏感泄露）：`llm_providers.api_key`、`extension_services.api_key`、`accounts.auth_json` 等敏感字段的写入/读取；以及任何需要批量维护/迁移权限的操作。
 
+## Verification & Rollout
+
+### Local Verification (recommended order)
+1. Build backend: `npm run build:server`
+2. Launch app: `npm run dev`
+3. Smoke (end-to-end):
+   - `npm run smoke:xhs`（核心链路冒烟）
+   - `npm run smoke:xhs-capture`（主题多关键词抓取冒烟）
+
+### What to Verify
+- Settings: read/write (`settings:get` / `settings:set`)
+- Themes: create/list/update/remove
+- Capture: keyword/theme capture writes topics
+- Generation: enqueue -> status transitions -> result asset (if enabled)
+- Operations: publish record creation + metrics summary (reads)
+
+### Rollout / Gray Switch (migration phase)
+- Data/DB backend switch: `XHS_DB_PROVIDER=supabase|sqlite`
+  - First, keep `sqlite` as baseline.
+  - Run one-time SQLite -> Supabase migration script (see migration issue) and validate counts + sampling.
+  - Switch to `supabase` for a small cohort, monitor error logs and write/read correctness, then expand.
+
+### Rollback
+- Immediate: set `XHS_DB_PROVIDER=sqlite` and restart app.
+- Data safety: keep `userData/xhs-generator.db` backups and avoid destructive Supabase operations until migration is verified.
+
 ## XHS Core Configuration
 - Build core before running: `npm run build:xhs-core`.
 - Use `XHS_MCP_DRIVER=mock` for local dry runs.
