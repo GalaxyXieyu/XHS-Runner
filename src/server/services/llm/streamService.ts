@@ -1,5 +1,6 @@
 import type { NextApiResponse } from 'next';
-import { getDatabase } from '../../db';
+import { db, schema } from '../../db';
+import { and, eq } from 'drizzle-orm';
 import { getSettings } from '../../settings';
 
 export interface LLMConfig {
@@ -13,31 +14,40 @@ export interface LLMConfig {
  * 优先级: 指定 providerId > 默认启用的 provider > settings 配置
  */
 export async function getLLMConfig(providerId?: number): Promise<LLMConfig | null> {
-  const db = getDatabase();
+  const providers = schema.llmProviders;
 
   // 1. 如果指定了 providerId，使用指定的 provider
   if (providerId) {
-    const { data: row, error } = await db
-      .from('llm_providers')
-      .select('base_url, api_key, model_name')
-      .eq('id', providerId)
-      .maybeSingle();
-    if (error) throw error;
-    if (row?.base_url && row?.api_key && row?.model_name) {
-      return { baseUrl: row.base_url, apiKey: row.api_key, model: row.model_name };
+    const rows = await db
+      .select({
+        baseUrl: providers.baseUrl,
+        apiKey: providers.apiKey,
+        model: providers.modelName,
+      })
+      .from(providers)
+      .where(eq(providers.id, providerId))
+      .limit(1);
+
+    const row = rows[0];
+    if (row?.baseUrl && row?.apiKey && row?.model) {
+      return { baseUrl: row.baseUrl, apiKey: row.apiKey, model: row.model };
     }
   }
 
   // 2. 查询默认启用的 provider
-  const { data: defaultRow, error: defaultError } = await db
-    .from('llm_providers')
-    .select('base_url, api_key, model_name')
-    .eq('is_default', 1)
-    .eq('is_enabled', 1)
-    .maybeSingle();
-  if (defaultError) throw defaultError;
-  if (defaultRow?.base_url && defaultRow?.api_key && defaultRow?.model_name) {
-    return { baseUrl: defaultRow.base_url, apiKey: defaultRow.api_key, model: defaultRow.model_name };
+  const defaultRows = await db
+    .select({
+      baseUrl: providers.baseUrl,
+      apiKey: providers.apiKey,
+      model: providers.modelName,
+    })
+    .from(providers)
+    .where(and(eq(providers.isDefault, true), eq(providers.isEnabled, true)))
+    .limit(1);
+
+  const defaultRow = defaultRows[0];
+  if (defaultRow?.baseUrl && defaultRow?.apiKey && defaultRow?.model) {
+    return { baseUrl: defaultRow.baseUrl, apiKey: defaultRow.apiKey, model: defaultRow.model };
   }
 
   // 3. 回退到 settings 配置

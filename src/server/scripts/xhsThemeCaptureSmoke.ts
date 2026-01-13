@@ -1,8 +1,8 @@
 import { getDatabase } from '../db';
 import { setSettings } from '../settings';
-import { createTheme } from '../services/xhs/themeService';
-import { runCapture } from '../services/xhs/capture';
-import { checkStatus, login } from '../services/xhs/localService';
+import { createTheme } from '../services/xhs/data/themeService';
+import { runCapture } from '../services/xhs/capture/capture';
+import { checkStatus, login } from '../services/xhs/integration/localService';
 
 const DEFAULT_KEYWORDS = ['小红书', '热点'];
 const DEFAULT_LIMIT = 5;

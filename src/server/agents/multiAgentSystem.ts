@@ -5,8 +5,8 @@ import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { supabase } from "../supabase";
-import { getTagStats, getTopTitles, getLatestTrendReport } from "../services/xhs/insightService";
-import { enqueueTask } from "../services/xhs/generationQueue";
+import { getTagStats, getTopTitles, getLatestTrendReport } from "../services/xhs/analytics/insightService";
+import { enqueueTask } from "../services/xhs/llm/generationQueue";
 
 // 获取 LLM 配置
 async function getLLMConfig() {

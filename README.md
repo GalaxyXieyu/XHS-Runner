@@ -18,7 +18,7 @@
 
 ## 代码架构（核心路径）
 
-- **UI 层**：`pages/` + `components/`
+- **UI 层**：`src/pages/` + `src/components/`
 - **服务层（TS）**：`src/server/services/xhs/`
   - `xhsClient.ts`：统一入口，负责 local/mock 驱动选择与参数标准化
   - `localService.ts`：内置服务适配层，调用 xhs-core
@@ -46,5 +46,3 @@
 - `docs/mcp/LocalServiceArchitecture.md`
 - `docs/mcp/CallchainInventory.md`
 - `docs/mcp/LocalModeSmoke.md`
-
-

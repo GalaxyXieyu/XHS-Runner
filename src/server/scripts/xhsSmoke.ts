@@ -1,5 +1,5 @@
-import { checkStatus, login, searchNotes } from '../services/xhs/localService';
-import { fetchNoteDetail, fetchTopNotes, fetchUserNotes } from '../services/xhs/xhsClient';
+import { checkStatus, login, searchNotes } from '../services/xhs/integration/localService';
+import { fetchNoteDetail, fetchTopNotes, fetchUserNotes } from '../services/xhs/capture/xhsClient';
 
 const DEFAULT_KEYWORD = '小红书';
 const DEFAULT_LIMIT = 5;

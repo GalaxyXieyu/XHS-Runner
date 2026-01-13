@@ -1,18 +1,22 @@
-// Database access layer - Supabase SDK for backward compatibility
-// Drizzle ORM 导出用于渐进迁移（目前仅提供类型/占位实现）
+// Database access layer
+// - Drizzle ORM: new code should use `db`/`schema`
+// - Supabase SDK: legacy compatibility for modules not yet migrated
 
 export { db, schema } from './db/index';
+import { getDrizzleDb } from './db/index';
 
 // Legacy database helper - for gradual migration
 import { supabase } from './supabase';
 
 export function initializeDatabase() {
-  // 当前运行模式默认使用 Supabase（Electron/Next 共用），这里保持幂等即可
+  // Ensure Drizzle is configured early (Electron/Next 共用)
+  getDrizzleDb();
   // eslint-disable-next-line no-console
-  console.log('Using Supabase database');
+  console.log('Using Drizzle ORM database');
 }
 
 export function getDatabase() {
+  // Legacy: prefer `db` for new code
   return supabase;
 }
 

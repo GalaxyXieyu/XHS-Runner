@@ -8,7 +8,7 @@ needed for the theme-driven workflow.
 ## Module Mapping (UI -> Renderer -> Backend)
 | Prototype Module | Renderer Target | Backend Service / IPC | Notes |
 | --- | --- | --- | --- |
-| ThemeManagement | `pages/index.js` (Theme view) | `themes:list`, `themes:create`, `themes:update`, `themes:remove`, `themes:setStatus` | Replace in-memory themes state. |
+| ThemeManagement | `src/pages/index.tsx` (Theme view) | `themes:list`, `themes:create`, `themes:update`, `themes:remove`, `themes:setStatus` | Replace in-memory themes state. |
 | InsightTab | Theme workspace (Insight) | `insights:refresh`, `insights:get`, `topics:list`, `topics:updateStatus` | Align with capture + analysis pipeline. |
 | CreativeTab | Theme workspace (Creative) | `creatives:generate`, `creatives:list`, `generation:enqueue`, `generation:stats` | Reuse generation queue where possible. |
 | OperationsTab | Theme workspace (Operations) | `publish:enqueue`, `publish:list`, `metrics:summary`, `interactions:list`, `interactions:enqueue` | Publish + comment automation. |

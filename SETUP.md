@@ -77,8 +77,7 @@ npm run dev
 ## 配置说明
 
 ### .npmrc 文件
-- 配置 Electron 国内镜像
-- 配置 npm 国内镜像（可选）
+- 配置 npm registry（某些环境下 `npmmirror` DNS 不可达时需切换）
 - 自动应用于所有 npm 操作
 
 ### package.json 脚本
@@ -97,6 +96,16 @@ npm run dev
 1. 确认 better-sqlite3 已正确编译
 2. 运行 `npm run rebuild`
 3. 检查数据库文件权限
+
+### Drizzle 连接错误（`Drizzle db is not configured`）
+当前项目的 Drizzle ORM 需要 **Postgres 连接串**（例如 Supabase Postgres 的 connection string）。
+
+解决方案：在你的环境里配置 `DATABASE_URL`（推荐写在 `.env.local`，该文件已在 `.gitignore` 中）。
+
+示例（请替换为你自己的连接串）：
+```bash
+DATABASE_URL=postgresql://<user>:<password>@<host>:5432/<db>
+```
 
 ### 端口占用
 ```bash

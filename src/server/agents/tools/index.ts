@@ -1,8 +1,8 @@
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { supabase } from "../../supabase";
-import { getTagStats, getTopTitles, getLatestTrendReport } from "../../services/xhs/insightService";
-import { enqueueTask } from "../../services/xhs/generationQueue";
+import { getTagStats, getTopTitles, getLatestTrendReport } from "../../services/xhs/analytics/insightService";
+import { enqueueTask } from "../../services/xhs/llm/generationQueue";
 
 // Tool 1: 搜索已抓取的笔记
 export const searchNotesTool = tool(

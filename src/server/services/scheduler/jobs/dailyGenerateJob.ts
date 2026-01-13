@@ -2,8 +2,8 @@
 
 import { ScheduledJob, ExecutionResult, DailyGenerateJobParams } from '../types';
 import { ExecutionContext } from '../jobExecutor';
-import { getClusterSummaries } from '../../xhs/summaryService';
-import { createCreative } from '../../xhs/creativeService';
+import { getClusterSummaries } from '../../xhs/llm/summaryService';
+import { createCreative } from '../../xhs/data/creativeService';
 
 function resolveOutputCount(params: DailyGenerateJobParams) {
   return params.outputCount || params.output_count || 5;

@@ -38,7 +38,8 @@ export class ConfigManager {
   }
 
   private createDefaultConfig(): Config {
-    const appDataDir = join(homedir(), '.xhs-mcp');
+    // Electron/Next 共用：优先使用应用的 user data 路径（与 `npm run dev` 的 XHS_USER_DATA_PATH 对齐）
+    const appDataDir = process.env.XHS_USER_DATA_PATH || join(homedir(), '.xhs-mcp');
     const cookiesFile = join(appDataDir, 'cookies.json');
 
     // Resolve package version from package.json (fallback to env or default)

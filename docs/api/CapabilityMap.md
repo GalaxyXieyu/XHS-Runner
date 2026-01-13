@@ -37,10 +37,10 @@
 
 ## 参考
 - `data/schema.md:1`
-- `App.tsx:1`
-- `components/ThemeManagement.tsx:1`
-- `components/workspace/InsightTab.tsx:1`
-- `components/workspace/CreativeTab.tsx:1`
-- `components/workspace/ContentDetail.tsx:1`
-- `components/workspace/OperationsTab.tsx:1`
-- `components/Settings.tsx:1`
+- `src/App.tsx:1`
+- `src/components/ThemeManagement.tsx:1`
+- `src/components/workspace/InsightTab.tsx:1`
+- `src/components/workspace/CreativeTab.tsx:1`
+- `src/components/workspace/ContentDetail.tsx:1`
+- `src/components/workspace/OperationsTab.tsx:1`
+- `src/components/Settings.tsx:1`

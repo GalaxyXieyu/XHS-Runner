@@ -12,7 +12,7 @@ export async function handleCaptureJob(
 
   try {
     // 动态导入抓取服务
-    const { runCapture } = await import('../../xhs/capture');
+    const { runCapture } = await import('../../xhs/capture/capture');
 
     if (job.job_type === 'capture_keyword' && job.keyword_id) {
       // 按关键词抓取
