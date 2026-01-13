@@ -17,7 +17,7 @@ import {
 } from './types';
 import { getNextRunTime } from './cronParser';
 
-export function createJob(input: CreateJobInput): ScheduledJob {
+export async function createJob(input: CreateJobInput): Promise<ScheduledJob> {
   const db = getDatabase();
   const nextRun = getNextRunTime(
     input.schedule_type,
@@ -25,124 +25,145 @@ export function createJob(input: CreateJobInput): ScheduledJob {
     input.cron_expression
   );
 
-  const result = db.prepare(`
-    INSERT INTO scheduled_jobs (
-      name, job_type, theme_id, keyword_id,
-      schedule_type, interval_minutes, cron_expression,
-      params_json, is_enabled, priority, next_run_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    input.name,
-    input.job_type,
-    input.theme_id || null,
-    input.keyword_id || null,
-    input.schedule_type,
-    input.interval_minutes || null,
-    input.cron_expression || null,
-    input.params ? JSON.stringify(input.params) : null,
-    input.is_enabled !== false ? 1 : 0,
-    input.priority || 5,
-    nextRun.toISOString()
-  );
+  const row = {
+    name: input.name,
+    job_type: input.job_type,
+    theme_id: input.theme_id || null,
+    keyword_id: input.keyword_id || null,
+    schedule_type: input.schedule_type,
+    interval_minutes: input.interval_minutes || null,
+    cron_expression: input.cron_expression || null,
+    params_json: input.params ? JSON.stringify(input.params) : null,
+    is_enabled: input.is_enabled !== false ? 1 : 0,
+    priority: input.priority || 5,
+    next_run_at: nextRun.toISOString(),
+    updated_at: new Date().toISOString(),
+  };
 
-  return db.prepare('SELECT * FROM scheduled_jobs WHERE id = ?')
-    .get(result.lastInsertRowid) as ScheduledJob;
+  const { data, error } = await db
+    .from('scheduled_jobs')
+    .insert(row)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data as ScheduledJob;
 }
 
-export function updateJob(id: number, input: UpdateJobInput): ScheduledJob {
+export async function updateJob(id: number, input: UpdateJobInput): Promise<ScheduledJob> {
   const db = getDatabase();
-  const job = db.prepare('SELECT * FROM scheduled_jobs WHERE id = ?')
-    .get(id) as ScheduledJob;
+
+  const { data: job, error: fetchError } = await db
+    .from('scheduled_jobs')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+  if (fetchError) throw fetchError;
   if (!job) throw new Error('任务不存在');
-
-  const updates: string[] = ['updated_at = datetime("now")'];
-  const values: any[] = [];
-
-  if (input.name !== undefined) {
-    updates.push('name = ?');
-    values.push(input.name);
-  }
-  if (input.schedule_type !== undefined) {
-    updates.push('schedule_type = ?');
-    values.push(input.schedule_type);
-  }
-  if (input.interval_minutes !== undefined) {
-    updates.push('interval_minutes = ?');
-    values.push(input.interval_minutes);
-  }
-  if (input.cron_expression !== undefined) {
-    updates.push('cron_expression = ?');
-    values.push(input.cron_expression);
-  }
-  if (input.params !== undefined) {
-    updates.push('params_json = ?');
-    values.push(JSON.stringify(input.params));
-  }
-  if (input.is_enabled !== undefined) {
-    updates.push('is_enabled = ?');
-    values.push(input.is_enabled ? 1 : 0);
-  }
-  if (input.priority !== undefined) {
-    updates.push('priority = ?');
-    values.push(input.priority);
-  }
 
   // 重新计算下次执行时间
   const scheduleType = input.schedule_type || job.schedule_type;
   const intervalMinutes = input.interval_minutes ?? job.interval_minutes;
   const cronExpression = input.cron_expression ?? job.cron_expression;
   const nextRun = getNextRunTime(scheduleType, intervalMinutes, cronExpression);
-  updates.push('next_run_at = ?');
-  values.push(nextRun.toISOString());
 
-  values.push(id);
-  db.prepare(`UPDATE scheduled_jobs SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+  const updateRow: any = { updated_at: new Date().toISOString(), next_run_at: nextRun.toISOString() };
+  if (input.name !== undefined) updateRow.name = input.name;
+  if (input.schedule_type !== undefined) updateRow.schedule_type = input.schedule_type;
+  if (input.interval_minutes !== undefined) updateRow.interval_minutes = input.interval_minutes;
+  if (input.cron_expression !== undefined) updateRow.cron_expression = input.cron_expression;
+  if (input.params !== undefined) updateRow.params_json = JSON.stringify(input.params);
+  if (input.is_enabled !== undefined) updateRow.is_enabled = input.is_enabled ? 1 : 0;
+  if (input.priority !== undefined) updateRow.priority = input.priority;
 
-  return db.prepare('SELECT * FROM scheduled_jobs WHERE id = ?').get(id) as ScheduledJob;
+  const { data: updated, error: updateError } = await db
+    .from('scheduled_jobs')
+    .update(updateRow)
+    .eq('id', id)
+    .select('*')
+    .single();
+  if (updateError) throw updateError;
+  return updated as ScheduledJob;
 }
 
-export function deleteJob(id: number): void {
+export async function deleteJob(id: number): Promise<void> {
   const db = getDatabase();
-  db.prepare('DELETE FROM scheduled_jobs WHERE id = ?').run(id);
+  const { error } = await db.from('scheduled_jobs').delete().eq('id', id);
+  if (error) throw error;
 }
 
-export function getJob(id: number): ScheduledJob | null {
+export async function getJob(id: number): Promise<ScheduledJob | null> {
   const db = getDatabase();
-  return db.prepare('SELECT * FROM scheduled_jobs WHERE id = ?').get(id) as ScheduledJob | null;
+  const { data, error } = await db.from('scheduled_jobs').select('*').eq('id', id).maybeSingle();
+  if (error) throw error;
+  return (data as any) || null;
 }
 
-export function listJobs(themeId?: number): ScheduledJob[] {
+export async function listJobs(themeId?: number): Promise<ScheduledJob[]> {
   const db = getDatabase();
+
   if (themeId) {
-    return db.prepare('SELECT * FROM scheduled_jobs WHERE theme_id = ? ORDER BY priority, name')
-      .all(themeId) as ScheduledJob[];
+    const { data, error } = await db
+      .from('scheduled_jobs')
+      .select('*')
+      .eq('theme_id', themeId)
+      .order('priority', { ascending: true })
+      .order('name', { ascending: true });
+    if (error) throw error;
+    return (data as any) || [];
   }
-  return db.prepare('SELECT * FROM scheduled_jobs ORDER BY priority, name').all() as ScheduledJob[];
+
+  const { data, error } = await db
+    .from('scheduled_jobs')
+    .select('*')
+    .order('priority', { ascending: true })
+    .order('name', { ascending: true });
+  if (error) throw error;
+  return (data as any) || [];
 }
 
-export function listExecutions(jobId?: number, limit = 50): JobExecution[] {
+export async function listExecutions(jobId?: number, limit = 50): Promise<JobExecution[]> {
   const db = getDatabase();
+
   if (jobId) {
-    return db.prepare(`
-      SELECT * FROM job_executions WHERE job_id = ?
-      ORDER BY created_at DESC LIMIT ?
-    `).all(jobId, limit) as JobExecution[];
+    const { data, error } = await db
+      .from('job_executions')
+      .select('*')
+      .eq('job_id', jobId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+    return (data as any) || [];
   }
-  return db.prepare(`
-    SELECT * FROM job_executions ORDER BY created_at DESC LIMIT ?
-  `).all(limit) as JobExecution[];
+
+  const { data, error } = await db
+    .from('job_executions')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (data as any) || [];
 }
 
-export function getJobByTheme(themeId: number): ScheduledJob | null {
+export async function getJobByTheme(themeId: number): Promise<ScheduledJob | null> {
   const db = getDatabase();
-  return db.prepare(`
-    SELECT * FROM scheduled_jobs WHERE theme_id = ? AND job_type = 'capture_theme'
-  `).get(themeId) as ScheduledJob | null;
+  const { data, error } = await db
+    .from('scheduled_jobs')
+    .select('*')
+    .eq('theme_id', themeId)
+    .eq('job_type', 'capture_theme')
+    .maybeSingle();
+  if (error) throw error;
+  return (data as any) || null;
 }
 
-export function getJobByKeyword(keywordId: number): ScheduledJob | null {
+export async function getJobByKeyword(keywordId: number): Promise<ScheduledJob | null> {
   const db = getDatabase();
-  return db.prepare(`
-    SELECT * FROM scheduled_jobs WHERE keyword_id = ? AND job_type = 'capture_keyword'
-  `).get(keywordId) as ScheduledJob | null;
+  const { data, error } = await db
+    .from('scheduled_jobs')
+    .select('*')
+    .eq('keyword_id', keywordId)
+    .eq('job_type', 'capture_keyword')
+    .maybeSingle();
+  if (error) throw error;
+  return (data as any) || null;
 }

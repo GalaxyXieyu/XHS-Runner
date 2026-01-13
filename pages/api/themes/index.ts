@@ -5,11 +5,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const svc = await getThemeService();
     if (req.method === 'GET') {
-      const themes = svc.listThemes();
+      const themes = await svc.listThemes();
       return res.status(200).json(themes);
     }
     if (req.method === 'POST') {
-      const theme = svc.createTheme(req.body);
+      const theme = await svc.createTheme(req.body);
       return res.status(201).json(theme);
     }
     return res.status(405).json({ error: 'Method not allowed' });

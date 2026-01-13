@@ -49,7 +49,7 @@ export class JobExecutor {
     const startTime = Date.now();
 
     // 更新执行状态为 running
-    this.updateExecutionStatus(execution.id, 'running', startTime);
+    await this.updateExecutionStatus(execution.id, 'running', startTime);
 
     const context: ExecutionContext = {
       executionId: execution.id,
@@ -63,7 +63,7 @@ export class JobExecutor {
       // 速率限制检查
       const rateLimiter = getRateLimiter();
       await rateLimiter.waitUntilReady('global');
-      rateLimiter.recordRequest('global');
+      await rateLimiter.recordRequest('global');
 
       // 执行任务（带超时）
       const result = await this.withTimeout(
@@ -73,8 +73,8 @@ export class JobExecutor {
       );
 
       const duration = Date.now() - startTime;
-      this.updateExecutionResult(execution.id, 'success', { ...result, duration_ms: duration });
-      this.updateJobStats(job.id, true);
+      await this.updateExecutionResult(execution.id, 'success', { ...result, duration_ms: duration });
+      await this.updateJobStats(job.id, true);
 
       return { ...result, duration_ms: duration };
     } catch (error: any) {
@@ -82,12 +82,12 @@ export class JobExecutor {
       const errorMsg = error.message || String(error);
       const isTimeout = errorMsg.includes('timeout') || errorMsg.includes('超时');
 
-      this.updateExecutionResult(execution.id, isTimeout ? 'timeout' : 'failed', {
+      await this.updateExecutionResult(execution.id, isTimeout ? 'timeout' : 'failed', {
         success: false,
         error: errorMsg,
         duration_ms: duration,
       });
-      this.updateJobStats(job.id, false, errorMsg);
+      await this.updateJobStats(job.id, false, errorMsg);
 
       return { success: false, error: errorMsg, duration_ms: duration };
     } finally {
@@ -100,7 +100,7 @@ export class JobExecutor {
     const controller = this.activeExecutions.get(executionId);
     if (controller) {
       controller.abort();
-      this.updateExecutionStatus(executionId, 'canceled');
+      void this.updateExecutionStatus(executionId, 'canceled').catch(() => {});
       return true;
     }
     return false;
@@ -132,51 +132,75 @@ export class JobExecutor {
     });
   }
 
-  private updateExecutionStatus(id: number, status: string, startTime?: number): void {
+  private async updateExecutionStatus(id: number, status: string, startTime?: number): Promise<void> {
     const db = getDatabase();
-    if (startTime) {
-      db.prepare(`
-        UPDATE job_executions SET status = ?, started_at = ? WHERE id = ?
-      `).run(status, new Date(startTime).toISOString(), id);
-    } else {
-      db.prepare('UPDATE job_executions SET status = ? WHERE id = ?').run(status, id);
-    }
+    const updateRow: any = { status };
+    if (startTime) updateRow.started_at = new Date(startTime).toISOString();
+    const { error } = await db.from('job_executions').update(updateRow).eq('id', id);
+    if (error) throw error;
   }
 
-  private updateExecutionResult(id: number, status: string, result: ExecutionResult): void {
+  private async updateExecutionResult(id: number, status: string, result: ExecutionResult): Promise<void> {
     const db = getDatabase();
-    db.prepare(`
-      UPDATE job_executions
-      SET status = ?, finished_at = ?, duration_ms = ?, result_json = ?, error_message = ?
-      WHERE id = ?
-    `).run(
-      status,
-      new Date().toISOString(),
-      result.duration_ms,
-      JSON.stringify({ total: result.total, inserted: result.inserted }),
-      result.error || null,
-      id
-    );
+    const finishedAt = new Date().toISOString();
+    const resultJson = JSON.stringify({ total: result.total, inserted: result.inserted });
+    const errorMessage = result.error || null;
+
+    const { error } = await db
+      .from('job_executions')
+      .update({
+        status,
+        finished_at: finishedAt,
+        duration_ms: result.duration_ms,
+        result_json: resultJson,
+        error_message: errorMessage,
+      })
+      .eq('id', id);
+    if (error) throw error;
   }
 
-  private updateJobStats(jobId: number, success: boolean, error?: string): void {
+  private async updateJobStats(jobId: number, success: boolean, error?: string): Promise<void> {
     const db = getDatabase();
     const now = new Date().toISOString();
 
     if (success) {
-      db.prepare(`
-        UPDATE scheduled_jobs
-        SET last_run_at = ?, last_status = 'success', last_error = NULL,
-            run_count = run_count + 1, success_count = success_count + 1, updated_at = ?
-        WHERE id = ?
-      `).run(now, now, jobId);
+      const { data: current, error: currentError } = await db
+        .from('scheduled_jobs')
+        .select('run_count, success_count')
+        .eq('id', jobId)
+        .maybeSingle();
+      if (currentError) throw currentError;
+      const runCount = Number((current as any)?.run_count || 0) + 1;
+      const successCount = Number((current as any)?.success_count || 0) + 1;
+
+      const { error: updateError } = await db.from('scheduled_jobs').update({
+        last_run_at: now,
+        last_status: 'success',
+        last_error: null,
+        run_count: runCount,
+        success_count: successCount,
+        updated_at: now,
+      }).eq('id', jobId);
+      if (updateError) throw updateError;
     } else {
-      db.prepare(`
-        UPDATE scheduled_jobs
-        SET last_run_at = ?, last_status = 'failed', last_error = ?,
-            run_count = run_count + 1, fail_count = fail_count + 1, updated_at = ?
-        WHERE id = ?
-      `).run(now, error || null, now, jobId);
+      const { data: current, error: currentError } = await db
+        .from('scheduled_jobs')
+        .select('run_count, fail_count')
+        .eq('id', jobId)
+        .maybeSingle();
+      if (currentError) throw currentError;
+      const runCount = Number((current as any)?.run_count || 0) + 1;
+      const failCount = Number((current as any)?.fail_count || 0) + 1;
+
+      const { error: updateError } = await db.from('scheduled_jobs').update({
+        last_run_at: now,
+        last_status: 'failed',
+        last_error: error || null,
+        run_count: runCount,
+        fail_count: failCount,
+        updated_at: now,
+      }).eq('id', jobId);
+      if (updateError) throw updateError;
     }
   }
 }

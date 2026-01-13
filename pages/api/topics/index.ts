@@ -1,24 +1,11 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import path from 'path';
-import os from 'os';
-
-let initialized = false;
-
-async function ensureInit() {
-  if (initialized) return;
-  const { setUserDataPath } = await import('../../../src/server/runtime/userDataPath');
-  const { initializeDatabase } = await import('../../../src/server/db');
-  const userDataPath = process.env.XHS_USER_DATA_PATH || path.join(os.homedir(), '.xhs-runner');
-  setUserDataPath(userDataPath);
-  initializeDatabase();
-  initialized = true;
-}
+import { getService } from '../_init';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
-    await ensureInit();
-    const { listTopics, listTopicsByTheme, listTopicsByKeyword } = await import(
-      '../../../src/server/services/xhs/topicService'
+    const { listTopics, listTopicsByTheme, listTopicsByKeyword } = await getService(
+      'topicService',
+      () => import('../../../src/server/services/xhs/topicService')
     );
 
     if (req.method === 'GET') {
@@ -26,14 +13,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const limitNum = limit ? parseInt(limit as string, 10) : 50;
 
       if (themeId) {
-        const topics = listTopicsByTheme(parseInt(themeId as string, 10), limitNum);
+        const topics = await listTopicsByTheme(parseInt(themeId as string, 10), limitNum);
         return res.status(200).json(topics);
       }
       if (keywordId) {
-        const topics = listTopicsByKeyword(parseInt(keywordId as string, 10), limitNum);
+        const topics = await listTopicsByKeyword(parseInt(keywordId as string, 10), limitNum);
         return res.status(200).json(topics);
       }
-      const topics = listTopics(limitNum);
+      const topics = await listTopics(limitNum);
       return res.status(200).json(topics);
     }
 

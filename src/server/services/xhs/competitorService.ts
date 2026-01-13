@@ -1,21 +1,20 @@
 import { getDatabase } from '../../db';
 
-export function listCompetitors(themeId: number) {
+export async function listCompetitors(themeId: number) {
   if (!themeId) {
     throw new Error('competitors:list requires themeId');
   }
   const db = getDatabase();
-  return db
-    .prepare(
-      `SELECT id, theme_id, xhs_user_id, name, last_monitored_at, created_at, updated_at
-       FROM competitors
-       WHERE theme_id = ?
-       ORDER BY id DESC`
-    )
-    .all(themeId);
+  const { data, error } = await db
+    .from('competitors')
+    .select('id, theme_id, xhs_user_id, name, last_monitored_at, created_at, updated_at')
+    .eq('theme_id', themeId)
+    .order('id', { ascending: false });
+  if (error) throw error;
+  return data || [];
 }
 
-export function addCompetitor(payload: Record<string, any>) {
+export async function addCompetitor(payload: Record<string, any>) {
   if (!payload || typeof payload !== 'object') {
     throw new Error('competitors:add expects an object payload');
   }
@@ -28,27 +27,26 @@ export function addCompetitor(payload: Record<string, any>) {
     throw new Error('competitors:add requires name or xhsUserId');
   }
   const db = getDatabase();
-  const result = db
-    .prepare(
-      `INSERT INTO competitors
-       (theme_id, xhs_user_id, name, created_at, updated_at)
-       VALUES (?, ?, ?, datetime('now'), datetime('now'))`
-    )
-    .run(payload.themeId, xhsUserId, name);
-  return db
-    .prepare(
-      `SELECT id, theme_id, xhs_user_id, name, last_monitored_at, created_at, updated_at
-       FROM competitors
-       WHERE id = ?`
-    )
-    .get(result.lastInsertRowid);
+  const { data, error } = await db
+    .from('competitors')
+    .insert({
+      theme_id: payload.themeId,
+      xhs_user_id: xhsUserId,
+      name,
+      updated_at: new Date().toISOString(),
+    })
+    .select('id, theme_id, xhs_user_id, name, last_monitored_at, created_at, updated_at')
+    .single();
+  if (error) throw error;
+  return data;
 }
 
-export function removeCompetitor(id: number) {
+export async function removeCompetitor(id: number) {
   if (!id) {
     throw new Error('competitors:remove requires id');
   }
   const db = getDatabase();
-  db.prepare('DELETE FROM competitors WHERE id = ?').run(id);
+  const { error } = await db.from('competitors').delete().eq('id', id);
+  if (error) throw error;
   return { id };
 }

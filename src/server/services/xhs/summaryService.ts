@@ -106,14 +106,22 @@ function clusterByPrimaryTag(rows: TopicRow[]) {
   return Array.from(clusters.entries()).map(([tag, items]) => ({ tag, items }));
 }
 
-export function getClusterSummaries(themeId: number, days = 7, goal = 'collects') {
+export async function getClusterSummaries(themeId: number, days = 7, goal = 'collects') {
   const db = getDatabase();
-  const timeFilter = days > 0 ? `AND created_at >= datetime('now', '-${days} days')` : '';
-  const rows = db.prepare(
-    `SELECT id, note_id, title, desc, tags, like_count, collect_count, comment_count, created_at
-     FROM topics
-     WHERE theme_id = ? ${timeFilter}`
-  ).all(themeId) as TopicRow[];
+
+  let query = db
+    .from('topics')
+    .select('id, note_id, title, desc, tags, like_count, collect_count, comment_count, created_at')
+    .eq('theme_id', themeId);
+
+  if (days > 0) {
+    const cutoffIso = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    query = query.gte('created_at', cutoffIso);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  const rows: TopicRow[] = (data || []) as any;
 
   const deduped = dedupeTopics(rows);
   const scored = deduped
@@ -139,8 +147,8 @@ export function getClusterSummaries(themeId: number, days = 7, goal = 'collects'
   });
 }
 
-export function getPrimaryClusterSummary(themeId: number, days = 7, goal = 'collects'): SummaryPayload | null {
-  const summaries = getClusterSummaries(themeId, days, goal);
+export async function getPrimaryClusterSummary(themeId: number, days = 7, goal = 'collects'): Promise<SummaryPayload | null> {
+  const summaries = await getClusterSummaries(themeId, days, goal);
   if (summaries.length === 0) return null;
   return summaries[0].summary;
 }

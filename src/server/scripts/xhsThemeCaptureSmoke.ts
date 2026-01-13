@@ -34,34 +34,35 @@ async function ensureLogin(timeout: number) {
   return checkStatus();
 }
 
-function listThemeKeywords(themeId: number) {
+async function listThemeKeywords(themeId: number) {
   const db = getDatabase();
-  return db
-    .prepare(
-      `SELECT id,
-              COALESCE(keyword, value) AS value,
-              status
-       FROM keywords
-       WHERE theme_id = ?
-       ORDER BY id DESC`
-    )
-    .all(themeId);
+  const { data, error } = await db
+    .from('keywords')
+    .select('id, value, status')
+    .eq('theme_id', themeId)
+    .order('id', { ascending: false });
+  if (error) throw error;
+  return data || [];
 }
 
-function getTopicStats(keywordId: number) {
+async function getTopicStats(keywordId: number) {
   const db = getDatabase();
-  const totalRow = db.prepare('SELECT COUNT(*) AS total FROM topics WHERE keyword_id = ?').get(keywordId);
-  const sample = db
-    .prepare(
-      `SELECT id, title, source_id, xsec_token, url, created_at
-       FROM topics
-       WHERE keyword_id = ?
-       ORDER BY id DESC
-       LIMIT 1`
-    )
-    .get(keywordId);
+
+  const { count } = await db
+    .from('topics')
+    .select('*', { count: 'exact', head: true })
+    .eq('keyword_id', keywordId);
+
+  const { data: sample } = await db
+    .from('topics')
+    .select('id, title, source_id, xsec_token, url, created_at')
+    .eq('keyword_id', keywordId)
+    .order('id', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
   return {
-    total: totalRow?.total ?? 0,
+    total: count ?? 0,
     sample,
   };
 }
@@ -98,7 +99,7 @@ async function run() {
   });
 
   const themeId = Number(theme.id);
-  const themeKeywords = listThemeKeywords(themeId);
+  const themeKeywords = await listThemeKeywords(themeId);
   console.log('[xhs-theme-smoke] theme created:', { id: themeId, name: theme.name, keywordCount: themeKeywords.length });
 
   let insertedTotal = 0;
@@ -106,7 +107,7 @@ async function run() {
     console.log(`[xhs-theme-smoke] capturing keyword="${keyword.value}" limit=${limit}...`);
     const result = await runCapture(keyword.id, limit);
     insertedTotal += result?.inserted ?? 0;
-    const stats = getTopicStats(keyword.id);
+    const stats = await getTopicStats(keyword.id);
     console.log('[xhs-theme-smoke] capture result:', {
       keyword: keyword.value,
       status: result?.status,

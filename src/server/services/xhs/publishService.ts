@@ -1,67 +1,81 @@
-import { getDatabase } from '../../db';
+// Publish Service - Drizzle ORM
+import { db, schema } from '../../db/index';
+import { desc, eq } from 'drizzle-orm';
+import type { PublishRecord } from '../../db/schema';
 
-function stringifyJson(value: any) {
-  if (value === undefined) {
-    return undefined;
-  }
-  return value === null ? null : JSON.stringify(value);
+export type { PublishRecord };
+
+export async function enqueuePublish(payload: {
+  accountId?: number;
+  themeId?: number;
+  creativeId?: number;
+  noteId?: string;
+  xsecToken?: string;
+  type?: string;
+  title?: string;
+  content?: string;
+  tags?: string;
+  mediaUrls?: string;
+  scheduledAt?: Date;
+}): Promise<PublishRecord> {
+  const [record] = await db
+    .insert(schema.publishRecords)
+    .values({
+      accountId: payload.accountId ?? null,
+      themeId: payload.themeId ?? null,
+      creativeId: payload.creativeId ?? null,
+      noteId: payload.noteId ?? null,
+      xsecToken: payload.xsecToken ?? null,
+      type: payload.type ?? null,
+      title: payload.title ?? null,
+      content: payload.content ?? null,
+      tags: payload.tags ?? null,
+      mediaUrls: payload.mediaUrls ?? null,
+      status: 'queued',
+      scheduledAt: payload.scheduledAt ?? null,
+    })
+    .returning();
+
+  return record;
 }
 
-export function enqueuePublish(payload: Record<string, any>) {
-  if (!payload || typeof payload !== 'object') {
-    throw new Error('publish:enqueue expects an object payload');
-  }
-  const db = getDatabase();
-  const result = db
-    .prepare(
-      `INSERT INTO publish_records
-       (account_id, theme_id, creative_id, note_id, xsec_token, type, title, content, tags, media_urls,
-        status, scheduled_at, published_at, created_at, updated_at, response_json, error_message)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, datetime('now'), datetime('now'), NULL, NULL)`
-    )
-    .run(
-      payload.accountId || null,
-      payload.themeId || null,
-      payload.creativeId || null,
-      payload.noteId || null,
-      payload.xsecToken || null,
-      payload.type || null,
-      payload.title || null,
-      payload.content || null,
-      stringifyJson(payload.tags),
-      stringifyJson(payload.mediaUrls),
-      payload.scheduledAt || null
-    );
-
-  return db
-    .prepare(
-      `SELECT id, account_id, theme_id, creative_id, note_id, xsec_token, type, title, content,
-              tags, media_urls, status, scheduled_at, published_at, created_at, updated_at
-       FROM publish_records
-       WHERE id = ?`
-    )
-    .get(result.lastInsertRowid);
-}
-
-export function listPublishes(themeId?: number) {
-  const db = getDatabase();
-  if (themeId) {
+export async function listPublishes(themeId?: number) {
+  if (themeId !== undefined) {
     return db
-      .prepare(
-        `SELECT id, account_id, theme_id, creative_id, note_id, xsec_token, type, title, content,
-                tags, media_urls, status, scheduled_at, published_at, created_at, updated_at
-         FROM publish_records
-         WHERE theme_id = ?
-         ORDER BY id DESC`
-      )
-      .all(themeId);
+      .select()
+      .from(schema.publishRecords)
+      .where(eq(schema.publishRecords.themeId, themeId))
+      .orderBy(desc(schema.publishRecords.id));
   }
+
   return db
-    .prepare(
-      `SELECT id, account_id, theme_id, creative_id, note_id, xsec_token, type, title, content,
-              tags, media_urls, status, scheduled_at, published_at, created_at, updated_at
-       FROM publish_records
-       ORDER BY id DESC`
-    )
-    .all();
+    .select()
+    .from(schema.publishRecords)
+    .orderBy(desc(schema.publishRecords.id));
+}
+
+export async function updatePublishStatus(
+  id: number,
+  data: {
+    status?: string;
+    noteId?: string;
+    publishedAt?: Date;
+    response?: Record<string, unknown>;
+    errorMessage?: string;
+  }
+): Promise<PublishRecord> {
+  const [record] = await db
+    .update(schema.publishRecords)
+    .set({
+      ...data,
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.publishRecords.id, id))
+    .returning();
+
+  if (!record) {
+    throw new Error('Publish record not found');
+  }
+
+  return record;
 }

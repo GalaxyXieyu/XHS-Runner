@@ -1,103 +1,78 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useCompletion } from '@ai-sdk/react';
-import { TrendingUp, Hash, MessageCircle, RefreshCw, Heart, Star, Users, Loader2, Sparkles, Calendar, ArrowUpDown, FileText, List, Cloud, Settings2 } from 'lucide-react';
+import {
+  ArrowUpDown,
+  Calendar,
+  Cloud,
+  FileText,
+  Hash,
+  Heart,
+  List,
+  Loader2,
+  MessageCircle,
+  RefreshCw,
+  Settings2,
+  Sparkles,
+  Star,
+  TrendingUp,
+  Users,
+} from 'lucide-react';
+import { ThinkingBlock } from '../ui/ThinkingBlock';
+import { useInsightData, useLLMProviders } from '../../src/hooks';
+import type { SortBy } from '../../src/store';
 import type { Theme } from '../../App';
 
 interface InsightTabProps {
   theme: Theme;
 }
 
-interface Topic {
-  id: number;
-  title: string;
-  url: string;
-  author_name: string;
-  author_avatar_url: string;
-  like_count: number;
-  collect_count: number;
-  comment_count: number;
-  cover_url: string;
-  published_at: string;
-  status: string;
-  keyword?: string;
-}
-
-interface TagData {
-  tag: string;
-  count: number;
-  weight?: number;
-}
-
-interface TopTitle {
-  title: string;
-  like_count: number;
-  collect_count: number;
-  comment_count: number;
-}
-
-interface InsightStats {
-  totalNotes: number;
-  totalTags: number;
-  totalTitles: number;
-  totalEngagement: number;
-  avgEngagement: number;
-}
-
-interface LLMProvider {
-  id: number;
-  name: string;
-  base_url: string;
-  api_key: string;
-  model_name: string;
-  is_default: number;
-}
-
-interface PromptProfile {
-  id: number;
-  name: string;
-  category: string;
-  system_prompt: string;
-  user_template: string;
-}
-
-type SortBy = 'engagement' | 'likes' | 'collects' | 'comments' | 'recent';
-
 export function InsightTab({ theme }: InsightTabProps) {
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [topics, setTopics] = useState<Topic[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [tags, setTags] = useState<TagData[]>([]);
-  const [topTitles, setTopTitles] = useState<TopTitle[]>([]);
-  const [stats, setStats] = useState<InsightStats | null>(null);
-
-  // 趋势报告
-  const [trendReport, setTrendReport] = useState<{ analysis: string; report_date: string } | null>(null);
-
-  // 筛选参数
-  const [days, setDays] = useState<number>(0);  // 0=全部, 7, 30
-  const [sortBy, setSortBy] = useState<SortBy>('engagement');
   const [tagView, setTagView] = useState<'list' | 'cloud'>('list');
-
-  // 模型和提示词选择
-  const [llmProviders, setLlmProviders] = useState<LLMProvider[]>([]);
-  const [promptProfiles, setPromptProfiles] = useState<PromptProfile[]>([]);
-  const [selectedProviderId, setSelectedProviderId] = useState<number | null>(null);
-  const [selectedPromptId, setSelectedPromptId] = useState<number | null>(null);
   const [showSettings, setShowSettings] = useState(false);
 
-  // 使用 Vercel AI SDK 的 useCompletion hook 实现打字机效果
+  const {
+    topics,
+    tags,
+    topTitles,
+    stats,
+    trendReport,
+    titleAnalysis,
+    days,
+    sortBy,
+    setDays,
+    setSortBy,
+    loading,
+    refreshing,
+    refresh,
+    setTrendReport,
+    setTitleAnalysis,
+  } = useInsightData(theme.id);
+
+  const {
+    providers: llmProviders,
+    profiles: promptProfiles,
+    selectedProviderId,
+    selectedPromptId,
+    setSelectedProviderId,
+    setSelectedPromptId,
+  } = useLLMProviders('分析');
+
   const {
     completion: analysis,
     isLoading: analyzing,
     complete: runAnalysis,
   } = useCompletion({
     api: '/api/insights/analyze',
+    streamProtocol: 'text',
     body: {
       themeId: theme.id,
       days,
       sortBy,
       providerId: selectedProviderId,
       promptId: selectedPromptId,
+    },
+    onFinish: (_, completion) => {
+      setTitleAnalysis({ analysis: completion as string, analyzed_at: new Date().toISOString() });
     },
   });
 
@@ -107,78 +82,41 @@ export function InsightTab({ theme }: InsightTabProps) {
     complete: generateTrend,
   } = useCompletion({
     api: `/api/insights/trend?themeId=${theme.id}`,
+    streamProtocol: 'text',
     body: {
       providerId: selectedProviderId,
     },
-    onFinish: () => {
-      // 更新趋势报告日期
-      setTrendReport(prev => prev ? { ...prev, analysis: '' } : { analysis: '', report_date: new Date().toISOString().split('T')[0] });
+    onFinish: (_, completion) => {
+      setTrendReport({ analysis: completion as string, report_date: new Date().toISOString().split('T')[0] });
     },
   });
 
-  // 加载模型和提示词列表
-  useEffect(() => {
-    Promise.all([
-      fetch('/api/llm-providers').then(r => r.json()),
-      fetch('/api/prompt-profiles').then(r => r.json())
-    ]).then(([providers, profiles]) => {
-      setLlmProviders(providers);
-      setPromptProfiles(profiles.filter((p: PromptProfile) => p.category === '分析' || p.category === 'analysis'));
-      // 默认选择 is_default 的模型
-      const defaultProvider = providers.find((p: LLMProvider) => p.is_default);
-      if (defaultProvider) setSelectedProviderId(defaultProvider.id);
-    });
-  }, []);
-
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      const params = new URLSearchParams({ themeId: String(theme.id) });
-      if (days > 0) params.set('days', String(days));
-      if (sortBy !== 'engagement') params.set('sortBy', sortBy);
-
-      const [topicsRes, insightsRes, trendRes] = await Promise.all([
-        fetch(`/api/topics?themeId=${theme.id}&limit=20`),
-        fetch(`/api/insights?${params}`),
-        fetch(`/api/insights/trend?themeId=${theme.id}`)
-      ]);
-      const topicsData = await topicsRes.json();
-      const insightsData = await insightsRes.json();
-      const trendData = await trendRes.json();
-
-      setTopics(topicsData);
-      setTags(insightsData.tags || []);
-      setTopTitles(insightsData.topTitles || []);
-      setStats(insightsData.stats || null);
-      setTrendReport(trendData.latest || null);
-    } catch (e) {
-      console.error('Failed to load data:', e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 触发标题分析
   const handleRunAnalysis = useCallback(() => {
     runAnalysis('');
   }, [runAnalysis]);
 
-  // 触发趋势报告生成
   const handleGenerateTrend = useCallback(() => {
     setTrendReport({ analysis: '', report_date: new Date().toISOString().split('T')[0] });
     generateTrend('');
-  }, [generateTrend]);
+  }, [generateTrend, setTrendReport]);
 
-  useEffect(() => {
-    loadData();
-  }, [theme.id, days, sortBy]);
+  const handleRefresh = useCallback(() => {
+    refresh();
+  }, [refresh]);
 
-  const handleRefresh = () => {
-    setIsRefreshing(true);
-    loadData().finally(() => setIsRefreshing(false));
-  };
+  const formatCount = (n: number) => (n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n));
 
-  const formatCount = (n: number) => n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
+  const titleAnalysisText = useMemo(() => {
+    if (analyzing) return analysis;
+    return titleAnalysis?.analysis || analysis;
+  }, [analyzing, analysis, titleAnalysis?.analysis]);
+
+  const trendReportText = useMemo(() => {
+    if (generatingTrend) return trendAnalysis;
+    return trendReport?.analysis || trendAnalysis;
+  }, [generatingTrend, trendAnalysis, trendReport?.analysis]);
+
+  const showSkeleton = loading && !refreshing;
 
   return (
     <div className="space-y-3">
@@ -199,8 +137,14 @@ export function InsightTab({ theme }: InsightTabProps) {
             <span>{generatingTrend ? '生成中...' : '生成报告'}</span>
           </button>
         </div>
-        {(generatingTrend ? trendAnalysis : trendReport?.analysis) ? (
-          <div className="text-xs text-gray-600 leading-relaxed bg-white rounded-lg p-2.5 max-h-20 overflow-y-auto">{generatingTrend ? trendAnalysis : trendReport?.analysis}</div>
+        {trendReportText ? (
+          <ThinkingBlock content={trendReportText} isStreaming={generatingTrend} />
+        ) : showSkeleton ? (
+          <div className="bg-white rounded-lg p-2.5 animate-pulse space-y-2">
+            <div className="h-3 bg-gray-200 rounded w-1/3" />
+            <div className="h-3 bg-gray-200 rounded w-5/6" />
+            <div className="h-3 bg-gray-200 rounded w-2/3" />
+          </div>
         ) : (
           <div className="text-xs text-gray-400 bg-white rounded-lg p-2.5 text-center">点击"生成报告"获取AI趋势分析</div>
         )}
@@ -244,9 +188,7 @@ export function InsightTab({ theme }: InsightTabProps) {
           <Settings2 className="w-3.5 h-3.5" />
           AI设置
         </button>
-        <div className="text-xs text-gray-400 ml-auto">
-          标签按互动加权排序
-        </div>
+        <div className="text-xs text-gray-400 ml-auto">标签按互动加权排序</div>
       </div>
 
       {/* AI Settings Panel */}
@@ -261,8 +203,11 @@ export function InsightTab({ theme }: InsightTabProps) {
                 className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/20"
               >
                 <option value="">使用默认设置</option>
-                {llmProviders.map(p => (
-                  <option key={p.id} value={p.id}>{p.name} ({p.model_name})</option>
+                {llmProviders.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                    {p.model_name ? ` (${p.model_name})` : ''}
+                  </option>
                 ))}
               </select>
             </div>
@@ -274,8 +219,10 @@ export function InsightTab({ theme }: InsightTabProps) {
                 className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/20"
               >
                 <option value="">使用默认提示词</option>
-                {promptProfiles.map(p => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
+                {promptProfiles.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
                 ))}
               </select>
             </div>
@@ -284,43 +231,58 @@ export function InsightTab({ theme }: InsightTabProps) {
       )}
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-4 gap-3">
-        <div className="bg-white border border-gray-200 rounded-lg p-3">
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-xs text-gray-500">抓取笔记</span>
-            <TrendingUp className="w-3.5 h-3.5 text-red-400" />
-          </div>
-          <div className="text-xl font-bold text-gray-900">{stats?.totalNotes || 0}</div>
-          <div className="text-xs text-gray-400">总计</div>
+      {showSkeleton ? (
+        <div className="grid grid-cols-4 gap-3">
+          {Array.from({ length: 4 }).map((_, idx) => (
+            <div key={idx} className="bg-white border border-gray-200 rounded-lg p-3 animate-pulse">
+              <div className="flex items-center justify-between mb-2">
+                <div className="h-3 bg-gray-200 rounded w-16" />
+                <div className="h-4 w-4 bg-gray-200 rounded" />
+              </div>
+              <div className="h-6 bg-gray-200 rounded w-10 mb-2" />
+              <div className="h-3 bg-gray-200 rounded w-12" />
+            </div>
+          ))}
         </div>
+      ) : (
+        <div className="grid grid-cols-4 gap-3">
+          <div className="bg-white border border-gray-200 rounded-lg p-3">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs text-gray-500">抓取笔记</span>
+              <TrendingUp className="w-3.5 h-3.5 text-red-400" />
+            </div>
+            <div className="text-xl font-bold text-gray-900">{stats?.totalNotes || 0}</div>
+            <div className="text-xs text-gray-400">总计</div>
+          </div>
 
-        <div className="bg-white border border-gray-200 rounded-lg p-3">
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-xs text-gray-500">热门标签</span>
-            <Hash className="w-3.5 h-3.5 text-blue-400" />
+          <div className="bg-white border border-gray-200 rounded-lg p-3">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs text-gray-500">热门标签</span>
+              <Hash className="w-3.5 h-3.5 text-blue-400" />
+            </div>
+            <div className="text-xl font-bold text-gray-900">{stats?.totalTags || 0}</div>
+            <div className="text-xs text-gray-400">已提取</div>
           </div>
-          <div className="text-xl font-bold text-gray-900">{stats?.totalTags || 0}</div>
-          <div className="text-xs text-gray-400">已提取</div>
-        </div>
 
-        <div className="bg-white border border-gray-200 rounded-lg p-3">
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-xs text-gray-500">平均互动</span>
-            <Star className="w-3.5 h-3.5 text-yellow-400" />
+          <div className="bg-white border border-gray-200 rounded-lg p-3">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs text-gray-500">平均互动</span>
+              <Star className="w-3.5 h-3.5 text-yellow-400" />
+            </div>
+            <div className="text-xl font-bold text-gray-900">{formatCount(stats?.avgEngagement || 0)}</div>
+            <div className="text-xs text-gray-400">每篇</div>
           </div>
-          <div className="text-xl font-bold text-gray-900">{formatCount(stats?.avgEngagement || 0)}</div>
-          <div className="text-xs text-gray-400">每篇</div>
-        </div>
 
-        <div className="bg-white border border-gray-200 rounded-lg p-3">
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-xs text-gray-500">总互动</span>
-            <Users className="w-3.5 h-3.5 text-green-400" />
+          <div className="bg-white border border-gray-200 rounded-lg p-3">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs text-gray-500">总互动</span>
+              <Users className="w-3.5 h-3.5 text-green-400" />
+            </div>
+            <div className="text-xl font-bold text-gray-900">{formatCount(stats?.totalEngagement || 0)}</div>
+            <div className="text-xs text-gray-400">点赞+收藏</div>
           </div>
-          <div className="text-xl font-bold text-gray-900">{formatCount(stats?.totalEngagement || 0)}</div>
-          <div className="text-xs text-gray-400">点赞+收藏</div>
         </div>
-      </div>
+      )}
 
       {/* Top Titles with AI Analysis */}
       <div className="bg-white border border-gray-200 rounded-lg p-3 overflow-hidden">
@@ -339,19 +301,51 @@ export function InsightTab({ theme }: InsightTabProps) {
           </button>
         </div>
         {/* AI Analysis Result */}
-        {analysis && (
-          <div className="text-xs text-gray-700 leading-relaxed whitespace-pre-wrap bg-purple-50 rounded-lg p-2.5 mb-3 max-h-28 overflow-y-auto">{analysis}</div>
-        )}
+        {titleAnalysisText ? (
+          <div className="mb-3">
+            <ThinkingBlock content={titleAnalysisText} isStreaming={analyzing} />
+          </div>
+        ) : showSkeleton ? (
+          <div className="mb-3 bg-gray-50 rounded-lg p-3 animate-pulse space-y-2">
+            <div className="h-3 bg-gray-200 rounded w-1/3" />
+            <div className="h-3 bg-gray-200 rounded w-5/6" />
+            <div className="h-3 bg-gray-200 rounded w-2/3" />
+          </div>
+        ) : null}
         {/* Title List */}
-        {topTitles.length > 0 ? (
+        {showSkeleton ? (
+          <div className="grid grid-cols-2 gap-2 max-h-52 overflow-y-auto pr-1 animate-pulse">
+            {Array.from({ length: 6 }).map((_, idx) => (
+              <div key={idx} className="p-2.5 bg-gray-50 rounded-lg">
+                <div className="h-3 bg-gray-200 rounded w-5/6 mb-2" />
+                <div className="flex gap-3">
+                  <div className="h-3 bg-gray-200 rounded w-10" />
+                  <div className="h-3 bg-gray-200 rounded w-10" />
+                  <div className="h-3 bg-gray-200 rounded w-10" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : topTitles.length > 0 ? (
           <div className="grid grid-cols-2 gap-2 max-h-52 overflow-y-auto pr-1">
             {topTitles.map((t, idx) => (
               <div key={idx} className="p-2.5 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
-                <div className="text-xs text-gray-900 line-clamp-1 mb-1.5 font-medium">{idx + 1}. {t.title}</div>
+                <div className="text-xs text-gray-900 line-clamp-1 mb-1.5 font-medium">
+                  {idx + 1}. {t.title}
+                </div>
                 <div className="flex gap-3 text-xs text-gray-500">
-                  <span className="flex items-center gap-1"><Heart className="w-3 h-3 text-red-400" />{formatCount(t.like_count)}</span>
-                  <span className="flex items-center gap-1"><Star className="w-3 h-3 text-yellow-400" />{formatCount(t.collect_count)}</span>
-                  <span className="flex items-center gap-1"><MessageCircle className="w-3 h-3 text-blue-400" />{t.comment_count}</span>
+                  <span className="flex items-center gap-1">
+                    <Heart className="w-3 h-3 text-red-400" />
+                    {formatCount(t.like_count || 0)}
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <Star className="w-3 h-3 text-yellow-400" />
+                    {formatCount(t.collect_count || 0)}
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <MessageCircle className="w-3 h-3 text-blue-400" />
+                    {t.comment_count || 0}
+                  </span>
                 </div>
               </div>
             ))}
@@ -372,14 +366,18 @@ export function InsightTab({ theme }: InsightTabProps) {
             <div className="flex bg-gray-100 rounded-lg p-0.5">
               <button
                 onClick={() => setTagView('list')}
-                className={`p-1.5 rounded-md transition-colors ${tagView === 'list' ? 'bg-white shadow-sm' : 'hover:bg-gray-200'}`}
+                className={`p-1.5 rounded-md transition-colors ${
+                  tagView === 'list' ? 'bg-white shadow-sm' : 'hover:bg-gray-200'
+                }`}
                 title="列表视图"
               >
                 <List className="w-3.5 h-3.5 text-gray-600" />
               </button>
               <button
                 onClick={() => setTagView('cloud')}
-                className={`p-1.5 rounded-md transition-colors ${tagView === 'cloud' ? 'bg-white shadow-sm' : 'hover:bg-gray-200'}`}
+                className={`p-1.5 rounded-md transition-colors ${
+                  tagView === 'cloud' ? 'bg-white shadow-sm' : 'hover:bg-gray-200'
+                }`}
                 title="词云视图"
               >
                 <Cloud className="w-3.5 h-3.5 text-gray-600" />
@@ -387,27 +385,77 @@ export function InsightTab({ theme }: InsightTabProps) {
             </div>
             <button
               onClick={handleRefresh}
-              disabled={isRefreshing}
+              disabled={refreshing}
               className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
             >
-              <RefreshCw className={`w-3 h-3 ${isRefreshing ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} />
             </button>
           </div>
         </div>
-        {tags.length > 0 ? (
-          tagView === 'list' ? (
-            <div className="flex flex-wrap gap-1.5">
-              {tags.slice(0, 15).map((item, idx) => (
-                <span key={idx} className="px-2 py-1 bg-blue-50 text-blue-600 text-xs rounded-lg">
-                  {item.tag} · {item.count}
-                </span>
-              ))}
-            </div>
+        {showSkeleton ? (
+          <div className="space-y-2 animate-pulse">
+            {Array.from({ length: 8 }).map((_, idx) => (
+              <div key={idx} className="flex items-center gap-2">
+                <div className="h-3 bg-gray-200 rounded w-20" />
+                <div className="flex-1 h-5 bg-gray-100 rounded-full overflow-hidden">
+                  <div className="h-full bg-gray-200 rounded-full w-2/3" />
+                </div>
+                <div className="h-3 bg-gray-200 rounded w-8" />
+              </div>
+            ))}
+          </div>
+        ) : tags.length > 0 ? (
+	          tagView === 'list' ? (
+	            <div className="space-y-1.5">
+	              {(() => {
+	                const ordered = [...tags].sort((a, b) => {
+	                  const av = Number(a.weight ?? a.count ?? 0);
+	                  const bv = Number(b.weight ?? b.count ?? 0);
+	                  return bv - av;
+	                });
+	                const top = ordered.slice(0, 12);
+	                const values = top
+	                  .map((t) => Number(t.weight ?? t.count ?? 0))
+	                  .filter((v) => Number.isFinite(v) && v > 0);
+	                const maxValue = Math.max(1, ...values);
+
+	                return top.map((item, idx) => {
+	                  const value = Number(item.weight ?? item.count ?? 0);
+	                  const rawPercent = maxValue > 0 ? (value / maxValue) * 100 : 0;
+	                  const percent = value > 0 ? Math.max(8, Math.round(rawPercent)) : 0;
+	                  return (
+	                    <div key={idx} className="flex items-center gap-2">
+	                      <span className="w-20 text-xs text-gray-700 truncate" title={item.tag}>
+	                        {item.tag}
+	                      </span>
+	                      <div className="flex-1 h-5 bg-gray-100 rounded-full overflow-hidden">
+	                        <div
+	                          className="h-full bg-gradient-to-r from-red-400 to-red-500 rounded-full"
+	                          style={{ width: `${percent}%` }}
+	                        />
+	                      </div>
+	                      <span className="w-8 text-xs text-gray-500 text-right">{item.count}</span>
+	                    </div>
+	                  );
+	                });
+	              })()}
+	            </div>
           ) : (
             <div className="flex flex-wrap items-center justify-center gap-3 py-6 min-h-[140px] bg-gradient-to-br from-slate-50 to-blue-50 rounded-lg">
               {(() => {
-                const maxWeight = Math.max(...tags.map(t => t.weight || t.count));
-                const colors = ['text-red-500', 'text-blue-600', 'text-emerald-500', 'text-purple-500', 'text-orange-500', 'text-pink-500', 'text-cyan-600', 'text-indigo-500', 'text-amber-500', 'text-teal-500'];
+                const maxWeight = Math.max(...tags.map((t) => t.weight || t.count));
+                const colors = [
+                  'text-red-500',
+                  'text-blue-600',
+                  'text-emerald-500',
+                  'text-purple-500',
+                  'text-orange-500',
+                  'text-pink-500',
+                  'text-cyan-600',
+                  'text-indigo-500',
+                  'text-amber-500',
+                  'text-teal-500',
+                ];
                 return tags.slice(0, 20).map((item, idx) => {
                   const ratio = (item.weight || item.count) / maxWeight;
                   const fontSize = 14 + ratio * 18;
@@ -415,7 +463,10 @@ export function InsightTab({ theme }: InsightTabProps) {
                     <span
                       key={idx}
                       className={`${colors[idx % colors.length]} hover:scale-110 cursor-default transition-transform`}
-                      style={{ fontSize: `${fontSize}px`, fontWeight: ratio > 0.6 ? 700 : ratio > 0.3 ? 500 : 400 }}
+                      style={{
+                        fontSize: `${fontSize}px`,
+                        fontWeight: ratio > 0.6 ? 700 : ratio > 0.3 ? 500 : 400,
+                      }}
                       title={`${item.tag}: ${item.count}次, 权重${item.weight || 0}`}
                     >
                       {item.tag}
@@ -436,47 +487,64 @@ export function InsightTab({ theme }: InsightTabProps) {
           <Users className="w-4 h-4 text-green-500" />
           <span className="text-sm font-medium text-gray-900">热门笔记</span>
         </div>
-        {loading ? (
+        {loading && topics.length === 0 ? (
           <div className="text-xs text-gray-500 text-center py-6">加载中...</div>
         ) : topics.length === 0 ? (
           <div className="text-xs text-gray-500 text-center py-6">暂无数据，请先抓取笔记</div>
         ) : (
           <div className="grid grid-cols-2 gap-3">
-            {topics.slice(0, 2).map((topic) => (
-              <a
-                key={topic.id}
-                href={topic.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex gap-3 p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
-              >
-                {topic.cover_url && (
-                  <img
-                    src={topic.cover_url}
-                    alt={topic.title}
-                    className="w-20 h-20 object-cover rounded-lg flex-shrink-0"
-                  />
-                )}
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-gray-900 mb-1 line-clamp-2">{topic.title}</div>
-                  <div className="text-xs text-gray-500 mb-2">{topic.author_name} · {topic.keyword}</div>
-                  <div className="flex items-center gap-3 text-xs text-gray-500">
-                    <span className="flex items-center gap-1">
-                      <Heart className="w-3 h-3 text-red-400" />
-                      {formatCount(topic.like_count || 0)}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <Star className="w-3 h-3 text-yellow-400" />
-                      {formatCount(topic.collect_count || 0)}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <MessageCircle className="w-3 h-3 text-blue-400" />
-                      {topic.comment_count || 0}
-                    </span>
+            {topics.slice(0, 2).map((topic) => {
+              const coverSrc = topic.cover_url
+                ? `/api/image?url=${encodeURIComponent(topic.cover_url)}`
+                : null;
+
+              return (
+                <a
+                  key={topic.id}
+                  href={topic.url || '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex gap-3 p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
+                >
+                  <div className="w-20 h-20 rounded-lg flex-shrink-0 bg-gray-200 overflow-hidden relative">
+                    <div className="absolute inset-0 flex items-center justify-center text-gray-500 text-xs">无封面</div>
+                    {coverSrc && (
+                      <img
+                        src={coverSrc}
+                        alt={topic.title}
+                        referrerPolicy="no-referrer"
+                        loading="lazy"
+                        className="absolute inset-0 w-full h-full object-cover"
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                        }}
+                      />
+                    )}
                   </div>
-                </div>
-              </a>
-            ))}
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-gray-900 mb-1 line-clamp-2">{topic.title}</div>
+                    <div className="text-xs text-gray-500 mb-2">
+                      {topic.author_name || '未知作者'}
+                      {topic.keyword ? ` · ${topic.keyword}` : ''}
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-gray-500">
+                      <span className="flex items-center gap-1">
+                        <Heart className="w-3 h-3 text-red-400" />
+                        {formatCount(topic.like_count || 0)}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Star className="w-3 h-3 text-yellow-400" />
+                        {formatCount(topic.collect_count || 0)}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <MessageCircle className="w-3 h-3 text-blue-400" />
+                        {topic.comment_count || 0}
+                      </span>
+                    </div>
+                  </div>
+                </a>
+              );
+            })}
           </div>
         )}
       </div>
@@ -484,46 +552,54 @@ export function InsightTab({ theme }: InsightTabProps) {
       {/* Notes Grid */}
       <div className="bg-white border border-gray-200 rounded-lg p-3">
         <div className="text-sm font-medium text-gray-900 mb-3">全部笔记 ({topics.length})</div>
-        {loading ? (
+        {loading && topics.length === 0 ? (
           <div className="text-xs text-gray-500 text-center py-6">加载中...</div>
         ) : topics.length === 0 ? (
           <div className="text-xs text-gray-500 text-center py-6">暂无数据</div>
         ) : (
           <div className="grid grid-cols-4 gap-3">
-            {topics.slice(0, 8).map((topic) => (
-              <a
-                key={topic.id}
-                href={topic.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="group cursor-pointer"
-              >
-                <div className="relative mb-2 overflow-hidden rounded-lg bg-gray-100">
-                  {topic.cover_url ? (
-                    <img
-                      src={topic.cover_url}
-                      alt={topic.title}
-                      className="w-full h-32 object-cover group-hover:scale-105 transition-transform"
-                    />
-                  ) : (
+            {topics.slice(0, 8).map((topic) => {
+              const coverSrc = topic.cover_url
+                ? `/api/image?url=${encodeURIComponent(topic.cover_url)}`
+                : null;
+
+              return (
+                <a
+                  key={topic.id}
+                  href={topic.url || '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="group cursor-pointer"
+                >
+                  <div className="relative mb-2 overflow-hidden rounded-lg bg-gray-100">
                     <div className="w-full h-32 flex items-center justify-center text-gray-400 text-xs">无封面</div>
-                  )}
-                  <div className="absolute top-1.5 right-1.5 bg-black/60 text-white text-xs px-1.5 py-0.5 rounded-md flex items-center gap-1">
-                    <Heart className="w-3 h-3" />
-                    {formatCount(topic.like_count || 0)}
+                    {coverSrc && (
+                      <img
+                        src={coverSrc}
+                        alt={topic.title}
+                        referrerPolicy="no-referrer"
+                        loading="lazy"
+                        className="absolute inset-0 w-full h-32 object-cover group-hover:scale-105 transition-transform"
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                        }}
+                      />
+                    )}
+                    <div className="absolute top-1.5 right-1.5 bg-black/60 text-white text-xs px-1.5 py-0.5 rounded-md flex items-center gap-1">
+                      <Heart className="w-3 h-3" />
+                      {formatCount(topic.like_count || 0)}
+                    </div>
                   </div>
-                </div>
-                <div className="text-xs font-medium text-gray-900 mb-1 line-clamp-2 group-hover:text-red-500 transition-colors">
-                  {topic.title}
-                </div>
-                <div className="text-xs text-gray-500 mb-1">{topic.author_name}</div>
-                {topic.keyword && (
-                  <span className="px-1.5 py-0.5 bg-gray-100 text-gray-600 text-xs rounded-md">
-                    #{topic.keyword}
-                  </span>
-                )}
-              </a>
-            ))}
+                  <div className="text-xs font-medium text-gray-900 mb-1 line-clamp-2 group-hover:text-red-500 transition-colors">
+                    {topic.title}
+                  </div>
+                  <div className="text-xs text-gray-500 mb-1">{topic.author_name || '未知作者'}</div>
+                  {topic.keyword && (
+                    <span className="px-1.5 py-0.5 bg-gray-100 text-gray-600 text-xs rounded-md">#{topic.keyword}</span>
+                  )}
+                </a>
+              );
+            })}
           </div>
         )}
       </div>

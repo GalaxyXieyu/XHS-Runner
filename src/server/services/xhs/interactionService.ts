@@ -1,27 +1,28 @@
 import { getDatabase } from '../../db';
 
-export function listInteractions(publishRecordId?: number) {
+export async function listInteractions(publishRecordId?: number) {
   const db = getDatabase();
+  const selectColumns = 'id, publish_record_id, type, status, content, created_at, updated_at';
+
   if (publishRecordId) {
-    return db
-      .prepare(
-        `SELECT id, publish_record_id, type, status, content, created_at, updated_at
-         FROM interaction_tasks
-         WHERE publish_record_id = ?
-         ORDER BY id DESC`
-      )
-      .all(publishRecordId);
+    const { data, error } = await db
+      .from('interaction_tasks')
+      .select(selectColumns)
+      .eq('publish_record_id', publishRecordId)
+      .order('id', { ascending: false });
+    if (error) throw error;
+    return data || [];
   }
-  return db
-    .prepare(
-      `SELECT id, publish_record_id, type, status, content, created_at, updated_at
-       FROM interaction_tasks
-       ORDER BY id DESC`
-    )
-    .all();
+
+  const { data, error } = await db
+    .from('interaction_tasks')
+    .select(selectColumns)
+    .order('id', { ascending: false });
+  if (error) throw error;
+  return data || [];
 }
 
-export function enqueueInteraction(payload: Record<string, any>) {
+export async function enqueueInteraction(payload: Record<string, any>) {
   if (!payload || typeof payload !== 'object') {
     throw new Error('interactions:enqueue expects an object payload');
   }
@@ -31,19 +32,23 @@ export function enqueueInteraction(payload: Record<string, any>) {
   if (!payload.type) {
     throw new Error('interactions:enqueue requires type');
   }
+
   const db = getDatabase();
-  const result = db
-    .prepare(
-      `INSERT INTO interaction_tasks
-       (publish_record_id, type, status, content, created_at, updated_at)
-       VALUES (?, ?, 'queued', ?, datetime('now'), datetime('now'))`
-    )
-    .run(payload.publishRecordId, payload.type, payload.content || null);
-  return db
-    .prepare(
-      `SELECT id, publish_record_id, type, status, content, created_at, updated_at
-       FROM interaction_tasks
-       WHERE id = ?`
-    )
-    .get(result.lastInsertRowid);
+  const insertRow = {
+    publish_record_id: payload.publishRecordId,
+    type: payload.type,
+    status: 'queued',
+    content: payload.content || null,
+    updated_at: new Date().toISOString(),
+  };
+
+  const selectColumns = 'id, publish_record_id, type, status, content, created_at, updated_at';
+
+  const { data, error } = await db
+    .from('interaction_tasks')
+    .insert(insertRow)
+    .select(selectColumns)
+    .single();
+  if (error) throw error;
+  return data;
 }

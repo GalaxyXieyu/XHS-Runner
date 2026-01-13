@@ -1,13 +1,18 @@
 // 速率限制器 - 防止请求过于频繁和被封禁
 
-import { getDatabase } from '../../db';
 import { RateLimitState, RateLimitConfig, DEFAULT_RATE_LIMIT_CONFIG } from './types';
 
 export class RateLimiter {
   private config: RateLimitConfig;
+  private memoryState: Map<string, RateLimitState> = new Map();
+  private nextId = 1;
 
   constructor(config: Partial<RateLimitConfig> = {}) {
     this.config = { ...DEFAULT_RATE_LIMIT_CONFIG, ...config };
+  }
+
+  private getStateKey(scope: string, scopeId?: string) {
+    return `${scope}::${scopeId || ''}`;
   }
 
   // 检查是否可以执行请求
@@ -21,11 +26,7 @@ export class RateLimiter {
 
   // 获取需要等待的时间(ms)
   getWaitTime(scope: string, scopeId?: string): number {
-    const db = getDatabase();
-    const state = db.prepare(
-      'SELECT * FROM rate_limit_state WHERE scope = ? AND (scope_id = ? OR (scope_id IS NULL AND ? IS NULL))'
-    ).get(scope, scopeId || null, scopeId || null) as RateLimitState | undefined;
-
+    const state = this.memoryState.get(this.getStateKey(scope, scopeId));
     if (!state) return 0;
 
     const now = Date.now();
@@ -40,48 +41,48 @@ export class RateLimiter {
   }
 
   // 记录一次请求
-  recordRequest(scope: string, scopeId?: string): void {
-    const db = getDatabase();
+  async recordRequest(scope: string, scopeId?: string): Promise<void> {
     const now = new Date().toISOString();
-    const windowStart = new Date(Date.now() - 60000).toISOString(); // 1分钟窗口
-
-    const existing = db.prepare(
-      'SELECT * FROM rate_limit_state WHERE scope = ? AND (scope_id = ? OR (scope_id IS NULL AND ? IS NULL))'
-    ).get(scope, scopeId || null, scopeId || null) as RateLimitState | undefined;
+    const key = this.getStateKey(scope, scopeId);
+    const existing = this.memoryState.get(key);
 
     if (existing) {
       // 检查是否需要重置窗口
       const windowStartTime = new Date(existing.window_start).getTime();
       if (Date.now() - windowStartTime > 60000) {
         // 重置窗口
-        db.prepare(`
-          UPDATE rate_limit_state
-          SET request_count = 1, window_start = ?, last_request_at = ?
-          WHERE id = ?
-        `).run(now, now, existing.id);
+        this.memoryState.set(key, {
+          ...existing,
+          request_count: 1,
+          window_start: now,
+          last_request_at: now,
+        });
       } else {
         // 增加计数
-        db.prepare(`
-          UPDATE rate_limit_state
-          SET request_count = request_count + 1, last_request_at = ?
-          WHERE id = ?
-        `).run(now, existing.id);
+        this.memoryState.set(key, {
+          ...existing,
+          request_count: existing.request_count + 1,
+          last_request_at: now,
+        });
       }
     } else {
-      db.prepare(`
-        INSERT INTO rate_limit_state (scope, scope_id, request_count, window_start, last_request_at)
-        VALUES (?, ?, 1, ?, ?)
-      `).run(scope, scopeId || null, now, now);
+      this.memoryState.set(key, {
+        id: this.nextId++,
+        scope: scope as any,
+        scope_id: scopeId || null,
+        request_count: 1,
+        window_start: now,
+        last_request_at: now,
+        is_blocked: 0,
+        blocked_until: null,
+        block_reason: null,
+      });
     }
   }
 
   // 检查是否被封禁
   isBlocked(scope: string, scopeId?: string): boolean {
-    const db = getDatabase();
-    const state = db.prepare(
-      'SELECT * FROM rate_limit_state WHERE scope = ? AND (scope_id = ? OR (scope_id IS NULL AND ? IS NULL))'
-    ).get(scope, scopeId || null, scopeId || null) as RateLimitState | undefined;
-
+    const state = this.memoryState.get(this.getStateKey(scope, scopeId));
     if (!state || !state.is_blocked) return false;
 
     if (state.blocked_until) {
@@ -98,35 +99,38 @@ export class RateLimiter {
 
   // 封禁
   block(scope: string, scopeId: string | undefined, reason: string, durationMs: number): void {
-    const db = getDatabase();
     const blockedUntil = new Date(Date.now() + durationMs).toISOString();
-
-    const existing = db.prepare(
-      'SELECT id FROM rate_limit_state WHERE scope = ? AND (scope_id = ? OR (scope_id IS NULL AND ? IS NULL))'
-    ).get(scope, scopeId || null, scopeId || null);
+    const key = this.getStateKey(scope, scopeId);
+    const existing = this.memoryState.get(key);
 
     if (existing) {
-      db.prepare(`
-        UPDATE rate_limit_state
-        SET is_blocked = 1, blocked_until = ?, block_reason = ?
-        WHERE scope = ? AND (scope_id = ? OR (scope_id IS NULL AND ? IS NULL))
-      `).run(blockedUntil, reason, scope, scopeId || null, scopeId || null);
+      this.memoryState.set(key, {
+        ...existing,
+        is_blocked: 1,
+        blocked_until: blockedUntil,
+        block_reason: reason,
+      });
     } else {
-      db.prepare(`
-        INSERT INTO rate_limit_state (scope, scope_id, request_count, window_start, is_blocked, blocked_until, block_reason)
-        VALUES (?, ?, 0, datetime('now'), 1, ?, ?)
-      `).run(scope, scopeId || null, blockedUntil, reason);
+      this.memoryState.set(key, {
+        id: this.nextId++,
+        scope: scope as any,
+        scope_id: scopeId || null,
+        request_count: 0,
+        window_start: new Date().toISOString(),
+        last_request_at: null,
+        is_blocked: 1,
+        blocked_until: blockedUntil,
+        block_reason: reason,
+      });
     }
   }
 
   // 解除封禁
   unblock(scope: string, scopeId?: string): void {
-    const db = getDatabase();
-    db.prepare(`
-      UPDATE rate_limit_state
-      SET is_blocked = 0, blocked_until = NULL, block_reason = NULL
-      WHERE scope = ? AND (scope_id = ? OR (scope_id IS NULL AND ? IS NULL))
-    `).run(scope, scopeId || null, scopeId || null);
+    const key = this.getStateKey(scope, scopeId);
+    const existing = this.memoryState.get(key);
+    if (!existing) return;
+    this.memoryState.set(key, { ...existing, is_blocked: 0, blocked_until: null, block_reason: null });
   }
 
   // 计算指数退避延迟
@@ -145,16 +149,9 @@ export class RateLimiter {
 
   // 获取状态
   getStatus(): { global: RateLimitState | null; blocked: RateLimitState[] } {
-    const db = getDatabase();
-    const global = db.prepare(
-      "SELECT * FROM rate_limit_state WHERE scope = 'global'"
-    ).get() as RateLimitState | undefined;
-
-    const blocked = db.prepare(
-      'SELECT * FROM rate_limit_state WHERE is_blocked = 1'
-    ).all() as RateLimitState[];
-
-    return { global: global || null, blocked };
+    const global = this.memoryState.get(this.getStateKey('global')) || null;
+    const blocked = Array.from(this.memoryState.values()).filter((s) => Boolean(s.is_blocked));
+    return { global, blocked };
   }
 }
 

@@ -3,7 +3,7 @@ import path from 'path';
 import { getDatabase } from '../../db';
 import { resolveUserDataPath } from '../../runtime/userDataPath';
 
-export function recordMetric({
+export async function recordMetric({
   publishRecordId,
   metricKey,
   metricValue,
@@ -16,85 +16,94 @@ export function recordMetric({
 }) {
   const db = getDatabase();
   const timestamp = capturedAt || new Date().toISOString();
-  db.prepare(
-    `INSERT INTO metrics (publish_record_id, metric_key, metric_value, captured_at)
-     VALUES (?, ?, ?, ?)`
-  ).run(publishRecordId || null, metricKey, metricValue, timestamp);
+  const { error } = await db
+    .from('metrics')
+    .insert({
+      publish_record_id: publishRecordId || null,
+      metric_key: metricKey,
+      metric_value: metricValue,
+      captured_at: timestamp,
+    });
+  if (error) throw error;
   return { metricKey, metricValue, capturedAt: timestamp };
 }
 
-export function getMetricsSummary(windowDays = 7) {
+export async function getMetricsSummary(windowDays = 7) {
   const db = getDatabase();
-  const windowClause = `-${windowDays} days`;
-  const previousClause = `-${windowDays * 2} days`;
+  const now = Date.now();
+  const windowStartIso = new Date(now - windowDays * 24 * 60 * 60 * 1000).toISOString();
+  const previousStartIso = new Date(now - windowDays * 2 * 24 * 60 * 60 * 1000).toISOString();
 
-  const totals = db
-    .prepare(
-      `SELECT metric_key AS metricKey, ROUND(SUM(metric_value), 2) AS total
-       FROM metrics
-       WHERE captured_at >= datetime('now', ?)
-       GROUP BY metric_key`
-    )
-    .all(windowClause);
+  const { data: windowRows, error: windowError } = await db
+    .from('metrics')
+    .select('metric_key, metric_value, captured_at')
+    .gte('captured_at', windowStartIso);
+  if (windowError) throw windowError;
 
-  const previousTotals = db
-    .prepare(
-      `SELECT metric_key AS metricKey, ROUND(SUM(metric_value), 2) AS total
-       FROM metrics
-       WHERE captured_at >= datetime('now', ?)
-         AND captured_at < datetime('now', ?)
-       GROUP BY metric_key`
-    )
-    .all(previousClause, windowClause);
+  const { data: previousRows, error: prevError } = await db
+    .from('metrics')
+    .select('metric_key, metric_value, captured_at')
+    .gte('captured_at', previousStartIso)
+    .lt('captured_at', windowStartIso);
+  if (prevError) throw prevError;
 
-  const comparison = totals.map((row: any) => {
-    const previous = previousTotals.find((item: any) => item.metricKey === row.metricKey);
-    const prevValue = previous ? previous.total : 0;
+  const totalsMap = new Map<string, number>();
+  (windowRows || []).forEach((row: any) => {
+    const key = String(row.metric_key);
+    totalsMap.set(key, (totalsMap.get(key) || 0) + Number(row.metric_value || 0));
+  });
+
+  const previousMap = new Map<string, number>();
+  (previousRows || []).forEach((row: any) => {
+    const key = String(row.metric_key);
+    previousMap.set(key, (previousMap.get(key) || 0) + Number(row.metric_value || 0));
+  });
+
+  const totals = Array.from(totalsMap.entries()).map(([metricKey, total]) => ({
+    metricKey,
+    total: Number(total.toFixed(2)),
+  }));
+
+  const comparison = totals.map((row) => {
+    const prevValue = previousMap.get(row.metricKey) || 0;
     return {
       metricKey: row.metricKey,
       current: row.total,
-      previous: prevValue,
+      previous: Number(prevValue.toFixed(2)),
       delta: Number((row.total - prevValue).toFixed(2)),
     };
   });
 
-  const trendRows = db
-    .prepare(
-      `SELECT date(captured_at) AS day, metric_key AS metricKey, ROUND(SUM(metric_value), 2) AS total
-       FROM metrics
-       WHERE captured_at >= datetime('now', ?)
-       GROUP BY day, metric_key
-       ORDER BY day ASC`
-    )
-    .all(windowClause);
-
-  const trend = trendRows.reduce((acc: Record<string, Array<{ day: string; total: number }>>, row: any) => {
-    if (!acc[row.metricKey]) {
-      acc[row.metricKey] = [];
-    }
-    acc[row.metricKey].push({ day: row.day, total: row.total });
+  const trend = (windowRows || []).reduce((acc: Record<string, Array<{ day: string; total: number }>>, row: any) => {
+    const metricKey = String(row.metric_key);
+    const day = String(row.captured_at || '').slice(0, 10);
+    if (!acc[metricKey]) acc[metricKey] = [];
+    acc[metricKey].push({ day, total: Number(row.metric_value || 0) });
     return acc;
   }, {});
 
-  return {
-    windowDays,
-    totals,
-    comparison,
-    trend,
-  };
+  Object.keys(trend).forEach((key) => {
+    const dayTotals = new Map<string, number>();
+    trend[key].forEach((item) => dayTotals.set(item.day, (dayTotals.get(item.day) || 0) + item.total));
+    trend[key] = Array.from(dayTotals.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([day, total]) => ({ day, total: Number(total.toFixed(2)) }));
+  });
+
+  return { windowDays, totals, comparison, trend };
 }
 
-export function exportMetricsCsv(windowDays = 7) {
+export async function exportMetricsCsv(windowDays = 7) {
   const db = getDatabase();
-  const windowClause = `-${windowDays} days`;
-  const rows = db
-    .prepare(
-      `SELECT publish_record_id, metric_key, metric_value, captured_at
-       FROM metrics
-       WHERE captured_at >= datetime('now', ?)
-       ORDER BY captured_at DESC`
-    )
-    .all(windowClause);
+  const windowStartIso = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data, error } = await db
+    .from('metrics')
+    .select('publish_record_id, metric_key, metric_value, captured_at')
+    .gte('captured_at', windowStartIso)
+    .order('captured_at', { ascending: false });
+  if (error) throw error;
+  const rows = data || [];
 
   const header = ['publish_record_id', 'metric_key', 'metric_value', 'captured_at'];
   const lines = [header.join(',')];

@@ -6,11 +6,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const svc = await getCreativeService();
     if (req.method === 'GET') {
       const themeId = req.query.themeId ? Number(req.query.themeId) : undefined;
-      const creatives = svc.listCreatives(themeId);
+      const creatives = await svc.listCreatives(themeId);
       return res.status(200).json(creatives);
     }
     if (req.method === 'POST') {
-      const creative = svc.createCreative(req.body);
+      const creative = await svc.createCreative(req.body);
       return res.status(201).json(creative);
     }
     return res.status(405).json({ error: 'Method not allowed' });

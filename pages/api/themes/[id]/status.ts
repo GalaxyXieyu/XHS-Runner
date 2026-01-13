@@ -10,7 +10,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     const svc = await getThemeService();
-    const result = svc.setThemeStatus(id, req.body.status);
+    const result = await svc.setThemeStatus(id, req.body.status);
     return res.status(200).json(result);
   } catch (error: any) {
     res.status(500).json({ error: error.message });

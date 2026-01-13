@@ -6,8 +6,6 @@ import {
   JobExecution,
   SchedulerConfig,
   SchedulerStatus,
-  CreateJobInput,
-  UpdateJobInput,
   DEFAULT_SCHEDULER_CONFIG,
   TriggerType,
 } from './types';
@@ -40,17 +38,19 @@ export class Scheduler {
   }
 
   // 启动调度器
-  start(): void {
+  async start(): Promise<void> {
     if (this.isRunning) return;
     this.isRunning = true;
     this.isPaused = false;
 
     // 恢复待执行任务
-    this.queue.loadPendingFromDb();
+    await this.queue.loadPendingFromDb();
 
     // 启动定时检查
-    this.timer = setInterval(() => this.tick(), this.config.checkIntervalMs);
-    this.tick(); // 立即执行一次
+    this.timer = setInterval(() => {
+      void this.tick().catch((err) => console.error('[scheduler] tick error:', err));
+    }, this.config.checkIntervalMs);
+    void this.tick().catch((err) => console.error('[scheduler] tick error:', err));
   }
 
   // 停止调度器
@@ -74,13 +74,17 @@ export class Scheduler {
   }
 
   // 获取状态
-  getStatus(): SchedulerStatus {
+  async getStatus(): Promise<SchedulerStatus> {
     const db = getDatabase();
-    const nextJob = db.prepare(`
-      SELECT next_run_at FROM scheduled_jobs
-      WHERE is_enabled = 1 AND next_run_at IS NOT NULL
-      ORDER BY next_run_at ASC LIMIT 1
-    `).get() as { next_run_at: string } | undefined;
+
+    const { data: nextJob } = await db
+      .from('scheduled_jobs')
+      .select('next_run_at')
+      .eq('is_enabled', 1)
+      .not('next_run_at', 'is', null)
+      .order('next_run_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
 
     return {
       running: this.isRunning,
@@ -107,13 +111,20 @@ export class Scheduler {
     const db = getDatabase();
     const now = new Date().toISOString();
 
-    const dueJobs = db.prepare(`
-      SELECT * FROM scheduled_jobs
-      WHERE is_enabled = 1 AND next_run_at <= ?
-      ORDER BY priority ASC, next_run_at ASC
-    `).all(now) as ScheduledJob[];
+    const { data: dueJobs, error } = await db
+      .from('scheduled_jobs')
+      .select('*')
+      .eq('is_enabled', 1)
+      .lte('next_run_at', now)
+      .order('priority', { ascending: true })
+      .order('next_run_at', { ascending: true });
 
-    for (const job of dueJobs) {
+    if (error) {
+      console.error('[scheduler] checkDueJobs error:', error);
+      return;
+    }
+
+    for (const job of (dueJobs || []) as ScheduledJob[]) {
       await this.enqueueJob(job, 'scheduled');
     }
   }
@@ -123,12 +134,14 @@ export class Scheduler {
     const db = getDatabase();
 
     // 创建执行记录
-    const result = db.prepare(`
-      INSERT INTO job_executions (job_id, status, trigger_type)
-      VALUES (?, 'pending', ?)
-    `).run(job.id, triggerType);
+    const { data: execData, error: execError } = await db
+      .from('job_executions')
+      .insert({ job_id: job.id, status: 'pending', trigger_type: triggerType })
+      .select('id')
+      .single();
 
-    const executionId = result.lastInsertRowid as number;
+    if (execError) throw execError;
+    const executionId = Number(execData.id);
 
     // 更新下次执行时间
     const nextRun = getNextRunTime(
@@ -136,10 +149,13 @@ export class Scheduler {
       job.interval_minutes,
       job.cron_expression
     );
-    db.prepare(`
-      UPDATE scheduled_jobs SET next_run_at = ?, updated_at = datetime('now')
-      WHERE id = ?
-    `).run(nextRun.toISOString(), job.id);
+
+    const { error: updateError } = await db
+      .from('scheduled_jobs')
+      .update({ next_run_at: nextRun.toISOString(), updated_at: new Date().toISOString() })
+      .eq('id', job.id);
+
+    if (updateError) throw updateError;
 
     // 加入队列
     this.queue.enqueue({
@@ -161,10 +177,18 @@ export class Scheduler {
     if (!item) return;
 
     const db = getDatabase();
-    const job = db.prepare('SELECT * FROM scheduled_jobs WHERE id = ?')
-      .get(item.jobId) as ScheduledJob | undefined;
-    const execution = db.prepare('SELECT * FROM job_executions WHERE id = ?')
-      .get(item.executionId) as JobExecution | undefined;
+
+    const { data: job } = await db
+      .from('scheduled_jobs')
+      .select('*')
+      .eq('id', item.jobId)
+      .maybeSingle();
+
+    const { data: execution } = await db
+      .from('job_executions')
+      .select('*')
+      .eq('id', item.executionId)
+      .maybeSingle();
 
     if (!job || !execution) {
       this.queue.markComplete(item.executionId);
@@ -172,29 +196,35 @@ export class Scheduler {
     }
 
     // 异步执行
-    this.executor.execute(execution, job).then(result => {
+    this.executor.execute(execution as JobExecution, job as ScheduledJob).then((result) => {
       this.queue.markComplete(item.executionId);
 
       // 失败重试
       if (!result.success && item.retryCount < this.config.defaultRetryCount) {
-        this.scheduleRetry(job, item.retryCount + 1);
+        void this.scheduleRetry(job as ScheduledJob, item.retryCount + 1);
       }
     });
   }
 
   // 安排重试
-  private scheduleRetry(job: ScheduledJob, retryCount: number): void {
+  private async scheduleRetry(job: ScheduledJob, retryCount: number): Promise<void> {
     const db = getDatabase();
     const delay = Math.min(1000 * Math.pow(2, retryCount), 60000);
 
-    setTimeout(() => {
-      const result = db.prepare(`
-        INSERT INTO job_executions (job_id, status, trigger_type, retry_count)
-        VALUES (?, 'pending', 'retry', ?)
-      `).run(job.id, retryCount);
+    setTimeout(async () => {
+      const { data: execData, error } = await db
+        .from('job_executions')
+        .insert({ job_id: job.id, status: 'pending', trigger_type: 'retry', retry_count: retryCount })
+        .select('id')
+        .single();
+
+      if (error) {
+        console.error('[scheduler] scheduleRetry error:', error);
+        return;
+      }
 
       this.queue.enqueue({
-        executionId: result.lastInsertRowid as number,
+        executionId: Number(execData.id),
         jobId: job.id,
         priority: job.priority,
         scheduledAt: new Date(),
@@ -206,15 +236,34 @@ export class Scheduler {
   // 手动触发任务
   async triggerJob(jobId: number): Promise<number> {
     const db = getDatabase();
-    const job = db.prepare('SELECT * FROM scheduled_jobs WHERE id = ?')
-      .get(jobId) as ScheduledJob | undefined;
 
+    const { data: job, error } = await db
+      .from('scheduled_jobs')
+      .select('*')
+      .eq('id', jobId)
+      .maybeSingle();
+
+    if (error) throw error;
     if (!job) throw new Error('任务不存在');
-    return this.enqueueJob(job, 'manual');
+
+    return this.enqueueJob(job as ScheduledJob, 'manual');
   }
 
   // 取消执行
   cancelExecution(executionId: number): boolean {
+    if (this.queue.remove(executionId)) {
+      return true;
+    }
     return this.executor.cancel(executionId);
   }
+}
+
+// 单例
+let schedulerInstance: Scheduler | null = null;
+
+export function getScheduler(): Scheduler {
+  if (!schedulerInstance) {
+    schedulerInstance = new Scheduler();
+  }
+  return schedulerInstance;
 }

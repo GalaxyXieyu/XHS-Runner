@@ -114,6 +114,7 @@ CREATE TABLE IF NOT EXISTS trend_reports (
 );
 CREATE INDEX IF NOT EXISTS idx_trend_reports_theme_id ON trend_reports(theme_id);
 CREATE INDEX IF NOT EXISTS idx_trend_reports_date ON trend_reports(report_date);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_trend_reports_theme_date_unique ON trend_reports(theme_id, report_date);
 
 -- Accounts table
 CREATE TABLE IF NOT EXISTS accounts (

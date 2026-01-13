@@ -4,51 +4,82 @@ import { recordMetric } from './metricsService';
 
 const DEFAULT_METRICS = ['views', 'likes', 'comments', 'saves', 'follows'];
 
-export function publishTopic(topicId: number, platform = 'xhs') {
+export async function publishTopic(topicId: number, platform = 'xhs') {
   const db = getDatabase();
-  const task = db
-    .prepare(
-      `SELECT id FROM generation_tasks
-       WHERE topic_id = ? AND status = 'done'
-       ORDER BY id DESC
-       LIMIT 1`
-    )
-    .get(topicId);
+
+  const { data: task, error: taskError } = await db
+    .from('generation_tasks')
+    .select('id, theme_id, creative_id')
+    .eq('topic_id', topicId)
+    .eq('status', 'done')
+    .order('id', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (taskError) throw taskError;
 
   if (!task) {
     throw new Error('No completed generation task found for topic');
   }
 
-  const result = db
-    .prepare(
-      `INSERT INTO publish_records (task_id, platform, status, published_at, created_at)
-       VALUES (?, ?, 'published', datetime('now'), datetime('now'))`
+  const nowIso = new Date().toISOString();
+  const responseJson = JSON.stringify({ platform, generation_task_id: task.id });
+
+  const { data, error } = await db
+    .from('publish_records')
+    .insert({
+      account_id: null,
+      theme_id: task.theme_id || null,
+      creative_id: task.creative_id || null,
+      status: 'published',
+      published_at: nowIso,
+      updated_at: nowIso,
+      response_json: responseJson,
+    })
+    .select('id')
+    .single();
+  if (error) throw error;
+  const publishRecordId = Number(data.id);
+
+  await forceUpdateTopicStatus(topicId, 'published');
+
+  await Promise.all(
+    DEFAULT_METRICS.map((metricKey) =>
+      recordMetric({ publishRecordId, metricKey, metricValue: 0 })
     )
-    .run(task.id, platform);
+  );
 
-  forceUpdateTopicStatus(topicId, 'published');
-
-  DEFAULT_METRICS.forEach((metricKey) => {
-    recordMetric({ publishRecordId: result.lastInsertRowid, metricKey, metricValue: 0 });
-  });
-
-  return { publishRecordId: result.lastInsertRowid, taskId: task.id };
+  return { publishRecordId, taskId: task.id };
 }
 
-export function rollbackTopic(topicId: number) {
+export async function rollbackTopic(topicId: number) {
   const db = getDatabase();
-  db.prepare(
-    `UPDATE generation_tasks
-     SET status = 'canceled', updated_at = datetime('now')
-     WHERE topic_id = ? AND status IN ('queued', 'generating')`
-  ).run(topicId);
+  const nowIso = new Date().toISOString();
 
-  db.prepare(
-    `UPDATE publish_records
-     SET status = 'canceled'
-     WHERE task_id IN (SELECT id FROM generation_tasks WHERE topic_id = ?)`
-  ).run(topicId);
+  const { error: cancelError } = await db
+    .from('generation_tasks')
+    .update({ status: 'canceled', updated_at: nowIso })
+    .eq('topic_id', topicId)
+    .in('status', ['queued', 'generating']);
+  if (cancelError) throw cancelError;
 
-  forceUpdateTopicStatus(topicId, 'failed');
+  const { data: taskRows, error: taskError } = await db
+    .from('generation_tasks')
+    .select('creative_id')
+    .eq('topic_id', topicId);
+  if (taskError) throw taskError;
+
+  const creativeIds = Array.from(
+    new Set((taskRows || []).map((r: any) => r.creative_id).filter((v: any) => v !== null && v !== undefined))
+  );
+
+  if (creativeIds.length > 0) {
+    const { error: publishError } = await db
+      .from('publish_records')
+      .update({ status: 'canceled', updated_at: nowIso })
+      .in('creative_id', creativeIds);
+    if (publishError) throw publishError;
+  }
+
+  await forceUpdateTopicStatus(topicId, 'failed');
   return { topicId, status: 'failed' };
 }

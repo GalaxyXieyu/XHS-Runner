@@ -1,5 +1,8 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
+
+// Load .env.local for Supabase credentials
+require('dotenv').config({ path: path.join(__dirname, '..', '.env.local') });
 const { setUserDataPath } = require('./server/runtime/userDataPath');
 const { initializeDatabase } = require('./server/db');
 const { runCapture } = require('./server/services/xhs/capture');
@@ -300,9 +303,9 @@ ipcMain.handle('auth:checkStatus', () => {
 
 // ============ 调度器 IPC Handlers ============
 
-ipcMain.handle('scheduler:start', () => {
+ipcMain.handle('scheduler:start', async () => {
   if (!scheduler) scheduler = new Scheduler();
-  scheduler.start();
+  await scheduler.start();
   return { success: true };
 });
 
@@ -345,8 +348,8 @@ ipcMain.handle('jobs:update', (_event, payload) => {
   return updateJob(id, updates);
 });
 
-ipcMain.handle('jobs:delete', (_event, payload) => {
-  deleteJob(payload?.id || payload);
+ipcMain.handle('jobs:delete', async (_event, payload) => {
+  await deleteJob(payload?.id || payload);
   return { success: true };
 });
 

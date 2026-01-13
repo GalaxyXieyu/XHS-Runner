@@ -8,23 +8,39 @@ export class JobQueue {
   private processing: Set<number> = new Set();
 
   // 从数据库加载待执行任务
-  loadPendingFromDb(): void {
+  async loadPendingFromDb(): Promise<void> {
     const db = getDatabase();
-    const pending = db.prepare(`
-      SELECT * FROM job_executions WHERE status = 'pending'
-      ORDER BY created_at ASC
-    `).all() as JobExecution[];
 
-    for (const exec of pending) {
-      const job = db.prepare('SELECT * FROM scheduled_jobs WHERE id = ?').get(exec.job_id) as ScheduledJob;
-      if (job) {
-        this.queue.push({
-          executionId: exec.id,
-          jobId: exec.job_id,
-          priority: job.priority,
-          scheduledAt: new Date(exec.created_at),
-          retryCount: exec.retry_count,
-        });
+    const { data, error } = await db
+      .from('job_executions')
+      .select('*')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    const pending: JobExecution[] = (data as any) || [];
+
+    if (pending.length > 0) {
+      const jobIds = Array.from(new Set(pending.map((exec) => exec.job_id)));
+      const { data: jobs, error: jobsError } = await db
+        .from('scheduled_jobs')
+        .select('*')
+        .in('id', jobIds);
+      if (jobsError) throw jobsError;
+
+      const jobMap = new Map<number, ScheduledJob>();
+      (jobs || []).forEach((job: any) => jobMap.set(Number(job.id), job as ScheduledJob));
+
+      for (const exec of pending) {
+        const job = jobMap.get(exec.job_id);
+        if (job) {
+          this.queue.push({
+            executionId: exec.id,
+            jobId: exec.job_id,
+            priority: job.priority,
+            scheduledAt: new Date(exec.created_at),
+            retryCount: exec.retry_count,
+          });
+        }
       }
     }
     this.sortQueue();

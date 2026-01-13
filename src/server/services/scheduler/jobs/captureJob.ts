@@ -30,9 +30,13 @@ export async function handleCaptureJob(
       const { getDatabase } = await import('../../../db');
       const db = getDatabase();
 
-      const keywords = db.prepare(
-        'SELECT id FROM keywords WHERE theme_id = ? AND is_enabled = 1'
-      ).all(job.theme_id) as { id: number }[];
+      const { data, error } = await db
+        .from('keywords')
+        .select('id')
+        .eq('theme_id', job.theme_id)
+        .eq('is_enabled', 1);
+      if (error) throw error;
+      const keywords: { id: number }[] = (data || []) as any;
 
       let totalCount = 0;
       let insertedCount = 0;

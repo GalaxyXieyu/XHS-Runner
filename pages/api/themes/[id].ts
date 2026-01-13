@@ -8,11 +8,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const svc = await getThemeService();
     if (req.method === 'PUT') {
-      const theme = svc.updateTheme({ id, ...req.body });
+      const theme = await svc.updateTheme({ id, ...req.body });
       return res.status(200).json(theme);
     }
     if (req.method === 'DELETE') {
-      const result = svc.removeTheme(id);
+      const result = await svc.removeTheme(id);
       return res.status(200).json(result);
     }
     return res.status(405).json({ error: 'Method not allowed' });

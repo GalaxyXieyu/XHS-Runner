@@ -1,54 +1,59 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import path from 'path';
-import os from 'os';
+import { getService } from '../_init';
 
-let initialized = false;
-
-async function ensureInit() {
-  if (initialized) return;
-  const { setUserDataPath } = await import('../../../src/server/runtime/userDataPath');
-  const { initializeDatabase } = await import('../../../src/server/db');
-  const userDataPath = process.env.XHS_USER_DATA_PATH || path.join(os.homedir(), '.xhs-runner');
-  setUserDataPath(userDataPath);
-  initializeDatabase();
-  initialized = true;
-}
+// Disable response buffering for streaming
+export const config = {
+  api: {
+    responseLimit: false,
+  },
+};
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
-    await ensureInit();
+    const insightService = await getService(
+      'insightService',
+      () => import('../../../src/server/services/xhs/insightService')
+    );
+    const { getAnalysisPromptData, saveTitleAnalysis, getLatestTitleAnalysis } = insightService;
 
-    if (req.method === 'POST') {
-      const { themeId, days, sortBy, providerId, promptId } = req.body;
+    // GET: 获取已保存的分析结果
+    if (req.method === 'GET') {
+      const { themeId } = req.query;
       if (!themeId) return res.status(400).json({ error: 'themeId required' });
+      const id = parseInt(themeId as string, 10);
+      const latest = await getLatestTitleAnalysis(id);
+      console.log('[analyze] GET themeId:', id, 'latest:', latest ? 'found' : 'null');
+      return res.status(200).json({ latest });
+    }
 
-      const { getAnalysisPromptData, getLLMConfigForAPI } = await import('../../../src/server/services/xhs/insightService');
+    // POST: 生成新的分析
+    if (req.method === 'POST') {
+      const { themeId: themeIdRaw, days, sortBy, providerId, promptId } = req.body;
+      if (!themeIdRaw) return res.status(400).json({ error: 'themeId required' });
 
-      const promptData = getAnalysisPromptData(themeId, { days, sortBy }, promptId);
+      const themeId = parseInt(String(themeIdRaw), 10);
+      if (!Number.isFinite(themeId)) return res.status(400).json({ error: 'invalid themeId' });
+
+      const promptData = await getAnalysisPromptData(themeId, { days, sortBy }, promptId);
       if (promptData.error) {
         return res.status(400).json({ error: promptData.error });
       }
 
-      const llmConfig = await getLLMConfigForAPI(providerId);
-      if (!llmConfig) {
-        return res.status(400).json({ error: '请先配置LLM API' });
-      }
-
-      // Use Vercel AI SDK streamText
-      const { streamText } = await import('ai');
-      const { createOpenAI } = await import('@ai-sdk/openai');
-
-      const openai = createOpenAI({
-        baseURL: llmConfig.baseUrl,
-        apiKey: llmConfig.apiKey,
-      });
-
-      const result = streamText({
-        model: openai(llmConfig.model),
+      // 使用封装好的流式服务
+      const { streamToResponse } = await import('../../../src/server/services/llm/streamService');
+      await streamToResponse(res, {
         prompt: promptData.prompt!,
+        providerId,
+        onFinish: async (text) => {
+          try {
+            await saveTitleAnalysis(themeId, text);
+            console.log('[analyze] Analysis saved successfully for theme:', themeId);
+          } catch (err) {
+            console.error('[analyze] Failed to save analysis:', err);
+          }
+        },
       });
-
-      return result.toTextStreamResponse();
+      return;
     }
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (error: any) {

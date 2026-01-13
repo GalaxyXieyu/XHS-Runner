@@ -11,7 +11,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const mod = await getSchedulerModule();
     const themeId = Number(req.query.themeId);
-    const job = mod.getJobByTheme(themeId);
+    const job = await mod.getJobByTheme(themeId);
     return res.status(200).json(job);
   } catch (error: any) {
     return res.status(500).json({ error: error.message });

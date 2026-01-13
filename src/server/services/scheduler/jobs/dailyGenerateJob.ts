@@ -22,7 +22,7 @@ export async function handleDailyGenerateJob(
   const days = params.days || 7;
   const goal = params.goal || 'collects';
 
-  const clusters = getClusterSummaries(job.theme_id, days, goal);
+  const clusters = await getClusterSummaries(job.theme_id, days, goal);
   if (clusters.length === 0) {
     return { success: true, inserted: 0, total: 0, duration_ms: 0 };
   }
@@ -36,13 +36,13 @@ export async function handleDailyGenerateJob(
     }
 
     const summary = cluster.summary;
-    createCreative({
+    await createCreative({
       themeId: job.theme_id,
       title: summary.topTitles[0] || `主题${job.theme_id}内容包`,
       content: summary.summaries.join('\n'),
-      tags: summary.tags,
+      tags: Array.isArray(summary.tags) ? summary.tags.join(',') : (summary.tags ? String(summary.tags) : ''),
       status: 'draft',
-      sourceTopicIds: [],
+      sourceTopicIds: '',
       coverPrompt: null,
       rationale: {
         clusterTag: cluster.tag,

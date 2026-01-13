@@ -12,7 +12,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const mod = await getSchedulerModule();
     const jobId = req.query.jobId ? Number(req.query.jobId) : undefined;
     const limit = req.query.limit ? Number(req.query.limit) : 50;
-    const executions = mod.listExecutions(jobId, limit);
+    const executions = await mod.listExecutions(jobId, limit);
     return res.status(200).json(executions);
   } catch (error: any) {
     return res.status(500).json({ error: error.message });

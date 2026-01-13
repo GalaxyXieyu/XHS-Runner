@@ -120,7 +120,7 @@ async function handleTask(taskId: number) {
   try {
     const result = await generateImage({ prompt: task.prompt, model: task.model || 'nanobanana' });
     const filename = `${task.model || 'nanobanana'}-${task.id}.png`;
-    const asset = storeAsset({
+    const asset = await storeAsset({
       type: 'image',
       filename,
       data: result.imageBuffer,

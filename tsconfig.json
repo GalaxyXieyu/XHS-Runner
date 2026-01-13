@@ -26,6 +26,8 @@
   ],
   "exclude": [
     "node_modules",
-    "src/server/**"
+    "src/server/**",
+    "new-version/**",
+    "drizzle.config.ts"
   ]
 }

@@ -1,18 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import path from 'path';
-import os from 'os';
-
-let initialized = false;
-
-async function ensureInit() {
-  if (initialized) return;
-  const { setUserDataPath } = await import('../../../src/server/runtime/userDataPath');
-  const { initializeDatabase } = await import('../../../src/server/db');
-  const userDataPath = process.env.XHS_USER_DATA_PATH || path.join(os.homedir(), '.xhs-runner');
-  setUserDataPath(userDataPath);
-  initializeDatabase();
-  initialized = true;
-}
+import { getService } from '../_init';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -20,9 +7,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    await ensureInit();
-    const { getSettings } = await import('../../../src/server/settings');
-    const settings = getSettings();
+    const { getSettings } = await getService('settings', () => import('../../../src/server/settings'));
+    const settings = await getSettings();
 
     const { systemPrompt, userMessage, model: requestModel } = req.body;
     if (!systemPrompt || !userMessage) {

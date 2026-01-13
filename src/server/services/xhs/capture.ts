@@ -6,38 +6,63 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function getKeyword(id: number): { id: number; value: string; theme_id: number | null } | undefined {
+async function getKeyword(id: number): Promise<{ id: number; value: string; theme_id: number | null } | undefined> {
   const db = getDatabase();
-  return db.prepare('SELECT id, value, theme_id FROM keywords WHERE id = ?').get(id) as { id: number; value: string; theme_id: number | null } | undefined;
+  const { data, error } = await db
+    .from('keywords')
+    .select('id, value, keyword, theme_id')
+    .eq('id', id)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return undefined;
+
+  return {
+    id: Number(data.id),
+    value: String((data as any).keyword || data.value),
+    theme_id: data.theme_id === null || data.theme_id === undefined ? null : Number(data.theme_id),
+  };
 }
 
-function listRecentTopics(keywordId: number, limit: number) {
+async function listRecentTopics(keywordId: number, limit: number) {
   const db = getDatabase();
-  return db
-    .prepare(
-      `SELECT id, title, source, source_id, url, status, created_at
-       FROM topics WHERE keyword_id = ?
-       ORDER BY id DESC
-       LIMIT ?`
-    )
-    .all(keywordId, limit);
+  const { data, error } = await db
+    .from('topics')
+    .select('id, title, source, source_id, url, status, created_at')
+    .eq('keyword_id', keywordId)
+    .order('id', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data || [];
 }
 
 function serializeJson(value: any) {
-  if (value === null || value === undefined) {
-    return null;
-  }
-  if (typeof value === 'string') {
-    return value;
-  }
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string') return value;
   try {
     return JSON.stringify(value);
-  } catch (error) {
+  } catch {
     return null;
   }
 }
 
-function insertTopic(
+// 脏数据过滤：检测无效笔记
+function isInvalidNote(note: { title?: string; desc?: string; id?: string }): boolean {
+  const title = note.title || '';
+  const desc = note.desc || '';
+
+  // 过滤 "Note X" 格式的测试/无效数据
+  if (/^Note\s*\d+$/i.test(title.trim())) return true;
+
+  // 过滤标题为空或太短的笔记
+  if (title.trim().length < 2) return true;
+
+  // 过滤纯数字标题
+  if (/^\d+$/.test(title.trim())) return true;
+
+  return false;
+}
+
+async function insertTopic(
   keywordId: number,
   themeId: number | null | undefined,
   note: {
@@ -64,79 +89,61 @@ function insertTopic(
   }
 ) {
   const db = getDatabase();
-  const exists = db
-    .prepare('SELECT id FROM topics WHERE source = ? AND source_id = ?')
-    .get('xhs', note.id);
-  if (exists) {
-    return null;
-  }
   const now = note.fetched_at || new Date().toISOString();
   const tags = serializeJson(note.tags);
   const mediaUrls = serializeJson(note.media_urls);
   const rawJson = serializeJson(note.raw_json ?? note);
-  const result = db
-    .prepare(
-      `INSERT INTO topics (
-         keyword_id,
-         title,
-         source,
-         source_id,
-         url,
-         status,
-         created_at,
-         theme_id,
-         note_id,
-         xsec_token,
-         desc,
-         note_type,
-         tags,
-         cover_url,
-         media_urls,
-         author_id,
-         author_name,
-         author_avatar_url,
-         like_count,
-         collect_count,
-         comment_count,
-         share_count,
-         published_at,
-         fetched_at,
-         raw_json
-       )
-       VALUES (?, ?, 'xhs', ?, ?, 'captured', datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(
-      keywordId,
-      note.title || note.desc || note.id,
-      note.id,
-      note.url,
-      themeId ?? null,
-      note.note_id || note.id,
-      note.xsec_token,
-      note.desc,
-      note.note_type,
+
+  // 使用 upsert 避免主键冲突，基于 source + source_id 去重
+  const { data: upserted, error } = await db
+    .from('topics')
+    .upsert({
+      keyword_id: keywordId,
+      title: note.title || note.desc || note.id,
+      source: 'xhs',
+      source_id: note.id,
+      url: note.url || null,
+      status: 'captured',
+      theme_id: themeId ?? null,
+      note_id: note.note_id || note.id,
+      xsec_token: note.xsec_token || null,
+      desc: note.desc || null,
+      note_type: note.note_type || null,
       tags,
-      note.cover_url,
-      mediaUrls,
-      note.author_id,
-      note.author_name,
-      note.author_avatar_url,
-      note.like_count,
-      note.collect_count,
-      note.comment_count,
-      note.share_count,
-      note.published_at,
-      now,
-      rawJson
-    );
-  return result.lastInsertRowid;
+      cover_url: note.cover_url || null,
+      media_urls: mediaUrls,
+      author_id: note.author_id || null,
+      author_name: note.author_name || null,
+      author_avatar_url: note.author_avatar_url || null,
+      like_count: note.like_count ?? null,
+      collect_count: note.collect_count ?? null,
+      comment_count: note.comment_count ?? null,
+      share_count: note.share_count ?? null,
+      published_at: note.published_at || null,
+      fetched_at: now,
+      raw_json: rawJson,
+      created_at: new Date().toISOString(),
+    }, {
+      onConflict: 'source,source_id',
+      ignoreDuplicates: true,  // 如果已存在则跳过，不更新
+    })
+    .select('id')
+    .maybeSingle();
+
+  if (error) {
+    // 忽略重复键错误
+    if (error.code === '23505') {
+      console.log(`[capture] Duplicate note skipped: ${note.id}`);
+      return null;
+    }
+    throw error;
+  }
+  return upserted?.id ?? null;
 }
 
 async function enforceRateLimit(rateLimitMs: number) {
   const lastRequestAt = await getSetting('capture:lastRequestAt');
-  if (!lastRequestAt || !rateLimitMs) {
-    return;
-  }
+  if (!lastRequestAt || !rateLimitMs) return;
   const elapsed = Date.now() - new Date(lastRequestAt).getTime();
   if (elapsed < rateLimitMs) {
     await sleep(rateLimitMs - elapsed);
@@ -150,9 +157,7 @@ async function fetchWithRetry(keyword: string, limit: number, retryCount: number
       return await fetchTopNotes(keyword, limit);
     } catch (error) {
       attempt += 1;
-      if (attempt > retryCount) {
-        throw error;
-      }
+      if (attempt > retryCount) throw error;
       await sleep(500 * attempt);
     }
   }
@@ -164,7 +169,7 @@ export async function runCapture(keywordId: number, limit = 50) {
     throw new Error('Capture is disabled by settings');
   }
 
-  const keyword = getKeyword(keywordId);
+  const keyword = await getKeyword(keywordId);
   if (!keyword) {
     throw new Error('Keyword not found');
   }
@@ -177,7 +182,7 @@ export async function runCapture(keywordId: number, limit = 50) {
     if (elapsed < cacheWindowMs) {
       return {
         status: 'cached',
-        items: listRecentTopics(keywordId, limit),
+        items: await listRecentTopics(keywordId, limit),
       };
     }
   }
@@ -185,16 +190,22 @@ export async function runCapture(keywordId: number, limit = 50) {
   await enforceRateLimit(settings.captureRateLimitMs);
   const notes = await fetchWithRetry(keyword.value, limit, settings.captureRetryCount);
 
-  // 打印原始数据看看搜索结果的结构
   if (notes.length > 0) {
     console.log('[capture] First note raw data:', JSON.stringify(notes[0], null, 2));
   }
 
   let inserted = 0;
+  let skipped = 0;
   for (let i = 0; i < notes.length; i++) {
     const note = notes[i];
     if (note && note.id) {
-      // 每个笔记之间间隔 2-4 秒随机延迟
+      // 过滤脏数据
+      if (isInvalidNote(note)) {
+        console.log(`[capture] Skipping invalid note: "${note.title || note.id}"`);
+        skipped++;
+        continue;
+      }
+
       if (i > 0) {
         const delay = 2000 + Math.random() * 2000;
         await sleep(delay);
@@ -211,8 +222,6 @@ export async function runCapture(keywordId: number, limit = 50) {
               enrichedNote = { ...note, desc: detail.desc };
               console.log(`[capture] Got desc for ${note.id}: ${detail.desc.slice(0, 50)}...`);
               break;
-            } else {
-              console.log(`[capture] No desc in detail for ${note.id}:`, JSON.stringify(detail, null, 2));
             }
           } catch (e: any) {
             console.warn(`[capture] Attempt ${attempt} failed for ${note.id}:`, e.message);
@@ -220,19 +229,13 @@ export async function runCapture(keywordId: number, limit = 50) {
           }
         }
       }
-      const rowId = insertTopic(keywordId, keyword.theme_id, enrichedNote);
-      if (rowId) {
-        inserted += 1;
-      }
+      const rowId = await insertTopic(keywordId, keyword.theme_id, enrichedNote);
+      if (rowId) inserted += 1;
     }
   }
 
   const now = new Date().toISOString();
   await Promise.all([setSetting(cacheKey, now), setSetting('capture:lastRequestAt', now)]);
 
-  return {
-    status: 'fetched',
-    total: notes.length,
-    inserted,
-  };
+  return { status: 'fetched', total: notes.length, inserted, skipped };
 }

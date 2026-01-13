@@ -9,7 +9,7 @@ export function getAssetsPath() {
   return resolveUserDataPath(ASSETS_DIR);
 }
 
-export function storeAsset({
+export async function storeAsset({
   type,
   filename,
   data,
@@ -25,14 +25,19 @@ export function storeAsset({
   fs.mkdirSync(assetsPath, { recursive: true });
   const filePath = path.join(assetsPath, filename);
   fs.writeFileSync(filePath, data);
-  const result = db
-    .prepare(
-      `INSERT INTO assets (type, path, metadata, created_at)
-       VALUES (?, ?, ?, datetime('now'))`
-    )
-    .run(type, filePath, metadata ? JSON.stringify(metadata) : null);
+
+  const { data: inserted, error } = await db
+    .from('assets')
+    .insert({
+      type,
+      path: filePath,
+      metadata: metadata ? JSON.stringify(metadata) : null,
+    })
+    .select('id, path')
+    .single();
+  if (error) throw error;
   return {
-    id: result.lastInsertRowid,
-    path: filePath,
+    id: inserted.id,
+    path: inserted.path,
   };
 }

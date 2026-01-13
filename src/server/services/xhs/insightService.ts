@@ -6,15 +6,40 @@ export interface InsightFilter {
   sortBy?: 'engagement' | 'likes' | 'collects' | 'comments' | 'recent';
 }
 
-// 获取 LLM 配置（优先使用指定的 provider，否则使用默认设置）
+function buildCutoffIso(days?: number): string | null {
+  if (!days || days <= 0) return null;
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  return cutoff.toISOString();
+}
+
+// 获取 LLM 配置（优先使用指定的 provider，否则使用默认 provider，最后回退到设置）
 async function getLLMConfig(providerId?: number): Promise<{ baseUrl: string; apiKey: string; model: string } | null> {
+  const db = getDatabase();
+
   if (providerId) {
-    const db = getDatabase();
-    const provider = db.prepare('SELECT base_url, api_key, model_name FROM llm_providers WHERE id = ?').get(providerId) as any;
-    if (provider?.base_url && provider?.api_key && provider?.model_name) {
-      return { baseUrl: provider.base_url, apiKey: provider.api_key, model: provider.model_name };
+    const { data: row, error } = await db
+      .from('llm_providers')
+      .select('base_url, api_key, model_name')
+      .eq('id', providerId)
+      .maybeSingle();
+    if (error) throw error;
+    if (row?.base_url && row?.api_key && row?.model_name) {
+      return { baseUrl: row.base_url, apiKey: row.api_key, model: row.model_name };
     }
   }
+
+  // 查询默认启用的 provider
+  const { data: defaultRow, error: defaultError } = await db
+    .from('llm_providers')
+    .select('base_url, api_key, model_name')
+    .eq('is_default', 1)
+    .eq('is_enabled', 1)
+    .maybeSingle();
+  if (defaultError) throw defaultError;
+  if (defaultRow?.base_url && defaultRow?.api_key && defaultRow?.model_name) {
+    return { baseUrl: defaultRow.base_url, apiKey: defaultRow.api_key, model: defaultRow.model_name };
+  }
+
   // 回退到默认设置
   const settings = await getSettings();
   if (settings.llmBaseUrl && settings.llmApiKey && settings.llmModel) {
@@ -28,74 +53,16 @@ export async function getLLMConfigForAPI(providerId?: number): Promise<{ baseUrl
   return getLLMConfig(providerId);
 }
 
-// 获取分析提示词数据（供 API 使用）
-export function getAnalysisPromptData(themeId: number, filter?: InsightFilter, promptId?: number): { prompt?: string; error?: string } {
-  const topTitles = getTopTitles(themeId, 50, filter);
-  if (topTitles.length < 5) {
-    return { error: '数据不足，请先抓取更多笔记' };
-  }
-
-  const titleList = topTitles.slice(0, 30).map((t, i) =>
-    `${i + 1}. ${t.title} (赞:${t.like_count}, 藏:${t.collect_count}, 评:${t.comment_count})`
-  ).join('\n');
-
-  let prompt: string;
-  if (promptId) {
-    const customPrompt = getPromptProfile(promptId);
-    if (customPrompt) {
-      prompt = customPrompt.system_prompt + '\n\n' + (customPrompt.user_template || '').replace('{{titles}}', titleList);
-    } else {
-      prompt = getDefaultAnalysisPrompt(titleList);
-    }
-  } else {
-    prompt = getDefaultAnalysisPrompt(titleList);
-  }
-
-  return { prompt };
-}
-
-// 获取趋势报告提示词数据（供 API 使用）
-export function getTrendPromptData(themeId: number): { prompt?: string; stats?: any; error?: string } {
-  const today = getTodayDate();
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayStr = yesterday.toISOString().split('T')[0];
-
-  const todayStats = getDayStats(themeId, today);
-  const yesterdayStats = getDayStats(themeId, yesterdayStr);
-
-  const topTitles = getTopTitles(themeId, 20, { days: 7 });
-  const titleList = topTitles.slice(0, 15).map((t, i) => `${i + 1}. ${t.title}`).join('\n');
-
-  const prompt = `作为小红书运营分析师，根据以下数据生成简短的趋势报告：
-
-今日数据：新增${todayStats.newNotes}篇，点赞${todayStats.totalLikes}，收藏${todayStats.totalCollects}
-昨日数据：新增${yesterdayStats.newNotes}篇，点赞${yesterdayStats.totalLikes}，收藏${yesterdayStats.totalCollects}
-热门标签：${todayStats.topTags.map(t => t.tag).join('、') || '暂无'}
-
-近期热门标题：
-${titleList || '暂无数据'}
-
-请用3-4句话总结：1)数据变化趋势 2)内容热点方向 3)创作建议
-直接输出分析，不要输出思考过程。`;
-
-  return { prompt, stats: todayStats };
-}
-
-// 保存趋势报告到数据库
-export function saveTrendReport(themeId: number, stats: any, analysis: string) {
-  const db = getDatabase();
-  const today = getTodayDate();
-  db.prepare(
-    `INSERT OR REPLACE INTO trend_reports (theme_id, report_date, stats_json, analysis, created_at)
-     VALUES (?, ?, ?, ?, datetime('now'))`
-  ).run(themeId, today, JSON.stringify(stats), cleanLLMResponse(analysis));
-}
-
 // 获取提示词模板
-function getPromptProfile(promptId: number): { system_prompt: string; user_template: string } | null {
+async function getPromptProfile(promptId: number): Promise<{ system_prompt: string; user_template: string } | null> {
   const db = getDatabase();
-  return db.prepare('SELECT system_prompt, user_template FROM prompt_profiles WHERE id = ?').get(promptId) as any;
+  const { data, error } = await db
+    .from('prompt_profiles')
+    .select('system_prompt, user_template')
+    .eq('id', promptId)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as any) || null;
 }
 
 // 默认分析提示词
@@ -109,14 +76,11 @@ const STOP_WORDS = new Set(['的', '了', '是', '在', '我', '有', '和', '�
 // 从标题和正文中提取标签，支持互动加权
 function extractTags(rows: { title: string; desc?: string | null; like_count: number; collect_count: number }[]): { tag: string; count: number; weight: number }[] {
   const tagData: Record<string, { count: number; weight: number }> = {};
-  // 匹配显式的 #标签（中文/英文/数字，2-20字符），标签后可能是空格、tab、换行或另一个#
   const hashtagPattern = /[#＃]([\u4e00-\u9fa5a-zA-Z0-9]+)/g;
 
   for (const row of rows) {
     const engagement = row.like_count + row.collect_count * 2;
     const seen = new Set<string>();
-
-    // 只从正文中提取显式 #标签
     const text = row.desc || '';
     for (const match of text.matchAll(hashtagPattern)) {
       const tag = match[1].trim();
@@ -131,163 +95,106 @@ function extractTags(rows: { title: string; desc?: string | null; like_count: nu
 
   return Object.entries(tagData)
     .filter(([_, d]) => d.count >= 1)
-    .sort((a, b) => b[1].weight - a[1].weight)  // 按互动加权排序
+    .sort((a, b) => b[1].weight - a[1].weight)
     .slice(0, 20)
     .map(([tag, d]) => ({ tag: `#${tag}`, count: d.count, weight: d.weight }));
 }
 
-function buildTimeFilter(days?: number): string {
-  if (!days || days <= 0) return '';
-  return `AND created_at >= datetime('now', '-${days} days')`;
+// 清理LLM返回内容（保留思考过程，只做基本清理）
+function cleanLLMResponse(content: string): string {
+  // 保留 <think> 标签内容，只做基本的空白清理
+  return content.trim();
 }
 
-function buildOrderBy(sortBy?: string): string {
-  switch (sortBy) {
-    case 'likes': return 'ORDER BY like_count DESC';
-    case 'collects': return 'ORDER BY collect_count DESC';
-    case 'comments': return 'ORDER BY comment_count DESC';
-    case 'recent': return 'ORDER BY created_at DESC';
-    default: return 'ORDER BY (like_count + collect_count * 2 + comment_count * 3) DESC';
+// 获取热门标题
+export async function getTopTitles(themeId: number, limit = 50, filter?: InsightFilter) {
+  const db = getDatabase();
+  let query = db
+    .from('topics')
+    .select('title, like_count, collect_count, comment_count, created_at')
+    .eq('theme_id', themeId);
+
+  const cutoffIso = buildCutoffIso(filter?.days);
+  if (cutoffIso) {
+    query = query.gte('created_at', cutoffIso);
   }
+
+  switch (filter?.sortBy) {
+    case 'likes':
+      query = query.order('like_count', { ascending: false });
+      break;
+    case 'collects':
+      query = query.order('collect_count', { ascending: false });
+      break;
+    case 'comments':
+      query = query.order('comment_count', { ascending: false });
+      break;
+    case 'recent':
+      query = query.order('created_at', { ascending: false });
+      break;
+    default:
+      query = query
+        .order('like_count', { ascending: false })
+        .order('collect_count', { ascending: false })
+        .order('comment_count', { ascending: false });
+      break;
+  }
+
+  const { data, error } = await query.limit(limit);
+  if (error) throw error;
+  return (data || []) as any;
 }
 
-export function getTopTitles(themeId: number, limit = 50, filter?: InsightFilter) {
+// 获取标签统计
+export async function getTagStats(themeId: number, filter?: InsightFilter) {
   const db = getDatabase();
-  const timeFilter = buildTimeFilter(filter?.days);
-  const orderBy = buildOrderBy(filter?.sortBy);
-  return db.prepare(
-    `SELECT title, like_count, collect_count, comment_count, created_at
-     FROM topics WHERE theme_id = ? ${timeFilter}
-     ${orderBy} LIMIT ?`
-  ).all(themeId, limit) as { title: string; like_count: number; collect_count: number; comment_count: number; created_at: string }[];
-}
+  let query = db
+    .from('topics')
+    .select('title, desc, like_count, collect_count')
+    .eq('theme_id', themeId);
 
-export function getTagStats(themeId: number, filter?: InsightFilter) {
-  const db = getDatabase();
-  const timeFilter = buildTimeFilter(filter?.days);
-  const rows = db.prepare(
-    `SELECT title, desc, like_count, collect_count FROM topics WHERE theme_id = ? ${timeFilter}`
-  ).all(themeId) as { title: string; desc?: string | null; like_count: number; collect_count: number }[];
+  const cutoffIso = buildCutoffIso(filter?.days);
+  if (cutoffIso) {
+    query = query.gte('created_at', cutoffIso);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  const rows = (data || []) as any;
   return extractTags(rows);
 }
 
-// 清理LLM返回内容（移除thinking标签等）
-function cleanLLMResponse(content: string): string {
-  return content
-    .replace(/<think>[\s\S]*?<\/think>/gi, '')
-    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
-    .trim();
-}
-
-export async function analyzeTitlePatterns(themeId: number, filter?: InsightFilter): Promise<string> {
-  const settings = await getSettings();
-  if (!settings.llmBaseUrl || !settings.llmApiKey || !settings.llmModel) return '请先配置LLM API';
-
-  const topTitles = getTopTitles(themeId, 50, filter);
-  if (topTitles.length < 5) return '数据不足，请先抓取更多笔记';
-
-  const titleList = topTitles.slice(0, 30).map((t, i) =>
-    `${i + 1}. ${t.title} (赞:${t.like_count}, 藏:${t.collect_count}, 评:${t.comment_count})`
-  ).join('\n');
-
-  const prompt = `分析以下小红书爆款笔记标题的共同特点，总结3-5条爆款标题公式：\n\n${titleList}\n\n请用简洁的中文回答，每条公式用一行，格式如：\n1. 公式名称：具体说明\n\n注意：直接输出分析结果，不要输出思考过程。`;
-
-  try {
-    const res = await fetch(`${settings.llmBaseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.llmApiKey}` },
-      body: JSON.stringify({ model: settings.llmModel, messages: [{ role: 'user', content: prompt }], max_tokens: 500 })
-    });
-    const data = await res.json();
-    const content = data.choices?.[0]?.message?.content || '分析失败';
-    return cleanLLMResponse(content);
-  } catch (e) {
-    return '分析失败: ' + (e as Error).message;
-  }
-}
-
-export async function* analyzeTitlePatternsStream(themeId: number, filter?: InsightFilter, providerId?: number, promptId?: number): AsyncGenerator<string> {
-  const llmConfig = await getLLMConfig(providerId);
-  if (!llmConfig) {
-    yield '请先配置LLM API';
-    return;
-  }
-
-  const topTitles = getTopTitles(themeId, 50, filter);
-  if (topTitles.length < 5) {
-    yield '数据不足，请先抓取更多笔记';
-    return;
-  }
-
-  const titleList = topTitles.slice(0, 30).map((t, i) =>
-    `${i + 1}. ${t.title} (赞:${t.like_count}, 藏:${t.collect_count}, 评:${t.comment_count})`
-  ).join('\n');
-
-  // 获取自定义提示词或使用默认
-  let prompt: string;
-  if (promptId) {
-    const customPrompt = getPromptProfile(promptId);
-    if (customPrompt) {
-      prompt = customPrompt.system_prompt + '\n\n' + (customPrompt.user_template || '').replace('{{titles}}', titleList);
-    } else {
-      prompt = getDefaultAnalysisPrompt(titleList);
-    }
-  } else {
-    prompt = getDefaultAnalysisPrompt(titleList);
-  }
-
-  const res = await fetch(`${llmConfig.baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${llmConfig.apiKey}` },
-    body: JSON.stringify({ model: llmConfig.model, messages: [{ role: 'user', content: prompt }], max_tokens: 500, stream: true })
-  });
-
-  if (!res.body) {
-    yield '流式响应失败';
-    return;
-  }
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-
-    for (const line of lines) {
-      if (line.startsWith('data: ') && line !== 'data: [DONE]') {
-        try {
-          const json = JSON.parse(line.slice(6));
-          const content = json.choices?.[0]?.delta?.content;
-          if (content) yield content;
-        } catch {}
-      }
-    }
-  }
-}
-
-export function getThemeStats(themeId: number, filter?: InsightFilter) {
+// 获取主题统计
+export async function getThemeStats(themeId: number, filter?: InsightFilter) {
   const db = getDatabase();
-  const timeFilter = buildTimeFilter(filter?.days);
-  const row = db.prepare(
-    `SELECT COUNT(*) as totalNotes,
-            COALESCE(SUM(like_count), 0) as totalLikes,
-            COALESCE(SUM(collect_count), 0) as totalCollects,
-            COALESCE(AVG(like_count + collect_count * 2), 0) as avgEngagement
-     FROM topics WHERE theme_id = ? ${timeFilter}`
-  ).get(themeId) as { totalNotes: number; totalLikes: number; totalCollects: number; avgEngagement: number };
-  return row;
+  let query = db
+    .from('topics')
+    .select('like_count, collect_count', { count: 'exact' })
+    .eq('theme_id', themeId);
+
+  const cutoffIso = buildCutoffIso(filter?.days);
+  if (cutoffIso) {
+    query = query.gte('created_at', cutoffIso);
+  }
+
+  const { data, error, count } = await query;
+  if (error) throw error;
+
+  const rows = (data || []) as Array<{ like_count?: number | null; collect_count?: number | null }>;
+  const totalNotes = Number(count || 0);
+  const totalLikes = rows.reduce((s, r) => s + Number(r.like_count || 0), 0);
+  const totalCollects = rows.reduce((s, r) => s + Number(r.collect_count || 0), 0);
+  const avgEngagement = totalNotes > 0 ? (totalLikes + totalCollects * 2) / totalNotes : 0;
+  return { totalNotes, totalLikes, totalCollects, avgEngagement };
 }
 
-export function getInsightData(themeId: number, filter?: InsightFilter) {
-  const tags = getTagStats(themeId, filter);
-  const topTitles = getTopTitles(themeId, 10, filter);
-  const stats = getThemeStats(themeId, filter);
+// 获取洞察数据
+export async function getInsightData(themeId: number, filter?: InsightFilter) {
+  const [tags, topTitles, stats] = await Promise.all([
+    getTagStats(themeId, filter),
+    getTopTitles(themeId, 10, filter),
+    getThemeStats(themeId, filter),
+  ]);
   return {
     tags,
     topTitles,
@@ -318,23 +225,30 @@ function getTodayDate(): string {
 }
 
 // 获取某天的统计数据
-function getDayStats(themeId: number, date: string): TrendStats {
+async function getDayStats(themeId: number, date: string): Promise<TrendStats> {
   const db = getDatabase();
   const nextDate = new Date(date);
   nextDate.setDate(nextDate.getDate() + 1);
   const nextDateStr = nextDate.toISOString().split('T')[0];
 
-  const rows = db.prepare(
-    `SELECT title, like_count, collect_count, comment_count
-     FROM topics WHERE theme_id = ? AND date(created_at) = ?`
-  ).all(themeId, date) as { title: string; like_count: number; collect_count: number; comment_count: number }[];
+  const start = new Date(`${date}T00:00:00.000Z`).toISOString();
+  const end = new Date(`${nextDateStr}T00:00:00.000Z`).toISOString();
 
-  const totalLikes = rows.reduce((s, r) => s + (r.like_count || 0), 0);
-  const totalCollects = rows.reduce((s, r) => s + (r.collect_count || 0), 0);
-  const totalComments = rows.reduce((s, r) => s + (r.comment_count || 0), 0);
+  const { data, error } = await db
+    .from('topics')
+    .select('title, like_count, collect_count, comment_count')
+    .eq('theme_id', themeId)
+    .gte('created_at', start)
+    .lt('created_at', end);
+  if (error) throw error;
+  const rows = (data || []) as any;
+
+  const totalLikes = rows.reduce((s: number, r: any) => s + (r.like_count || 0), 0);
+  const totalCollects = rows.reduce((s: number, r: any) => s + (r.collect_count || 0), 0);
+  const totalComments = rows.reduce((s: number, r: any) => s + (r.comment_count || 0), 0);
   const avgEngagement = rows.length > 0 ? Math.round((totalLikes + totalCollects * 2 + totalComments * 3) / rows.length) : 0;
 
-  const tags = extractTags(rows.map(r => ({ title: r.title, like_count: r.like_count || 0, collect_count: r.collect_count || 0 })));
+  const tags = extractTags(rows.map((r: any) => ({ title: r.title, like_count: r.like_count || 0, collect_count: r.collect_count || 0 })));
 
   return {
     date,
@@ -347,79 +261,112 @@ function getDayStats(themeId: number, date: string): TrendStats {
   };
 }
 
-// 生成趋势报告（对比今天和昨天）
-export async function generateTrendReport(themeId: number): Promise<{ stats: TrendStats; analysis: string }> {
-  const today = getTodayDate();
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayStr = yesterday.toISOString().split('T')[0];
-
-  const todayStats = getDayStats(themeId, today);
-  const yesterdayStats = getDayStats(themeId, yesterdayStr);
-
-  // 生成AI分析
-  const settings = await getSettings();
-  let analysis = '';
-
-  if (settings.llmBaseUrl && settings.llmApiKey && settings.llmModel) {
-    const topTitles = getTopTitles(themeId, 20, { days: 7 });
-    const titleList = topTitles.slice(0, 15).map((t, i) => `${i + 1}. ${t.title}`).join('\n');
-
-    const prompt = `作为小红书运营分析师，根据以下数据生成简短的趋势报告：
-
-今日数据：新增${todayStats.newNotes}篇，点赞${todayStats.totalLikes}，收藏${todayStats.totalCollects}
-昨日数据：新增${yesterdayStats.newNotes}篇，点赞${yesterdayStats.totalLikes}，收藏${yesterdayStats.totalCollects}
-热门标签：${todayStats.topTags.map(t => t.tag).join('、') || '暂无'}
-
-近期热门标题：
-${titleList || '暂无数据'}
-
-请用3-4句话总结：1)数据变化趋势 2)内容热点方向 3)创作建议
-直接输出分析，不要输出思考过程。`;
-
-    try {
-      const res = await fetch(`${settings.llmBaseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.llmApiKey}` },
-        body: JSON.stringify({ model: settings.llmModel, messages: [{ role: 'user', content: prompt }], max_tokens: 300 })
-      });
-      const data = await res.json();
-      analysis = cleanLLMResponse(data.choices?.[0]?.message?.content || '');
-    } catch (e) {
-      analysis = '分析生成失败';
-    }
-  }
-
-  // 保存报告到数据库
+// 保存趋势报告到数据库
+export async function saveTrendReport(themeId: number, stats: any, analysis: string) {
   const db = getDatabase();
-  db.prepare(
-    `INSERT OR REPLACE INTO trend_reports (theme_id, report_date, stats_json, analysis, created_at)
-     VALUES (?, ?, ?, ?, datetime('now'))`
-  ).run(themeId, today, JSON.stringify(todayStats), analysis);
-
-  return { stats: todayStats, analysis };
-}
-
-export async function* generateTrendReportStream(themeId: number, providerId?: number): AsyncGenerator<{ stats: TrendStats } | string> {
   const today = getTodayDate();
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayStr = yesterday.toISOString().split('T')[0];
+  const cleaned = cleanLLMResponse(analysis);
 
-  const todayStats = getDayStats(themeId, today);
-  const yesterdayStats = getDayStats(themeId, yesterdayStr);
+  const { data: existing, error: lookupError } = await db
+    .from('trend_reports')
+    .select('id')
+    .eq('theme_id', themeId)
+    .eq('report_date', today)
+    .maybeSingle();
+  if (lookupError) throw lookupError;
 
-  // 先返回统计数据
-  yield { stats: todayStats };
-
-  const llmConfig = await getLLMConfig(providerId);
-  if (!llmConfig) {
-    yield '请先配置LLM API';
+  if (existing?.id) {
+    const { error } = await db
+      .from('trend_reports')
+      .update({ stats_json: JSON.stringify(stats), analysis: cleaned })
+      .eq('id', existing.id);
+    if (error) throw error;
     return;
   }
 
-  const topTitles = getTopTitles(themeId, 20, { days: 7 });
-  const titleList = topTitles.slice(0, 15).map((t, i) => `${i + 1}. ${t.title}`).join('\n');
+  const { error } = await db
+    .from('trend_reports')
+    .insert({
+      theme_id: themeId,
+      report_date: today,
+      stats_json: JSON.stringify(stats),
+      analysis: cleaned,
+    });
+  if (error) throw error;
+}
+
+// 保存标题分析结果到 themes.analytics_json
+export async function saveTitleAnalysis(themeId: number, analysis: string) {
+  const db = getDatabase();
+  const cleaned = cleanLLMResponse(analysis);
+  const analyticsData = {
+    title_analysis: cleaned,
+    analyzed_at: new Date().toISOString(),
+  };
+  const { error } = await db
+    .from('themes')
+    .update({ analytics_json: JSON.stringify(analyticsData) })
+    .eq('id', themeId);
+  if (error) throw error;
+}
+
+// 获取最新的标题分析结果
+export async function getLatestTitleAnalysis(themeId: number): Promise<{ analysis: string; analyzed_at: string } | null> {
+  const db = getDatabase();
+  const { data: row, error } = await db
+    .from('themes')
+    .select('analytics_json')
+    .eq('id', themeId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!row?.analytics_json) return null;
+  try {
+    const data = JSON.parse(row.analytics_json);
+    if (data.title_analysis) {
+      return { analysis: data.title_analysis, analyzed_at: data.analyzed_at };
+    }
+  } catch {}
+  return null;
+}
+
+// 获取分析提示词数据（供 API 使用）
+export async function getAnalysisPromptData(themeId: number, filter?: InsightFilter, promptId?: number): Promise<{ prompt?: string; error?: string }> {
+  const topTitles = await getTopTitles(themeId, 50, filter);
+  if (topTitles.length < 5) {
+    return { error: '数据不足，请先抓取更多笔记' };
+  }
+
+  const titleList = topTitles.slice(0, 30).map((t: any, i: number) =>
+    `${i + 1}. ${t.title} (赞:${t.like_count}, 藏:${t.collect_count}, 评:${t.comment_count})`
+  ).join('\n');
+
+  let prompt: string;
+  if (promptId) {
+    const customPrompt = await getPromptProfile(promptId);
+    if (customPrompt) {
+      prompt = customPrompt.system_prompt + '\n\n' + (customPrompt.user_template || '').replace('{{titles}}', titleList);
+    } else {
+      prompt = getDefaultAnalysisPrompt(titleList);
+    }
+  } else {
+    prompt = getDefaultAnalysisPrompt(titleList);
+  }
+
+  return { prompt };
+}
+
+// 获取趋势报告提示词数据（供 API 使用）
+export async function getTrendPromptData(themeId: number): Promise<{ prompt?: string; stats?: any; error?: string }> {
+  const today = getTodayDate();
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+  const todayStats = await getDayStats(themeId, today);
+  const yesterdayStats = await getDayStats(themeId, yesterdayStr);
+
+  const topTitles = await getTopTitles(themeId, 20, { days: 7 });
+  const titleList = topTitles.slice(0, 15).map((t: any, i: number) => `${i + 1}. ${t.title}`).join('\n');
 
   const prompt = `作为小红书运营分析师，根据以下数据生成简短的趋势报告：
 
@@ -433,60 +380,20 @@ ${titleList || '暂无数据'}
 请用3-4句话总结：1)数据变化趋势 2)内容热点方向 3)创作建议
 直接输出分析，不要输出思考过程。`;
 
-  const res = await fetch(`${llmConfig.baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${llmConfig.apiKey}` },
-    body: JSON.stringify({ model: llmConfig.model, messages: [{ role: 'user', content: prompt }], max_tokens: 300, stream: true })
-  });
-
-  if (!res.body) {
-    yield '流式响应失败';
-    return;
-  }
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let fullAnalysis = '';
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-
-    for (const line of lines) {
-      if (line.startsWith('data: ') && line !== 'data: [DONE]') {
-        try {
-          const json = JSON.parse(line.slice(6));
-          const content = json.choices?.[0]?.delta?.content;
-          if (content) {
-            fullAnalysis += content;
-            yield content;
-          }
-        } catch {}
-      }
-    }
-  }
-
-  // 保存报告到数据库
-  const db = getDatabase();
-  db.prepare(
-    `INSERT OR REPLACE INTO trend_reports (theme_id, report_date, stats_json, analysis, created_at)
-     VALUES (?, ?, ?, ?, datetime('now'))`
-  ).run(themeId, today, JSON.stringify(todayStats), cleanLLMResponse(fullAnalysis));
+  return { prompt, stats: todayStats };
 }
 
 // 获取最新趋势报告
-export function getLatestTrendReport(themeId: number): { stats: TrendStats; analysis: string; report_date: string } | null {
+export async function getLatestTrendReport(themeId: number): Promise<{ stats: TrendStats; analysis: string; report_date: string } | null> {
   const db = getDatabase();
-  const row = db.prepare(
-    `SELECT stats_json, analysis, report_date FROM trend_reports
-     WHERE theme_id = ? ORDER BY report_date DESC LIMIT 1`
-  ).get(themeId) as { stats_json: string; analysis: string; report_date: string } | undefined;
-
+  const { data: row, error } = await db
+    .from('trend_reports')
+    .select('stats_json, analysis, report_date')
+    .eq('theme_id', themeId)
+    .order('report_date', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
   if (!row) return null;
   return {
     stats: JSON.parse(row.stats_json),
@@ -496,12 +403,12 @@ export function getLatestTrendReport(themeId: number): { stats: TrendStats; anal
 }
 
 // 获取历史趋势数据（用于图表）
-export function getTrendHistory(themeId: number, days = 7): TrendStats[] {
+export async function getTrendHistory(themeId: number, days = 7): Promise<TrendStats[]> {
   const result: TrendStats[] = [];
   for (let i = days - 1; i >= 0; i--) {
     const date = new Date();
     date.setDate(date.getDate() - i);
-    result.push(getDayStats(themeId, date.toISOString().split('T')[0]));
+    result.push(await getDayStats(themeId, date.toISOString().split('T')[0]));
   }
   return result;
 }

@@ -9,12 +9,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (req.method === 'GET') {
       const themeId = req.query.themeId ? Number(req.query.themeId) : undefined;
-      const jobs = mod.listJobs(themeId);
+      const jobs = await mod.listJobs(themeId);
       return res.status(200).json(jobs);
     }
 
     if (req.method === 'POST') {
-      const job = mod.createJob(req.body);
+      const job = await mod.createJob(req.body);
       return res.status(201).json(job);
     }
 

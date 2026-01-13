@@ -8,18 +8,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const id = Number(req.query.id);
 
     if (req.method === 'GET') {
-      const job = mod.getJob(id);
+      const job = await mod.getJob(id);
       if (!job) return res.status(404).json({ error: '任务不存在' });
       return res.status(200).json(job);
     }
 
     if (req.method === 'PUT') {
-      const job = mod.updateJob(id, req.body);
+      const job = await mod.updateJob(id, req.body);
       return res.status(200).json(job);
     }
 
     if (req.method === 'DELETE') {
-      mod.deleteJob(id);
+      await mod.deleteJob(id);
       return res.status(200).json({ success: true });
     }
 

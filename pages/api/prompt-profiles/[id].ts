@@ -1,22 +1,21 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { getPromptProfileService } from './_shared';
+import * as promptProfileService from '../../../src/server/services/xhs/promptProfileService';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const id = Number(req.query.id);
   if (!id) return res.status(400).json({ error: 'Invalid id' });
 
   try {
-    const svc = await getPromptProfileService();
     if (req.method === 'GET') {
-      const profile = svc.getPromptProfile(id);
+      const profile = await promptProfileService.getPromptProfile(id);
       return res.status(200).json(profile);
     }
     if (req.method === 'PUT') {
-      const profile = svc.updatePromptProfile({ id, ...req.body });
+      const profile = await promptProfileService.updatePromptProfile({ id, ...req.body });
       return res.status(200).json(profile);
     }
     if (req.method === 'DELETE') {
-      const deleted = svc.deletePromptProfile(id);
+      const deleted = await promptProfileService.deletePromptProfile(id);
       if (!deleted) return res.status(404).json({ error: 'Not found' });
       return res.json({ success: true });
     }

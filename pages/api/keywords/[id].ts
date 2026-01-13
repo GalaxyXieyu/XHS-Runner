@@ -8,11 +8,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const svc = await getKeywordService();
     if (req.method === 'PUT') {
-      const keyword = svc.updateKeyword(id, req.body.value, req.body.isEnabled);
+      const keyword = await svc.updateKeyword(id, req.body.value, req.body.isEnabled);
       return res.status(200).json(keyword);
     }
     if (req.method === 'DELETE') {
-      const result = svc.removeKeyword(id);
+      const result = await svc.removeKeyword(id);
       return res.status(200).json(result);
     }
     return res.status(405).json({ error: 'Method not allowed' });

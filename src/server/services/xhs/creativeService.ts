@@ -1,157 +1,120 @@
-import { getDatabase } from '../../db';
+// Creative Service - Drizzle ORM
+import { db, schema } from '../../db/index';
+import { desc, eq } from 'drizzle-orm';
+import type { Creative, NewCreative } from '../../db/schema';
 
-function parseJson(value: string | null) {
-  if (!value) {
-    return null;
+export type { Creative, NewCreative };
+
+export async function listCreatives(themeId?: number) {
+  if (themeId !== undefined) {
+    return db
+      .select()
+      .from(schema.creatives)
+      .where(eq(schema.creatives.themeId, themeId))
+      .orderBy(desc(schema.creatives.id));
   }
-  try {
-    return JSON.parse(value);
-  } catch (error) {
-    return null;
-  }
+
+  return db
+    .select()
+    .from(schema.creatives)
+    .orderBy(desc(schema.creatives.id));
 }
 
-function stringifyJson(value: any) {
-  if (value === undefined) {
-    return undefined;
-  }
-  return value === null ? null : JSON.stringify(value);
+export async function createCreative(payload: {
+  themeId?: number;
+  sourceTopicId?: number;
+  sourceTopicIds?: string;
+  title?: string;
+  content?: string;
+  script?: string;
+  tags?: string;
+  coverStyle?: string;
+  coverPrompt?: string;
+  rationale?: Record<string, unknown>;
+  status?: string;
+  model?: string;
+  prompt?: string;
+}): Promise<Creative> {
+  const [result] = await db
+    .insert(schema.creatives)
+    .values({
+      themeId: payload.themeId ?? null,
+      sourceTopicId: payload.sourceTopicId ?? null,
+      sourceTopicIds: payload.sourceTopicIds ?? null,
+      title: payload.title ?? null,
+      content: payload.content ?? null,
+      script: payload.script ?? null,
+      tags: payload.tags ?? null,
+      coverStyle: payload.coverStyle ?? null,
+      coverPrompt: payload.coverPrompt ?? null,
+      rationale: payload.rationale ?? null,
+      status: payload.status ?? 'draft',
+      model: payload.model ?? null,
+      prompt: payload.prompt ?? null,
+    })
+    .returning();
+
+  return result;
 }
 
-function normalizeCreative(row: any) {
-  if (!row) return row;
-  return {
-    ...row,
-    tags: parseJson(row.tags),
-    source_topic_ids: parseJson(row.source_topic_ids),
-    rationale: parseJson(row.rationale_json),
-  };
-}
-
-export function listCreatives(themeId?: number) {
-  const db = getDatabase();
-  if (themeId) {
-    const rows = db
-      .prepare(
-        `SELECT id, theme_id, source_topic_id, source_topic_ids, title, content, script, tags,
-                cover_style, cover_prompt, rationale_json, status, model, prompt,
-                created_at, updated_at, result_asset_id
-         FROM creatives
-         WHERE theme_id = ?
-         ORDER BY id DESC`
-      )
-      .all(themeId);
-    return rows.map(normalizeCreative);
-  }
-  const rows = db
-    .prepare(
-      `SELECT id, theme_id, source_topic_id, source_topic_ids, title, content, script, tags,
-              cover_style, cover_prompt, rationale_json, status, model, prompt,
-              created_at, updated_at, result_asset_id
-       FROM creatives
-       ORDER BY id DESC`
-    )
-    .all();
-  return rows.map(normalizeCreative);
-}
-
-export function createCreative(payload: Record<string, any>) {
-  if (!payload || typeof payload !== 'object') {
-    throw new Error('creatives:create expects an object payload');
-  }
-  const themeId = payload.themeId || null;
-  const status = payload.status || 'draft';
-  const db = getDatabase();
-  const result = db
-    .prepare(
-      `INSERT INTO creatives
-       (theme_id, source_topic_id, source_topic_ids, title, content, script, tags, cover_style,
-        cover_prompt, rationale_json, status, model, prompt, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
-    )
-    .run(
-      themeId,
-      payload.sourceTopicId || null,
-      stringifyJson(payload.sourceTopicIds),
-      payload.title || null,
-      payload.content || null,
-      payload.script || null,
-      stringifyJson(payload.tags),
-      payload.coverStyle || null,
-      payload.coverPrompt || null,
-      stringifyJson(payload.rationale),
-      status,
-      payload.model || null,
-      payload.prompt || null
-    );
-
-  const row = db
-    .prepare(
-      `SELECT id, theme_id, source_topic_id, source_topic_ids, title, content, script, tags,
-              cover_style, cover_prompt, rationale_json, status, model, prompt,
-              created_at, updated_at, result_asset_id
-       FROM creatives
-       WHERE id = ?`
-    )
-    .get(result.lastInsertRowid);
-  return normalizeCreative(row);
-}
-
-export function updateCreative(payload: Record<string, any>) {
-  if (!payload || typeof payload !== 'object') {
-    throw new Error('creatives:update expects an object payload');
-  }
+export async function updateCreative(payload: {
+  id: number;
+  themeId?: number;
+  sourceTopicId?: number;
+  sourceTopicIds?: string;
+  title?: string;
+  content?: string;
+  script?: string;
+  tags?: string;
+  coverStyle?: string;
+  coverPrompt?: string;
+  rationale?: Record<string, unknown>;
+  status?: string;
+  model?: string;
+  prompt?: string;
+}): Promise<Creative> {
   if (!payload.id) {
     throw new Error('creatives:update requires id');
   }
-  const db = getDatabase();
-  const existing = db.prepare('SELECT id FROM creatives WHERE id = ?').get(payload.id);
-  if (!existing) {
+
+  const updateData: Partial<NewCreative> = { updatedAt: new Date() };
+  if (payload.themeId !== undefined) updateData.themeId = payload.themeId ?? null;
+  if (payload.sourceTopicId !== undefined) updateData.sourceTopicId = payload.sourceTopicId ?? null;
+  if (payload.sourceTopicIds !== undefined) updateData.sourceTopicIds = payload.sourceTopicIds ?? null;
+  if (payload.title !== undefined) updateData.title = payload.title ?? null;
+  if (payload.content !== undefined) updateData.content = payload.content ?? null;
+  if (payload.script !== undefined) updateData.script = payload.script ?? null;
+  if (payload.tags !== undefined) updateData.tags = payload.tags ?? null;
+  if (payload.coverStyle !== undefined) updateData.coverStyle = payload.coverStyle ?? null;
+  if (payload.coverPrompt !== undefined) updateData.coverPrompt = payload.coverPrompt ?? null;
+  if (payload.rationale !== undefined) updateData.rationale = payload.rationale ?? null;
+  if (payload.status !== undefined) updateData.status = payload.status ?? null;
+  if (payload.model !== undefined) updateData.model = payload.model ?? null;
+  if (payload.prompt !== undefined) updateData.prompt = payload.prompt ?? null;
+
+  const [result] = await db
+    .update(schema.creatives)
+    .set(updateData)
+    .where(eq(schema.creatives.id, payload.id))
+    .returning();
+
+  if (!result) {
     throw new Error('Creative not found');
   }
 
-  db.prepare(
-    `UPDATE creatives
-     SET theme_id = COALESCE(?, theme_id),
-         source_topic_id = COALESCE(?, source_topic_id),
-         source_topic_ids = COALESCE(?, source_topic_ids),
-         title = COALESCE(?, title),
-         content = COALESCE(?, content),
-         script = COALESCE(?, script),
-         tags = COALESCE(?, tags),
-         cover_style = COALESCE(?, cover_style),
-         cover_prompt = COALESCE(?, cover_prompt),
-         rationale_json = COALESCE(?, rationale_json),
-         status = COALESCE(?, status),
-         model = COALESCE(?, model),
-         prompt = COALESCE(?, prompt),
-         updated_at = datetime('now')
-     WHERE id = ?`
-  ).run(
-    payload.themeId,
-    payload.sourceTopicId,
-    stringifyJson(payload.sourceTopicIds),
-    payload.title,
-    payload.content,
-    payload.script,
-    stringifyJson(payload.tags),
-    payload.coverStyle,
-    payload.coverPrompt,
-    stringifyJson(payload.rationale),
-    payload.status,
-    payload.model,
-    payload.prompt,
-    payload.id
-  );
+  return result;
+}
 
-  const row = db
-    .prepare(
-      `SELECT id, theme_id, source_topic_id, source_topic_ids, title, content, script, tags,
-              cover_style, cover_prompt, rationale_json, status, model, prompt,
-              created_at, updated_at, result_asset_id
-       FROM creatives
-       WHERE id = ?`
-    )
-    .get(payload.id);
-  return normalizeCreative(row);
+export async function deleteCreative(id: number): Promise<{ success: true }> {
+  await db.delete(schema.creatives).where(eq(schema.creatives.id, id));
+  return { success: true };
+}
+
+export async function getCreative(id: number): Promise<Creative | null> {
+  const [result] = await db
+    .select()
+    .from(schema.creatives)
+    .where(eq(schema.creatives.id, id));
+
+  return result ?? null;
 }

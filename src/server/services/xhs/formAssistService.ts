@@ -11,26 +11,17 @@ function parseJson(value: string | null) {
   }
 }
 
-export function listFormAssists(themeId?: number) {
+export async function listFormAssists(themeId?: number) {
   const db = getDatabase();
-  const rows = themeId
-    ? db
-        .prepare(
-          `SELECT id, theme_id, suggestion_json, applied_json, feedback_json, status, created_at, updated_at
-           FROM form_assist_records
-           WHERE theme_id = ?
-           ORDER BY id DESC`
-        )
-        .all(themeId)
-    : db
-        .prepare(
-          `SELECT id, theme_id, suggestion_json, applied_json, feedback_json, status, created_at, updated_at
-           FROM form_assist_records
-           ORDER BY id DESC`
-        )
-        .all();
+  const selectColumns = 'id, theme_id, suggestion_json, applied_json, feedback_json, status, created_at, updated_at';
 
-  return rows.map((row: any) => ({
+  const query = themeId
+    ? db.from('form_assist_records').select(selectColumns).eq('theme_id', themeId).order('id', { ascending: false })
+    : db.from('form_assist_records').select(selectColumns).order('id', { ascending: false });
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data || []).map((row: any) => ({
     ...row,
     suggestion: parseJson(row.suggestion_json),
     applied: parseJson(row.applied_json),
@@ -38,7 +29,7 @@ export function listFormAssists(themeId?: number) {
   }));
 }
 
-export function generateSuggestion(payload: Record<string, any>) {
+export async function generateSuggestion(payload: Record<string, any>) {
   if (!payload || typeof payload !== 'object') {
     throw new Error('formAssist:generate expects an object payload');
   }
@@ -53,78 +44,79 @@ export function generateSuggestion(payload: Record<string, any>) {
   };
 
   const db = getDatabase();
-  const result = db
-    .prepare(
-      `INSERT INTO form_assist_records
-       (theme_id, suggestion_json, status, created_at, updated_at)
-       VALUES (?, ?, 'suggested', datetime('now'), datetime('now'))`
-    )
-    .run(payload.themeId, JSON.stringify(suggestion));
-
-  return {
-    id: result.lastInsertRowid,
+  const insertRow = {
     theme_id: payload.themeId,
-    suggestion,
+    suggestion_json: JSON.stringify(suggestion),
     status: 'suggested',
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data, error } = await db
+    .from('form_assist_records')
+    .insert(insertRow)
+    .select('id, theme_id, status')
+    .single();
+  if (error) throw error;
+  return {
+    id: data.id,
+    theme_id: data.theme_id,
+    suggestion,
+    status: data.status,
   };
 }
 
-export function applySuggestion(payload: Record<string, any>) {
+export async function applySuggestion(payload: Record<string, any>) {
   if (!payload || typeof payload !== 'object') {
     throw new Error('formAssist:apply expects an object payload');
   }
   if (!payload.id) {
     throw new Error('formAssist:apply requires id');
   }
+
   const db = getDatabase();
-  db.prepare(
-    `UPDATE form_assist_records
-     SET applied_json = ?, status = 'applied', updated_at = datetime('now')
-     WHERE id = ?`
-  ).run(JSON.stringify(payload.applied || {}), payload.id);
+  const appliedJson = JSON.stringify(payload.applied || {});
+  const selectColumns = 'id, theme_id, suggestion_json, applied_json, feedback_json, status, created_at, updated_at';
 
-  const row = db
-    .prepare(
-      `SELECT id, theme_id, suggestion_json, applied_json, feedback_json, status, created_at, updated_at
-       FROM form_assist_records
-       WHERE id = ?`
-    )
-    .get(payload.id);
-
+  const { data, error } = await db
+    .from('form_assist_records')
+    .update({ applied_json: appliedJson, status: 'applied', updated_at: new Date().toISOString() })
+    .eq('id', payload.id)
+    .select(selectColumns)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error('Form assist record not found');
   return {
-    ...row,
-    suggestion: parseJson(row.suggestion_json),
-    applied: parseJson(row.applied_json),
-    feedback: parseJson(row.feedback_json),
+    ...data,
+    suggestion: parseJson(data.suggestion_json),
+    applied: parseJson(data.applied_json),
+    feedback: parseJson(data.feedback_json),
   };
 }
 
-export function saveFeedback(payload: Record<string, any>) {
+export async function saveFeedback(payload: Record<string, any>) {
   if (!payload || typeof payload !== 'object') {
     throw new Error('formAssist:feedback expects an object payload');
   }
   if (!payload.id) {
     throw new Error('formAssist:feedback requires id');
   }
+
   const db = getDatabase();
-  db.prepare(
-    `UPDATE form_assist_records
-     SET feedback_json = ?, status = 'feedback', updated_at = datetime('now')
-     WHERE id = ?`
-  ).run(JSON.stringify(payload.feedback || {}), payload.id);
+  const feedbackJson = JSON.stringify(payload.feedback || {});
+  const selectColumns = 'id, theme_id, suggestion_json, applied_json, feedback_json, status, created_at, updated_at';
 
-  const row = db
-    .prepare(
-      `SELECT id, theme_id, suggestion_json, applied_json, feedback_json, status, created_at, updated_at
-       FROM form_assist_records
-       WHERE id = ?`
-    )
-    .get(payload.id);
-
+  const { data, error } = await db
+    .from('form_assist_records')
+    .update({ feedback_json: feedbackJson, status: 'feedback', updated_at: new Date().toISOString() })
+    .eq('id', payload.id)
+    .select(selectColumns)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error('Form assist record not found');
   return {
-    ...row,
-    suggestion: parseJson(row.suggestion_json),
-    applied: parseJson(row.applied_json),
-    feedback: parseJson(row.feedback_json),
+    ...data,
+    suggestion: parseJson(data.suggestion_json),
+    applied: parseJson(data.applied_json),
+    feedback: parseJson(data.feedback_json),
   };
 }

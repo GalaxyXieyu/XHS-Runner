@@ -1,66 +1,56 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import path from 'path';
-import os from 'os';
+import { getService } from '../_init';
 
-let initialized = false;
-
-async function ensureInit() {
-  if (initialized) return;
-  const { setUserDataPath } = await import('../../../src/server/runtime/userDataPath');
-  const { initializeDatabase } = await import('../../../src/server/db');
-  const userDataPath = process.env.XHS_USER_DATA_PATH || path.join(os.homedir(), '.xhs-runner');
-  setUserDataPath(userDataPath);
-  initializeDatabase();
-  initialized = true;
-}
+// Disable response buffering for streaming
+export const config = {
+  api: {
+    responseLimit: false,
+  },
+};
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
-    await ensureInit();
-    const { getTrendPromptData, getLLMConfigForAPI, getLatestTrendReport, getTrendHistory, saveTrendReport } = await import('../../../src/server/services/xhs/insightService');
+    const insightService = await getService(
+      'insightService',
+      () => import('../../../src/server/services/xhs/insightService')
+    );
+    const { getTrendPromptData, getLatestTrendReport, getTrendHistory, saveTrendReport } = insightService;
 
     const { themeId } = req.query;
     if (!themeId) return res.status(400).json({ error: 'themeId required' });
     const id = parseInt(themeId as string, 10);
 
     if (req.method === 'GET') {
-      const latest = getLatestTrendReport(id);
-      const history = getTrendHistory(id, 7);
+      const latest = await getLatestTrendReport(id);
+      const history = await getTrendHistory(id, 7);
+      console.log('[trend] GET themeId:', id, 'latest:', latest ? 'found' : 'null');
       return res.status(200).json({ latest, history });
     }
 
     if (req.method === 'POST') {
       const { providerId } = req.body || {};
 
-      const promptData = getTrendPromptData(id);
+      const promptData = await getTrendPromptData(id);
       if (promptData.error) {
         return res.status(400).json({ error: promptData.error });
       }
 
-      const llmConfig = await getLLMConfigForAPI(providerId);
-      if (!llmConfig) {
-        return res.status(400).json({ error: '请先配置LLM API' });
-      }
-
-      // Use Vercel AI SDK streamText
-      const { streamText } = await import('ai');
-      const { createOpenAI } = await import('@ai-sdk/openai');
-
-      const openai = createOpenAI({
-        baseURL: llmConfig.baseUrl,
-        apiKey: llmConfig.apiKey,
-      });
-
-      const result = streamText({
-        model: openai(llmConfig.model),
+      // 使用封装好的流式服务
+      const { streamToResponse } = await import('../../../src/server/services/llm/streamService');
+      await streamToResponse(res, {
         prompt: promptData.prompt!,
-        onFinish: ({ text }) => {
+        providerId,
+        onFinish: async (text) => {
           // Save report after streaming completes
-          saveTrendReport(id, promptData.stats, text);
+          try {
+            await saveTrendReport(id, promptData.stats, text);
+            console.log('[trend] Report saved successfully for theme:', id);
+          } catch (err) {
+            console.error('[trend] Failed to save report:', err);
+          }
         },
       });
-
-      return result.toTextStreamResponse();
+      return;
     }
 
     return res.status(405).json({ error: 'Method not allowed' });

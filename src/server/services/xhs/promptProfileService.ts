@@ -1,4 +1,4 @@
-import { getDatabase } from '../../db';
+import { supabase } from '../../supabase';
 
 function toNumber(value: any) {
   if (value === undefined || value === null || value === '') {
@@ -8,32 +8,29 @@ function toNumber(value: any) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-export function listPromptProfiles() {
-  const db = getDatabase();
-  return db
-    .prepare(
-      `SELECT id, name, system_prompt, user_template, model, temperature, max_tokens, category, description, created_at, updated_at
-       FROM prompt_profiles
-       ORDER BY id DESC`
-    )
-    .all();
+export async function listPromptProfiles() {
+  const { data } = await supabase
+    .from('prompt_profiles')
+    .select('id, name, system_prompt, user_template, model, temperature, max_tokens, category, description, created_at, updated_at')
+    .order('id', { ascending: false });
+
+  return data || [];
 }
 
-export function getPromptProfile(id: number) {
+export async function getPromptProfile(id: number) {
   if (!id) {
     throw new Error('promptProfiles:get requires id');
   }
-  const db = getDatabase();
-  return db
-    .prepare(
-      `SELECT id, name, system_prompt, user_template, model, temperature, max_tokens, category, description, created_at, updated_at
-       FROM prompt_profiles
-       WHERE id = ?`
-    )
-    .get(id);
+  const { data } = await supabase
+    .from('prompt_profiles')
+    .select('id, name, system_prompt, user_template, model, temperature, max_tokens, category, description, created_at, updated_at')
+    .eq('id', id)
+    .single();
+
+  return data;
 }
 
-export function createPromptProfile(payload: Record<string, any>) {
+export async function createPromptProfile(payload: Record<string, any>) {
   if (!payload || typeof payload !== 'object') {
     throw new Error('promptProfiles:create expects an object payload');
   }
@@ -51,80 +48,68 @@ export function createPromptProfile(payload: Record<string, any>) {
     throw new Error('user_template is required');
   }
 
-  const model = payload.model ? String(payload.model) : null;
-  const temperature = toNumber(payload.temperature);
-  const maxTokens = toNumber(payload.max_tokens ?? payload.maxTokens);
-  const category = payload.category ? String(payload.category) : null;
-  const description = payload.description ? String(payload.description) : null;
+  const { data, error } = await supabase
+    .from('prompt_profiles')
+    .insert({
+      name,
+      system_prompt: systemPrompt,
+      user_template: userTemplate,
+      model: payload.model ? String(payload.model) : null,
+      temperature: toNumber(payload.temperature),
+      max_tokens: toNumber(payload.max_tokens ?? payload.maxTokens),
+      category: payload.category ? String(payload.category) : null,
+      description: payload.description ? String(payload.description) : null,
+    })
+    .select()
+    .single();
 
-  const db = getDatabase();
-  const result = db
-    .prepare(
-      `INSERT INTO prompt_profiles
-       (name, system_prompt, user_template, model, temperature, max_tokens, category, description, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
-    )
-    .run(name, systemPrompt, userTemplate, model, temperature, maxTokens, category, description);
-
-  return getPromptProfile(result.lastInsertRowid as number);
+  if (error) throw error;
+  return data;
 }
 
-export function updatePromptProfile(payload: Record<string, any>) {
+export async function updatePromptProfile(payload: Record<string, any>) {
   if (!payload || typeof payload !== 'object') {
     throw new Error('promptProfiles:update expects an object payload');
   }
   if (!payload.id) {
     throw new Error('promptProfiles:update requires id');
   }
-  const db = getDatabase();
-  const existing = db.prepare('SELECT id FROM prompt_profiles WHERE id = ?').get(payload.id);
-  if (!existing) {
-    throw new Error('Prompt profile not found');
+
+  const updateData: any = { updated_at: new Date().toISOString() };
+  if (payload.name !== undefined) updateData.name = String(payload.name);
+  if (payload.system_prompt !== undefined || payload.systemPrompt !== undefined) {
+    updateData.system_prompt = String(payload.system_prompt || payload.systemPrompt);
   }
+  if (payload.user_template !== undefined || payload.userTemplate !== undefined) {
+    updateData.user_template = String(payload.user_template || payload.userTemplate);
+  }
+  if (payload.model !== undefined) updateData.model = payload.model ? String(payload.model) : null;
+  if (payload.temperature !== undefined) updateData.temperature = toNumber(payload.temperature);
+  if (payload.max_tokens !== undefined || payload.maxTokens !== undefined) {
+    updateData.max_tokens = toNumber(payload.max_tokens ?? payload.maxTokens);
+  }
+  if (payload.category !== undefined) updateData.category = payload.category ? String(payload.category) : null;
+  if (payload.description !== undefined) updateData.description = payload.description ? String(payload.description) : null;
 
-  const updates = {
-    name: payload.name ? String(payload.name) : undefined,
-    system_prompt: payload.system_prompt || payload.systemPrompt ? String(payload.system_prompt || payload.systemPrompt) : undefined,
-    user_template: payload.user_template || payload.userTemplate ? String(payload.user_template || payload.userTemplate) : undefined,
-    model: payload.model ? String(payload.model) : undefined,
-    temperature: payload.temperature !== undefined ? toNumber(payload.temperature) : undefined,
-    max_tokens: payload.max_tokens !== undefined || payload.maxTokens !== undefined ? toNumber(payload.max_tokens ?? payload.maxTokens) : undefined,
-    category: payload.category !== undefined ? (payload.category ? String(payload.category) : null) : undefined,
-    description: payload.description !== undefined ? (payload.description ? String(payload.description) : null) : undefined,
-  };
+  const { data, error } = await supabase
+    .from('prompt_profiles')
+    .update(updateData)
+    .eq('id', payload.id)
+    .select()
+    .single();
 
-  db.prepare(
-    `UPDATE prompt_profiles
-     SET name = COALESCE(?, name),
-         system_prompt = COALESCE(?, system_prompt),
-         user_template = COALESCE(?, user_template),
-         model = COALESCE(?, model),
-         temperature = COALESCE(?, temperature),
-         max_tokens = COALESCE(?, max_tokens),
-         category = COALESCE(?, category),
-         description = COALESCE(?, description),
-         updated_at = datetime('now')
-     WHERE id = ?`
-  ).run(
-    updates.name,
-    updates.system_prompt,
-    updates.user_template,
-    updates.model,
-    updates.temperature,
-    updates.max_tokens,
-    updates.category,
-    updates.description,
-    payload.id
-  );
-
-  return getPromptProfile(payload.id);
+  if (error) throw error;
+  return data;
 }
 
-export function deletePromptProfile(id: number): boolean {
+export async function deletePromptProfile(id: number): Promise<boolean> {
   if (!id) {
     throw new Error('promptProfiles:delete requires id');
   }
-  const db = getDatabase();
-  const result = db.prepare('DELETE FROM prompt_profiles WHERE id = ?').run(id);
-  return result.changes > 0;
+  const { error } = await supabase
+    .from('prompt_profiles')
+    .delete()
+    .eq('id', id);
+
+  return !error;
 }
