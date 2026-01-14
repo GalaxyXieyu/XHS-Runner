@@ -4,6 +4,7 @@ import {
   Archive,
   Activity,
   Zap,
+  Wand2,
   Clock,
   Target,
   Database,
@@ -21,6 +22,8 @@ import {
   XCircle,
   AlertCircle,
   RefreshCw,
+  ChevronUp,
+  ChevronDown,
   Bot,
   Check,
   X,
@@ -100,12 +103,25 @@ function normalizeCreative(row: any): ContentPackage {
 
 export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) {
   const [mainTab, setMainTab] = useState<'generate' | 'library' | 'tasks'>('generate');
-  const [generateMode, setGenerateMode] = useState<'instant' | 'scheduled' | 'agent'>('instant');
+  const [generateMode, setGenerateMode] = useState<'instant' | 'idea' | 'scheduled' | 'agent'>('instant');
   const [taskStatusTab, setTaskStatusTab] = useState<'running' | 'completed' | 'failed'>('running');
 
   // 生成状态
   const [hasStartedGeneration, setHasStartedGeneration] = useState(false);
   const [generating, setGenerating] = useState(false);
+
+  // Idea 一键生成配置（独立于现有自动化小红书流程）
+  const [ideaConfig, setIdeaConfig] = useState({
+    idea: '',
+    styleKeyOption: 'cozy' as 'cozy' | 'minimal' | 'illustration' | 'ink' | 'anime' | '3d' | 'cyberpunk' | 'photo' | 'custom',
+    customStyleKey: '',
+    aspectRatio: '3:4' as '3:4' | '1:1' | '4:3',
+    count: 4,
+    model: 'nanobanana' as 'nanobanana' | 'jimeng',
+  });
+  const [ideaPreviewPrompts, setIdeaPreviewPrompts] = useState<string[]>([]);
+  const [ideaPreviewLoading, setIdeaPreviewLoading] = useState(false);
+  const [ideaPreviewError, setIdeaPreviewError] = useState('');
 
   // 选择状态
   const [selectedPackages, setSelectedPackages] = useState<string[]>([]);
@@ -216,6 +232,97 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
   const runningTasks = taskExecutions.filter(e => e.status === 'running');
   const completedTasks = taskExecutions.filter(e => e.status === 'completed');
   const failedTasks = taskExecutions.filter(e => e.status === 'failed');
+
+  const ideaStyleOptions = [
+    { key: 'cozy', name: '温馨治愈' },
+    { key: 'minimal', name: '极简设计' },
+    { key: 'illustration', name: '手绘插画' },
+    { key: 'ink', name: '水墨书法' },
+    { key: 'anime', name: '日漫二次元' },
+    { key: '3d', name: '3D立体' },
+    { key: 'cyberpunk', name: '赛博朋克' },
+    { key: 'photo', name: '真实摄影' },
+    { key: 'custom', name: '自定义' },
+  ] as const;
+
+  const resolveIdeaStyleKey = () => {
+    if (ideaConfig.styleKeyOption === 'custom') {
+      return ideaConfig.customStyleKey.trim();
+    }
+    return ideaConfig.styleKeyOption;
+  };
+
+  const normalizePrompts = (prompts: unknown): string[] => {
+    if (!Array.isArray(prompts)) return [];
+    return prompts
+      .filter((p) => typeof p === 'string')
+      .map((p) => p.trim())
+      .filter(Boolean);
+  };
+
+  const handleIdeaPreview = async () => {
+    if (!ideaConfig.idea.trim()) return;
+
+    setIdeaPreviewLoading(true);
+    setIdeaPreviewError('');
+
+    const styleKey = resolveIdeaStyleKey() || 'cozy';
+    try {
+      const res = await fetch('/api/generate/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          idea: ideaConfig.idea,
+          styleKey,
+          aspectRatio: ideaConfig.aspectRatio,
+          count: ideaConfig.count,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || `HTTP ${res.status}`);
+      }
+
+      const prompts = normalizePrompts(data?.prompts);
+      if (prompts.length === 0) {
+        throw new Error('LLM 未返回有效 prompts（可手动编辑后继续）');
+      }
+
+      setIdeaPreviewPrompts(prompts);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '预览失败';
+      console.error('Idea preview failed:', message);
+      setIdeaPreviewError(message);
+      setIdeaPreviewPrompts((prev) => (prev.length > 0 ? prev : ['']));
+    } finally {
+      setIdeaPreviewLoading(false);
+    }
+  };
+
+  const updateIdeaPrompt = (index: number, value: string) => {
+    setIdeaPreviewPrompts((prev) => prev.map((p, i) => (i === index ? value : p)));
+  };
+
+  const addIdeaPrompt = () => {
+    setIdeaPreviewPrompts((prev) => [...prev, '']);
+  };
+
+  const removeIdeaPrompt = (index: number) => {
+    setIdeaPreviewPrompts((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const moveIdeaPrompt = (index: number, direction: -1 | 1) => {
+    setIdeaPreviewPrompts((prev) => {
+      const nextIndex = index + direction;
+      if (nextIndex < 0 || nextIndex >= prev.length) return prev;
+      const copy = [...prev];
+      const tmp = copy[index];
+      copy[index] = copy[nextIndex];
+      copy[nextIndex] = tmp;
+      return copy;
+    });
+  };
 
   // 即时生成处理
   const handleInstantGenerate = async () => {
@@ -404,7 +511,7 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
                     {/* 生成方式选择 */}
                     <div className="mb-6">
                       <label className="block text-sm font-medium text-gray-700 mb-3">生成方式</label>
-                      <div className="grid grid-cols-3 gap-4">
+                      <div className="grid grid-cols-4 gap-4">
                         <button
                           onClick={() => setGenerateMode('instant')}
                           className={`p-4 rounded-lg border-2 transition-all ${
@@ -417,6 +524,20 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
                           </div>
                           <div className="text-xs text-gray-500 mt-1">输入主题即时生成</div>
                         </button>
+
+                        <button
+                          onClick={() => setGenerateMode('idea')}
+                          className={`p-4 rounded-lg border-2 transition-all ${
+                            generateMode === 'idea' ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 hover:border-gray-300'
+                          }`}
+                        >
+                          <Wand2 className={`w-6 h-6 mx-auto mb-2 ${generateMode === 'idea' ? 'text-emerald-600' : 'text-gray-400'}`} />
+                          <div className={`text-sm font-medium ${generateMode === 'idea' ? 'text-emerald-700' : 'text-gray-700'}`}>
+                            Idea 一键生成
+                          </div>
+                          <div className="text-xs text-gray-500 mt-1">输入 idea 预览多图 prompts</div>
+                        </button>
+
                         <button
                           onClick={() => setGenerateMode('scheduled')}
                           className={`p-4 rounded-lg border-2 transition-all ${
@@ -429,6 +550,7 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
                           </div>
                           <div className="text-xs text-gray-500 mt-1">设置自动生成计划</div>
                         </button>
+
                         <button
                           onClick={() => setGenerateMode('agent')}
                           className={`p-4 rounded-lg border-2 transition-all ${
@@ -583,6 +705,187 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
                             </>
                           )}
                         </button>
+                      </div>
+                    )}
+
+                    {generateMode === 'idea' && (
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            输入 idea（用于生成多图 prompts） <span className="text-red-500">*</span>
+                          </label>
+                          <textarea
+                            value={ideaConfig.idea}
+                            onChange={(e) => setIdeaConfig({ ...ideaConfig, idea: e.target.value })}
+                            placeholder="例如：秋天的咖啡馆、通勤穿搭分享、周末露营清单..."
+                            rows={3}
+                            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                          />
+                          <div className="mt-1 text-xs text-gray-500 flex items-center justify-between">
+                            <span>预览失败时也可手动编辑 prompts 继续</span>
+                            <span>{ideaConfig.idea.length} 字</span>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm text-gray-700 mb-2">风格</label>
+                            <select
+                              value={ideaConfig.styleKeyOption}
+                              onChange={(e) => setIdeaConfig({ ...ideaConfig, styleKeyOption: e.target.value as any })}
+                              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                            >
+                              {ideaStyleOptions.map((opt) => (
+                                <option key={opt.key} value={opt.key}>{opt.name}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="block text-sm text-gray-700 mb-2">比例</label>
+                            <select
+                              value={ideaConfig.aspectRatio}
+                              onChange={(e) => setIdeaConfig({ ...ideaConfig, aspectRatio: e.target.value as any })}
+                              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                            >
+                              <option value="3:4">3:4（小红书）</option>
+                              <option value="1:1">1:1</option>
+                              <option value="4:3">4:3</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm text-gray-700 mb-2">数量</label>
+                            <input
+                              type="number"
+                              value={ideaConfig.count}
+                              onChange={(e) => setIdeaConfig({ ...ideaConfig, count: parseInt(e.target.value) || 1 })}
+                              min={1}
+                              max={9}
+                              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-sm text-gray-700 mb-2">图像模型</label>
+                            <select
+                              value={ideaConfig.model}
+                              onChange={(e) => setIdeaConfig({ ...ideaConfig, model: e.target.value as any })}
+                              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                            >
+                              <option value="nanobanana">Nanobanana</option>
+                              <option value="jimeng">即梦</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        {ideaConfig.styleKeyOption === 'custom' && (
+                          <div>
+                            <label className="block text-sm text-gray-700 mb-2">自定义 styleKey</label>
+                            <input
+                              type="text"
+                              value={ideaConfig.customStyleKey}
+                              onChange={(e) => setIdeaConfig({ ...ideaConfig, customStyleKey: e.target.value })}
+                              placeholder="例如：cozy（或任意自定义 key，若不存在将降级为默认）"
+                              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                            />
+                          </div>
+                        )}
+
+                        {ideaPreviewError && (
+                          <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-start gap-2">
+                            <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                            <div className="flex-1">
+                              <div className="font-medium">预览失败</div>
+                              <div className="text-xs mt-0.5">{ideaPreviewError}</div>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex items-center justify-between">
+                          <div className="text-sm font-medium text-gray-700">
+                            预览 prompts <span className="text-xs text-gray-500">({ideaPreviewPrompts.length})</span>
+                          </div>
+                          <button
+                            onClick={handleIdeaPreview}
+                            disabled={!ideaConfig.idea.trim() || ideaPreviewLoading}
+                            className="px-3 py-2 bg-emerald-500 text-white rounded-lg text-sm font-medium hover:bg-emerald-600 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                          >
+                            {ideaPreviewLoading ? (
+                              <>
+                                <Loader className="w-4 h-4 animate-spin" />
+                                预览中...
+                              </>
+                            ) : (
+                              <>
+                                <Sparkles className="w-4 h-4" />
+                                生成预览
+                              </>
+                            )}
+                          </button>
+                        </div>
+
+                        <div className="border border-gray-200 rounded-lg overflow-hidden">
+                          {ideaPreviewPrompts.length === 0 ? (
+                            <div className="py-10 text-center text-sm text-gray-500">
+                              点击「生成预览」后在这里编辑 prompts
+                            </div>
+                          ) : (
+                            <div className="divide-y divide-gray-100">
+                              {ideaPreviewPrompts.map((prompt, idx) => (
+                                <div key={idx} className="p-3">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <div className="text-xs text-gray-500">Prompt {idx + 1}</div>
+                                    <div className="flex items-center gap-1">
+                                      <button
+                                        onClick={() => moveIdeaPrompt(idx, -1)}
+                                        disabled={idx === 0}
+                                        className="p-1 rounded hover:bg-gray-100 disabled:opacity-40 disabled:hover:bg-transparent"
+                                        title="上移"
+                                      >
+                                        <ChevronUp className="w-4 h-4 text-gray-500" />
+                                      </button>
+                                      <button
+                                        onClick={() => moveIdeaPrompt(idx, 1)}
+                                        disabled={idx === ideaPreviewPrompts.length - 1}
+                                        className="p-1 rounded hover:bg-gray-100 disabled:opacity-40 disabled:hover:bg-transparent"
+                                        title="下移"
+                                      >
+                                        <ChevronDown className="w-4 h-4 text-gray-500" />
+                                      </button>
+                                      <button
+                                        onClick={() => removeIdeaPrompt(idx)}
+                                        className="p-1 rounded hover:bg-red-50"
+                                        title="删除"
+                                      >
+                                        <Trash2 className="w-4 h-4 text-red-600" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <textarea
+                                    value={prompt}
+                                    onChange={(e) => updateIdeaPrompt(idx, e.target.value)}
+                                    rows={3}
+                                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                          <button
+                            onClick={addIdeaPrompt}
+                            className="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 flex items-center gap-2"
+                          >
+                            <Plus className="w-4 h-4" />
+                            新增 prompt
+                          </button>
+                          <div className="text-xs text-gray-500">下一步（确认生成）在后续任务中接入</div>
+                        </div>
                       </div>
                     )}
 
