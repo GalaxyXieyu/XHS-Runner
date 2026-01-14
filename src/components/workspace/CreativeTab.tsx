@@ -127,6 +127,8 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
   const [ideaConfirmError, setIdeaConfirmError] = useState('');
   const [ideaCreativeId, setIdeaCreativeId] = useState<number | null>(null);
   const [ideaTaskIds, setIdeaTaskIds] = useState<number[]>([]);
+  const [ideaContentPackage, setIdeaContentPackage] = useState<any>(null);
+  const [ideaPollingError, setIdeaPollingError] = useState('');
 
   // 选择状态
   const [selectedPackages, setSelectedPackages] = useState<string[]>([]);
@@ -221,6 +223,51 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
     loadCreatives();
     loadJobs();
   }, [theme.id]);
+
+  useEffect(() => {
+    if (ideaCreativeId === null) {
+      setIdeaContentPackage(null);
+      setIdeaPollingError('');
+      return;
+    }
+
+    let cancelled = false;
+    let timer: any;
+
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/creatives/${ideaCreativeId}`, { cache: 'no-store' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data?.error || `HTTP ${res.status}`);
+        }
+        if (!cancelled) {
+          setIdeaContentPackage(data);
+          setIdeaPollingError('');
+        }
+
+        const tasks = Array.isArray(data?.tasks) ? data.tasks : [];
+        const isFinished = tasks.length > 0 && tasks.every((t: any) => t?.status === 'done' || t?.status === 'failed');
+        if (isFinished) {
+          return;
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '轮询失败';
+        if (!cancelled) {
+          setIdeaPollingError(message);
+        }
+      }
+
+      timer = setTimeout(poll, 2000);
+    };
+
+    void poll();
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [ideaCreativeId]);
 
   // 筛选后的内容包
   const filteredPackages = useMemo(() => {
@@ -770,30 +817,103 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
 
                     {generateMode === 'idea' && (
                       <div className="space-y-4">
-                        {ideaCreativeId !== null && (
-                          <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-800 flex items-start gap-2">
-                            <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                            <div className="flex-1">
-                              <div className="font-medium">已提交生成任务</div>
-                              <div className="text-xs mt-0.5">
-                                creativeId: {ideaCreativeId}，taskIds: {ideaTaskIds.length} 个（生成进度展示在后续任务中接入）
-                              </div>
-                            </div>
-                            <button
-                              onClick={() => {
-                                setIdeaCreativeId(null);
-                                setIdeaTaskIds([]);
-                              }}
-                              className="text-xs text-emerald-700 hover:text-emerald-900"
-                            >
-                              重新开始
-                            </button>
-                          </div>
-                        )}
+	                        {ideaCreativeId !== null && (
+	                          <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-800 flex items-start gap-2">
+	                            <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0" />
+	                            <div className="flex-1">
+	                              <div className="font-medium">已提交生成任务</div>
+	                              <div className="text-xs mt-0.5">
+	                                creativeId: {ideaCreativeId}，taskIds: {ideaTaskIds.length} 个
+	                              </div>
+	                            </div>
+	                            <button
+	                              onClick={() => {
+	                                setIdeaCreativeId(null);
+	                                setIdeaTaskIds([]);
+	                              }}
+	                              className="text-xs text-emerald-700 hover:text-emerald-900"
+	                            >
+	                              重新开始
+	                            </button>
+	                          </div>
+	                        )}
 
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            输入 idea（用于生成多图 prompts） <span className="text-red-500">*</span>
+	                        {ideaCreativeId !== null && (
+	                          <div className="space-y-3">
+	                            {ideaPollingError && (
+	                              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-start gap-2">
+	                                <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+	                                <div className="flex-1">进度轮询失败：{ideaPollingError}</div>
+	                              </div>
+	                            )}
+
+	                            {ideaContentPackage && (
+	                              <div className="p-3 bg-white border border-gray-200 rounded-lg">
+	                                <div className="flex items-center justify-between mb-2">
+	                                  <div className="text-sm font-medium text-gray-800">生成进度</div>
+	                                  <div className="text-xs text-gray-500">
+	                                    {Array.isArray(ideaContentPackage?.tasks) ? ideaContentPackage.tasks.filter((t: any) => t?.status === 'done').length : 0}
+	                                    /
+	                                    {Array.isArray(ideaContentPackage?.tasks) ? ideaContentPackage.tasks.length : 0}
+	                                    已完成
+	                                  </div>
+	                                </div>
+
+	                                <div className="w-full h-2 bg-gray-100 rounded overflow-hidden mb-3">
+	                                  <div
+	                                    className="h-full bg-emerald-500"
+	                                    style={{
+	                                      width: `${(() => {
+	                                        const total = Array.isArray(ideaContentPackage?.tasks) ? ideaContentPackage.tasks.length : 0;
+	                                        const done = Array.isArray(ideaContentPackage?.tasks) ? ideaContentPackage.tasks.filter((t: any) => t?.status === 'done' || t?.status === 'failed').length : 0;
+	                                        return total > 0 ? Math.round((done / total) * 100) : 0;
+	                                      })()}%`,
+	                                    }}
+	                                  />
+	                                </div>
+
+	                                {Array.isArray(ideaContentPackage?.tasks) && ideaContentPackage.tasks.length > 0 && (
+	                                  <div className="grid grid-cols-2 gap-2 text-xs">
+	                                    {ideaContentPackage.tasks.slice(0, 6).map((t: any) => (
+	                                      <div key={String(t.id)} className="flex items-center gap-1 text-gray-600">
+	                                        {t.status === 'done' ? (
+	                                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+	                                        ) : t.status === 'failed' ? (
+	                                          <XCircle className="w-3.5 h-3.5 text-red-600" />
+	                                        ) : (
+	                                          <Loader className="w-3.5 h-3.5 animate-spin text-gray-400" />
+	                                        )}
+	                                        <span className="truncate">{t.status}</span>
+	                                      </div>
+	                                    ))}
+	                                  </div>
+	                                )}
+	                              </div>
+	                            )}
+
+	                            {Array.isArray(ideaContentPackage?.assets) && ideaContentPackage.assets.length > 0 && (
+	                              <div className="p-3 bg-white border border-gray-200 rounded-lg">
+	                                <div className="text-sm font-medium text-gray-800 mb-2">已生成图片</div>
+	                                <div className="grid grid-cols-3 gap-2">
+	                                  {ideaContentPackage.assets.slice(0, 9).map((asset: any) => (
+	                                    <div key={String(asset.id)} className="aspect-[3/4] bg-gray-100 rounded overflow-hidden">
+	                                      <img
+	                                        src={`/api/assets/${asset.id}`}
+	                                        alt={`asset-${asset.id}`}
+	                                        className="w-full h-full object-cover"
+	                                        loading="lazy"
+	                                      />
+	                                    </div>
+	                                  ))}
+	                                </div>
+	                              </div>
+	                            )}
+	                          </div>
+	                        )}
+
+	                        <div>
+	                          <label className="block text-sm font-medium text-gray-700 mb-2">
+	                            输入 idea（用于生成多图 prompts） <span className="text-red-500">*</span>
                           </label>
                           <textarea
                             value={ideaConfig.idea}

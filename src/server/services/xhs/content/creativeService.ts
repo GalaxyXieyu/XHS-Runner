@@ -1,5 +1,5 @@
 import { db, schema } from '@/server/db';
-import { eq, desc, and, SQL } from 'drizzle-orm';
+import { eq, desc, and, SQL, inArray, asc } from 'drizzle-orm';
 
 export interface ContentPackage {
   creative: typeof schema.creatives.$inferSelect;
@@ -54,6 +54,51 @@ export async function listContentPackages(filters: {
     .limit(filters.limit ?? 20)
     .offset(filters.offset ?? 0);
 
-  const packages = await Promise.all(creatives.map((c) => getContentPackage(c.id)));
-  return packages.filter((p): p is ContentPackage => p !== null);
+  if (creatives.length === 0) return [];
+
+  const creativeIds = creatives.map((c) => c.id);
+
+  const [assetRows, tasks] = await Promise.all([
+    db
+      .select({
+        creativeId: schema.creativeAssets.creativeId,
+        sortOrder: schema.creativeAssets.sortOrder,
+        asset: schema.assets,
+      })
+      .from(schema.creativeAssets)
+      .innerJoin(schema.assets, eq(schema.creativeAssets.assetId, schema.assets.id))
+      .where(inArray(schema.creativeAssets.creativeId, creativeIds))
+      .orderBy(asc(schema.creativeAssets.creativeId), asc(schema.creativeAssets.sortOrder)),
+    db
+      .select()
+      .from(schema.generationTasks)
+      .where(inArray(schema.generationTasks.creativeId, creativeIds)),
+  ]);
+
+  const assetsByCreative = new Map<number, Array<{ sortOrder: number; asset: typeof schema.assets.$inferSelect }>>();
+  for (const row of assetRows) {
+    const bucket = assetsByCreative.get(row.creativeId) ?? [];
+    bucket.push({ sortOrder: row.sortOrder ?? 0, asset: row.asset });
+    assetsByCreative.set(row.creativeId, bucket);
+  }
+
+  const tasksByCreative = new Map<number, Array<typeof schema.generationTasks.$inferSelect>>();
+  for (const task of tasks) {
+    if (task.creativeId == null) continue;
+    const bucket = tasksByCreative.get(task.creativeId) ?? [];
+    bucket.push(task);
+    tasksByCreative.set(task.creativeId, bucket);
+  }
+
+  return creatives.map((creative) => {
+    const assets = (assetsByCreative.get(creative.id) ?? [])
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map((a) => a.asset);
+
+    return {
+      creative,
+      assets,
+      tasks: tasksByCreative.get(creative.id) ?? [],
+    };
+  });
 }
