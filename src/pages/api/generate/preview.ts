@@ -4,13 +4,23 @@ import { renderStyledPrompts, getStyleTemplate, type AspectRatio } from '@/serve
 const DEFAULT_STYLE_KEY = 'cozy';
 const DEFAULT_ASPECT_RATIO: AspectRatio = '3:4';
 const ALLOWED_ASPECT_RATIOS = new Set<string>(['3:4', '1:1', '4:3']);
+const ALLOWED_GOALS = new Set<string>(['collects', 'comments', 'followers']);
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { idea, styleKey = DEFAULT_STYLE_KEY, aspectRatio = DEFAULT_ASPECT_RATIO, count = 4 } = req.body;
+  const {
+    idea,
+    styleKey = DEFAULT_STYLE_KEY,
+    aspectRatio = DEFAULT_ASPECT_RATIO,
+    count = 4,
+    goal,
+    persona,
+    tone,
+    extraRequirements,
+  } = req.body;
 
   if (!idea?.trim()) {
     return res.status(400).json({ error: 'IDEA_PREVIEW_BAD_REQUEST: idea is required' });
@@ -19,6 +29,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const safeCount = Math.min(9, Math.max(1, Number(count) || 4));
     const normalizedAspectRatio = ALLOWED_ASPECT_RATIOS.has(String(aspectRatio)) ? (aspectRatio as AspectRatio) : DEFAULT_ASPECT_RATIO;
+    const normalizedGoal = ALLOWED_GOALS.has(String(goal)) ? (goal as 'collects' | 'comments' | 'followers') : undefined;
 
     let effectiveStyleKey = String(styleKey || '').trim() || DEFAULT_STYLE_KEY;
     let effectiveTemplate = await getStyleTemplate(effectiveStyleKey);
@@ -33,6 +44,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         styleKey: effectiveStyleKey,
         aspectRatio: normalizedAspectRatio,
         count: safeCount,
+        context: {
+          goal: normalizedGoal,
+          persona: typeof persona === 'string' ? persona : undefined,
+          tone: typeof tone === 'string' ? tone : undefined,
+          extraRequirements: typeof extraRequirements === 'string' ? extraRequirements : undefined,
+        },
       }),
       Promise.resolve(effectiveTemplate),
     ]);

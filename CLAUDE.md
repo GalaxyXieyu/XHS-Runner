@@ -59,3 +59,41 @@
 - `topics` - 抓取的笔记
 - `trend_reports` - 趋势报告历史
 - `settings` - 应用配置
+
+## 数据库操作
+
+### 快速查询模板
+
+```bash
+# 方式1: 使用 tsx 脚本 (推荐)
+DATABASE_URL="postgresql://postgres:密码@db.xxx.supabase.co:5432/postgres" \
+npx tsx -e "
+import { db, schema } from './src/server/db';
+import { eq, desc } from 'drizzle-orm';
+
+async function main() {
+  // 查询示例
+  const result = await db.select().from(schema.assets).limit(10);
+  console.log(JSON.stringify(result, null, 2));
+}
+main().catch(console.error);
+"
+```
+
+### 常用操作
+
+| 操作 | Drizzle 语法 |
+|------|-------------|
+| 查询所有 | `db.select().from(schema.表名)` |
+| 按条件查 | `db.select().from(schema.表名).where(eq(schema.表名.字段, 值))` |
+| 排序 | `.orderBy(desc(schema.表名.createdAt))` |
+| 限制数量 | `.limit(10)` |
+| 删除 | `db.delete(schema.表名).where(...)` |
+| 更新 | `db.update(schema.表名).set(...)` |
+
+### Supabase MCP (建议安装)
+
+```bash
+npm install -g @supabase/mcp-server-supabase
+# 在 Claude Code 配置中启用 MCP
+```

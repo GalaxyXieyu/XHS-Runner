@@ -34,6 +34,7 @@ async function main() {
       styleKey: 'cozy',
       aspectRatio: '3:4',
       count: 2,
+      context: { goal: 'collects', persona: '学生党', tone: '干货/亲和' },
     });
     console.log(`   ✅ 生成 ${prompts.length} 个 prompts:`);
     prompts.forEach((p, i) => console.log(`      ${i + 1}. ${p.slice(0, 60)}...`));

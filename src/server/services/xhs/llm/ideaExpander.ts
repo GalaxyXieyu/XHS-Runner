@@ -17,6 +17,10 @@ const ASPECT_RATIO_HINTS: Record<string, string> = {
 export interface ExpandOptions {
   systemPrompt?: string;
   aspectRatio?: string;
+  goal?: 'collects' | 'comments' | 'followers';
+  persona?: string;
+  tone?: string;
+  extraRequirements?: string;
 }
 
 /**
@@ -30,11 +34,22 @@ export async function expandIdea(idea: string, count: number, options?: ExpandOp
   const safeCount = Math.max(1, Math.min(9, count));
   const systemPrompt = options?.systemPrompt || DEFAULT_SYSTEM_PROMPT;
   const aspectHint = options?.aspectRatio ? ASPECT_RATIO_HINTS[options.aspectRatio] || '' : '';
+  const goalHint =
+    options?.goal === 'collects'
+      ? '收藏优先（更强调信息密度、可复制清单、对比与总结）'
+      : options?.goal === 'comments'
+        ? '评论优先（更强调争议点/提问互动/观点对立）'
+        : options?.goal === 'followers'
+          ? '涨粉优先（更强调人设、系列化、强记忆点）'
+          : '';
+  const persona = String(options?.persona ?? '').trim();
+  const tone = String(options?.tone ?? '').trim();
+  const extraRequirements = String(options?.extraRequirements ?? '').trim();
 
   const prompt = `${systemPrompt}
 
 主题：${idea.trim()}
-数量：${safeCount}${aspectHint ? `\n构图要求：${aspectHint}` : ''}
+数量：${safeCount}${aspectHint ? `\n构图要求：${aspectHint}` : ''}${goalHint ? `\n内容目标：${goalHint}` : ''}${persona ? `\n目标受众：${persona}` : ''}${tone ? `\n语气偏好：${tone}` : ''}${extraRequirements ? `\n额外要求：${extraRequirements}` : ''}
 
 请生成${safeCount}个不同角度的图片描述prompt，直接输出JSON数组：
 ["prompt1", "prompt2", ...]`;

@@ -3,16 +3,8 @@ import {
   Sparkles,
   Archive,
   Activity,
-  Zap,
   Wand2,
   Clock,
-  Target,
-  Database,
-  Users,
-  MessageSquare,
-  Brain,
-  Image as ImageIcon,
-  TrendingUp,
   Plus,
   Calendar,
   Trash2,
@@ -73,13 +65,6 @@ interface TaskExecution {
   errorMessage?: string;
 }
 
-interface PromptProfile {
-  id: string;
-  name: string;
-  model: string;
-  temperature: number;
-}
-
 function normalizeCreative(row: any): ContentPackage {
   return {
     id: String(row.id),
@@ -103,14 +88,10 @@ function normalizeCreative(row: any): ContentPackage {
 
 export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) {
   const [mainTab, setMainTab] = useState<'generate' | 'library' | 'tasks'>('generate');
-  const [generateMode, setGenerateMode] = useState<'instant' | 'idea' | 'scheduled' | 'agent'>('instant');
+  const [generateMode, setGenerateMode] = useState<'oneClick' | 'scheduled' | 'agent'>('oneClick');
   const [taskStatusTab, setTaskStatusTab] = useState<'running' | 'completed' | 'failed'>('running');
 
-  // 生成状态
-  const [hasStartedGeneration, setHasStartedGeneration] = useState(false);
-  const [generating, setGenerating] = useState(false);
-
-  // Idea 一键生成配置（独立于现有自动化小红书流程）
+  // 一键生成配置（= 立即生成，多图 + 可编辑 prompts）
   const [ideaConfig, setIdeaConfig] = useState({
     idea: '',
     styleKeyOption: 'cozy' as 'cozy' | 'minimal' | 'illustration' | 'ink' | 'anime' | '3d' | 'cyberpunk' | 'photo' | 'custom',
@@ -118,6 +99,10 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
     aspectRatio: '3:4' as '3:4' | '1:1' | '4:3',
     count: 4,
     model: 'nanobanana' as 'nanobanana' | 'jimeng',
+    goal: 'collects' as 'collects' | 'comments' | 'followers',
+    persona: '25-35岁职场女性，追求实用与高效',
+    tone: '干货/亲和',
+    extraRequirements: '',
   });
   const [ideaPreviewPrompts, setIdeaPreviewPrompts] = useState<string[]>([]);
   const [ideaPreviewLoading, setIdeaPreviewLoading] = useState(false);
@@ -138,11 +123,9 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [editingTask, setEditingTask] = useState<AutoTask | null>(null);
   const [editingPackage, setEditingPackage] = useState<ContentPackage | null>(null);
-  const [showAgentCreator, setShowAgentCreator] = useState(false);
 
   // 数据状态
   const [allPackages, setAllPackages] = useState<ContentPackage[]>([]);
-  const [currentSessionPackages, setCurrentSessionPackages] = useState<ContentPackage[]>([]);
   const [scheduledTasks, setScheduledTasks] = useState<AutoTask[]>([]);
   const [taskExecutions, setTaskExecutions] = useState<TaskExecution[]>([]);
   const [loading, setLoading] = useState(false);
@@ -153,24 +136,11 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
     searchQuery: '',
   });
 
-  // 即时生成配置
-  const [instantConfig, setInstantConfig] = useState({
-    input: '',
-    goal: 'collects' as 'collects' | 'comments' | 'followers',
-    persona: '25-35岁职场女性，追求实用与高效',
-    tone: '干货/亲和',
-    promptProfileId: '1',
-    imageModel: 'nanobanana' as 'nanobanana' | 'jimeng',
-    outputCount: 5,
-    minQualityScore: 70,
-  });
-
-  // Prompt profiles (后续可从 API 获取)
-  const promptProfiles: PromptProfile[] = [
-    { id: '1', name: '通用图文-收藏优先', model: 'gpt-4.1-mini', temperature: 0.7 },
-    { id: '2', name: '种草文案模板', model: 'gpt-4o', temperature: 0.8 },
-    { id: '3', name: '评论互动回复', model: 'gpt-4.1-mini', temperature: 0.6 },
-  ];
+  const promptProfiles = [
+    { id: '1', name: '通用图文-收藏优先' },
+    { id: '2', name: '种草文案模板' },
+    { id: '3', name: '评论互动回复' },
+  ] as const;
 
   // 加载内容包列表
   const loadCreatives = async () => {
@@ -328,6 +298,10 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
           styleKey,
           aspectRatio: ideaConfig.aspectRatio,
           count: ideaConfig.count,
+          goal: ideaConfig.goal,
+          persona: ideaConfig.persona,
+          tone: ideaConfig.tone,
+          extraRequirements: ideaConfig.extraRequirements,
         }),
       });
 
@@ -431,78 +405,6 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
     }
   };
 
-  // 即时生成处理
-  const handleInstantGenerate = async () => {
-    if (!instantConfig.input) return;
-
-    setHasStartedGeneration(true);
-    setGenerating(true);
-    setCurrentSessionPackages([]);
-
-    // 创建新的任务执行记录
-    const newExecution: TaskExecution = {
-      id: `exec-${Date.now()}`,
-      taskName: instantConfig.input,
-      taskType: 'instant',
-      status: 'running',
-      startTime: new Date().toLocaleString('zh-CN'),
-      progress: 0,
-      generatedCount: 0,
-      targetCount: instantConfig.outputCount,
-    };
-    setTaskExecutions(prev => [newExecution, ...prev]);
-
-    try {
-      // 调用生成 API
-      const res = await fetch('/api/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: instantConfig.input,
-          model: instantConfig.imageModel,
-          topicId: theme.id,
-          templateKey: instantConfig.promptProfileId,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (data.error) {
-        throw new Error(data.error);
-      }
-
-      // 更新任务状态
-      setTaskExecutions(prev => prev.map(exec =>
-        exec.id === newExecution.id
-          ? { ...exec, status: 'completed', endTime: new Date().toLocaleString('zh-CN'), progress: 100, generatedCount: instantConfig.outputCount }
-          : exec
-      ));
-
-      // 刷新内容包列表
-      await loadCreatives();
-
-      alert(`生成任务已提交！任务ID: ${data.taskId}`);
-
-    } catch (error: any) {
-      console.error('Generate failed:', error);
-      setTaskExecutions(prev => prev.map(exec =>
-        exec.id === newExecution.id
-          ? { ...exec, status: 'failed', endTime: new Date().toLocaleString('zh-CN'), errorMessage: error.message || '生成失败' }
-          : exec
-      ));
-      alert(`生成失败: ${error.message}`);
-    } finally {
-      setGenerating(false);
-    }
-  };
-
-  // 继续新建
-  const handleContinueNew = () => {
-    setHasStartedGeneration(false);
-    setInstantConfig({ ...instantConfig, input: '' });
-    setCurrentSessionPackages([]);
-  };
-
   // 主题统计
   const themeStats = {
     keywords: theme.keywords?.length || 0,
@@ -566,83 +468,27 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
         {/* ========== 内容生成 Tab ========== */}
         {mainTab === 'generate' && (
           <div className="flex gap-3 h-full">
-            {/* 左侧配置面板 */}
-            {hasStartedGeneration && (
-              <div className="w-80 flex-shrink-0 bg-white border border-gray-200 rounded p-3 overflow-y-auto">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-xs font-medium text-gray-900">生成配置</h3>
-                  <button
-                    onClick={handleContinueNew}
-                    className="text-xs text-gray-500 hover:text-gray-700"
-                  >
-                    收起
-                  </button>
-                </div>
-
-                <div className="space-y-2 text-xs">
-                  <div className="p-2 bg-gray-50 rounded">
-                    <div className="text-gray-600 mb-1">主题</div>
-                    <div className="font-medium">{instantConfig.input}</div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="p-2 bg-gray-50 rounded">
-                      <div className="text-gray-600 mb-0.5">目标</div>
-                      <div className="font-medium text-xs">
-                        {instantConfig.goal === 'collects' ? '收藏优先' : instantConfig.goal === 'comments' ? '评论优先' : '涨粉优先'}
-                      </div>
-                    </div>
-                    <div className="p-2 bg-gray-50 rounded">
-                      <div className="text-gray-600 mb-0.5">数量</div>
-                      <div className="font-medium text-xs">{instantConfig.outputCount} 个</div>
-                    </div>
-                  </div>
-                </div>
-
-                <button
-                  onClick={handleContinueNew}
-                  className="w-full mt-4 px-3 py-2 bg-red-500 text-white rounded text-xs hover:bg-red-600 flex items-center justify-center gap-1"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  继续新建
-                </button>
-              </div>
-            )}
-
             {/* 右侧主内容区 */}
             <div className="flex-1 bg-white border border-gray-200 rounded overflow-hidden">
-              {!hasStartedGeneration ? (
-                <div className="h-full overflow-y-auto p-6">
+              <div className="h-full overflow-y-auto p-6">
                   <div className="max-w-3xl mx-auto">
                     <h2 className="text-xl font-medium text-gray-900 mb-6">创建内容生成任务</h2>
 
                     {/* 生成方式选择 */}
                     <div className="mb-6">
                       <label className="block text-sm font-medium text-gray-700 mb-3">生成方式</label>
-                      <div className="grid grid-cols-4 gap-4">
+                      <div className="grid grid-cols-3 gap-4">
                         <button
-                          onClick={() => setGenerateMode('instant')}
+                          onClick={() => setGenerateMode('oneClick')}
                           className={`p-4 rounded-lg border-2 transition-all ${
-                            generateMode === 'instant' ? 'border-red-500 bg-red-50' : 'border-gray-200 hover:border-gray-300'
+                            generateMode === 'oneClick' ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 hover:border-gray-300'
                           }`}
                         >
-                          <Zap className={`w-6 h-6 mx-auto mb-2 ${generateMode === 'instant' ? 'text-red-500' : 'text-gray-400'}`} />
-                          <div className={`text-sm font-medium ${generateMode === 'instant' ? 'text-red-700' : 'text-gray-700'}`}>
+                          <Wand2 className={`w-6 h-6 mx-auto mb-2 ${generateMode === 'oneClick' ? 'text-emerald-600' : 'text-gray-400'}`} />
+                          <div className={`text-sm font-medium ${generateMode === 'oneClick' ? 'text-emerald-700' : 'text-gray-700'}`}>
                             立即生成
                           </div>
-                          <div className="text-xs text-gray-500 mt-1">输入主题即时生成</div>
-                        </button>
-
-                        <button
-                          onClick={() => setGenerateMode('idea')}
-                          className={`p-4 rounded-lg border-2 transition-all ${
-                            generateMode === 'idea' ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 hover:border-gray-300'
-                          }`}
-                        >
-                          <Wand2 className={`w-6 h-6 mx-auto mb-2 ${generateMode === 'idea' ? 'text-emerald-600' : 'text-gray-400'}`} />
-                          <div className={`text-sm font-medium ${generateMode === 'idea' ? 'text-emerald-700' : 'text-gray-700'}`}>
-                            Idea 一键生成
-                          </div>
-                          <div className="text-xs text-gray-500 mt-1">输入 idea 预览多图 prompts</div>
+                          <div className="text-xs text-gray-500 mt-1">输入 idea 预览/编辑多图 prompts</div>
                         </button>
 
                         <button
@@ -673,149 +519,7 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
                       </div>
                     </div>
 
-                    {generateMode === 'instant' && (
-                      <div className="space-y-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            输入主题或关键词 <span className="text-red-500">*</span>
-                          </label>
-                          <textarea
-                            value={instantConfig.input}
-                            onChange={(e) => setInstantConfig({ ...instantConfig, input: e.target.value })}
-                            placeholder="例如：平价防晒霜推荐、学生党护肤攻略..."
-                            rows={3}
-                            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                          />
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-sm text-gray-700 mb-2">
-                              <Target className="w-3.5 h-3.5 inline mr-1" />
-                              内容目标
-                            </label>
-                            <select
-                              value={instantConfig.goal}
-                              onChange={(e) => setInstantConfig({ ...instantConfig, goal: e.target.value as any })}
-                              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                            >
-                              <option value="collects">收藏优先</option>
-                              <option value="comments">评论优先</option>
-                              <option value="followers">涨粉优先</option>
-                            </select>
-                          </div>
-
-                          <div>
-                            <label className="block text-sm text-gray-700 mb-2">
-                              <Database className="w-3.5 h-3.5 inline mr-1" />
-                              生成数量
-                            </label>
-                            <input
-                              type="number"
-                              value={instantConfig.outputCount}
-                              onChange={(e) => setInstantConfig({ ...instantConfig, outputCount: parseInt(e.target.value) || 1 })}
-                              min={1}
-                              max={10}
-                              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                            />
-                          </div>
-                        </div>
-
-                        <div>
-                          <label className="block text-sm text-gray-700 mb-2">
-                            <Users className="w-3.5 h-3.5 inline mr-1" />
-                            目标受众
-                          </label>
-                          <input
-                            type="text"
-                            value={instantConfig.persona}
-                            onChange={(e) => setInstantConfig({ ...instantConfig, persona: e.target.value })}
-                            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-sm text-gray-700 mb-2">
-                            <MessageSquare className="w-3.5 h-3.5 inline mr-1" />
-                            内容语气
-                          </label>
-                          <input
-                            type="text"
-                            value={instantConfig.tone}
-                            onChange={(e) => setInstantConfig({ ...instantConfig, tone: e.target.value })}
-                            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                          />
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-sm text-gray-700 mb-2">
-                              <Brain className="w-3.5 h-3.5 inline mr-1" />
-                              提示词模板
-                            </label>
-                            <select
-                              value={instantConfig.promptProfileId}
-                              onChange={(e) => setInstantConfig({ ...instantConfig, promptProfileId: e.target.value })}
-                              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                            >
-                              {promptProfiles.map(profile => (
-                                <option key={profile.id} value={profile.id}>{profile.name}</option>
-                              ))}
-                            </select>
-                          </div>
-
-                          <div>
-                            <label className="block text-sm text-gray-700 mb-2">
-                              <ImageIcon className="w-3.5 h-3.5 inline mr-1" />
-                              图像模型
-                            </label>
-                            <select
-                              value={instantConfig.imageModel}
-                              onChange={(e) => setInstantConfig({ ...instantConfig, imageModel: e.target.value as any })}
-                              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                            >
-                              <option value="nanobanana">Nanobanana</option>
-                              <option value="jimeng">即梦</option>
-                            </select>
-                          </div>
-                        </div>
-
-                        <div>
-                          <label className="block text-sm text-gray-700 mb-2">
-                            <TrendingUp className="w-3.5 h-3.5 inline mr-1" />
-                            最低质量分
-                          </label>
-                          <input
-                            type="number"
-                            value={instantConfig.minQualityScore}
-                            onChange={(e) => setInstantConfig({ ...instantConfig, minQualityScore: parseInt(e.target.value) || 0 })}
-                            min={0}
-                            max={100}
-                            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                          />
-                        </div>
-
-                        <button
-                          onClick={handleInstantGenerate}
-                          disabled={!instantConfig.input || generating}
-                          className="w-full mt-6 px-6 py-3 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                        >
-                          {generating ? (
-                            <>
-                              <Loader className="w-4 h-4 animate-spin" />
-                              生成中...
-                            </>
-                          ) : (
-                            <>
-                              <Sparkles className="w-4 h-4" />
-                              立即生成
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    )}
-
-                    {generateMode === 'idea' && (
+                    {generateMode === 'oneClick' && (
                       <div className="space-y-4">
 	                        {ideaCreativeId !== null && (
 	                          <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-800 flex items-start gap-2">
@@ -912,9 +616,9 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
 	                        )}
 
 	                        <div>
-	                          <label className="block text-sm font-medium text-gray-700 mb-2">
-	                            输入 idea（用于生成多图 prompts） <span className="text-red-500">*</span>
-                          </label>
+		                          <label className="block text-sm font-medium text-gray-700 mb-2">
+		                            输入 idea（用于生成多图 prompts） <span className="text-red-500">*</span>
+	                          </label>
                           <textarea
                             value={ideaConfig.idea}
                             onChange={(e) => setIdeaConfig({ ...ideaConfig, idea: e.target.value })}
@@ -926,12 +630,63 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
                             <span>预览失败时也可手动编辑 prompts 继续</span>
                             <span>{ideaConfig.idea.length} 字</span>
                           </div>
-                        </div>
+	                        </div>
 
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-sm text-gray-700 mb-2">风格</label>
-                            <select
+                          <div className="p-3 border border-gray-200 rounded-lg bg-gray-50">
+                            <div className="text-sm font-medium text-gray-700 mb-2">参数（影响 prompts 质量）</div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-sm text-gray-700 mb-2">内容目标</label>
+                                <select
+                                  value={ideaConfig.goal}
+                                  onChange={(e) => setIdeaConfig({ ...ideaConfig, goal: e.target.value as any })}
+                                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                >
+                                  <option value="collects">收藏优先</option>
+                                  <option value="comments">评论优先</option>
+                                  <option value="followers">涨粉优先</option>
+                                </select>
+                              </div>
+
+                              <div>
+                                <label className="block text-sm text-gray-700 mb-2">内容语气</label>
+                                <input
+                                  type="text"
+                                  value={ideaConfig.tone}
+                                  onChange={(e) => setIdeaConfig({ ...ideaConfig, tone: e.target.value })}
+                                  placeholder="例如：干货/亲和、犀利吐槽、温柔治愈"
+                                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                />
+                              </div>
+                            </div>
+
+                            <div className="mt-3">
+                              <label className="block text-sm text-gray-700 mb-2">目标受众</label>
+                              <input
+                                type="text"
+                                value={ideaConfig.persona}
+                                onChange={(e) => setIdeaConfig({ ...ideaConfig, persona: e.target.value })}
+                                placeholder="例如：学生党、职场女性、宝妈、露营新手"
+                                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                              />
+                            </div>
+
+                            <div className="mt-3">
+                              <label className="block text-sm text-gray-700 mb-2">额外要求（可选）</label>
+                              <textarea
+                                value={ideaConfig.extraRequirements}
+                                onChange={(e) => setIdeaConfig({ ...ideaConfig, extraRequirements: e.target.value })}
+                                placeholder="例如：不要出现品牌 logo；画面更极简；避免手部特写"
+                                rows={2}
+                                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                              />
+                            </div>
+                          </div>
+
+	                        <div className="grid grid-cols-2 gap-4">
+	                          <div>
+	                            <label className="block text-sm text-gray-700 mb-2">风格</label>
+	                            <select
                               value={ideaConfig.styleKeyOption}
                               onChange={(e) => setIdeaConfig({ ...ideaConfig, styleKeyOption: e.target.value as any })}
                               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -1177,7 +932,7 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
                       <div className="h-full">
                         <AgentCreator
                           theme={theme}
-                          onClose={() => setGenerateMode('instant')}
+                          onClose={() => setGenerateMode('oneClick')}
                         />
                       </div>
                     )}
@@ -1404,68 +1159,6 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
                     )}
                   </div>
                 </div>
-              ) : generating ? (
-                /* 生成进度 */
-                <div className="flex flex-col items-center justify-center h-full p-8">
-                  <div className="relative mb-6">
-                    <div className="w-20 h-20 border-4 border-gray-200 rounded-full"></div>
-                    <div className="absolute top-0 left-0 w-20 h-20 border-4 border-red-500 rounded-full border-t-transparent animate-spin"></div>
-                    <Sparkles className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 text-red-500" />
-                  </div>
-                  <div className="text-base font-medium text-gray-900 mb-2">AI 正在生成内容包</div>
-                  <div className="text-sm text-gray-500 mb-6">
-                    已生成 {runningTasks[0]?.generatedCount || 0}/{runningTasks[0]?.targetCount || 0} 个
-                  </div>
-                  <div className="w-80 bg-gray-200 rounded-full h-2 mb-4">
-                    <div
-                      className="bg-red-500 h-2 rounded-full transition-all duration-300"
-                      style={{ width: `${runningTasks[0]?.progress || 0}%` }}
-                    />
-                  </div>
-                  <div className="text-xs text-gray-500">数据过滤 → 评分排序 → 聚类分组 → 生成内容</div>
-                </div>
-              ) : (
-                /* 生成完成：显示结果 */
-                <div className="p-4 overflow-y-auto h-full">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle2 className="w-5 h-5 text-green-500" />
-                      <div>
-                        <div className="text-sm font-medium text-gray-900">
-                          生成完成！共 {currentSessionPackages.length} 个内容包
-                        </div>
-                        <div className="text-xs text-gray-500">内容已保存到素材库</div>
-                      </div>
-                    </div>
-                    <button
-                      onClick={loadCreatives}
-                      className="px-3 py-1.5 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 flex items-center gap-1"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      刷新列表
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
-                    {currentSessionPackages.map(pkg => (
-                      <CompactPackageCard
-                        key={pkg.id}
-                        pkg={pkg}
-                        isSelected={selectedPackages.includes(pkg.id)}
-                        onToggleSelect={(id) => {
-                          setSelectedPackages(prev =>
-                            prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]
-                          );
-                        }}
-                        onTitleChange={() => {}}
-                        onEdit={(id) => {
-                          const pkg = currentSessionPackages.find(p => p.id === id);
-                          if (pkg) setEditingPackage(pkg);
-                        }}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         )}
@@ -1769,7 +1462,6 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
           onClose={() => setEditingPackage(null)}
           onSave={(updatedPkg) => {
             setAllPackages(prev => prev.map(p => p.id === updatedPkg.id ? updatedPkg : p));
-            setCurrentSessionPackages(prev => prev.map(p => p.id === updatedPkg.id ? updatedPkg : p));
           }}
         />
       )}

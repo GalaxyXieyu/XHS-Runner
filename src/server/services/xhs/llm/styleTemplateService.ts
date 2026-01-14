@@ -4,6 +4,13 @@ import { expandIdea } from './ideaExpander';
 
 export type AspectRatio = '3:4' | '1:1' | '4:3';
 
+export type IdeaPromptContext = {
+  goal?: 'collects' | 'comments' | 'followers';
+  persona?: string;
+  tone?: string;
+  extraRequirements?: string;
+};
+
 export async function listStyleTemplates() {
   return db.select().from(schema.imageStyleTemplates).where(eq(schema.imageStyleTemplates.isEnabled, true));
 }
@@ -22,17 +29,19 @@ export async function renderStyledPrompts(params: {
   styleKey: string;
   aspectRatio: AspectRatio;
   count: number;
+  context?: IdeaPromptContext;
 }): Promise<string[]> {
-  const { idea, styleKey, aspectRatio, count } = params;
+  const { idea, styleKey, aspectRatio, count, context } = params;
 
   const template = await getStyleTemplate(styleKey);
   if (!template) {
-    return expandIdea(idea, count);
+    return expandIdea(idea, count, { aspectRatio, ...context });
   }
 
   const prompts = await expandIdea(idea, count, {
     systemPrompt: template.systemPrompt,
     aspectRatio,
+    ...context,
   });
 
   // 附加风格后缀

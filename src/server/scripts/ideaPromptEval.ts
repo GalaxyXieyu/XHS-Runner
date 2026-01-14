@@ -70,6 +70,7 @@ async function main() {
           styleKey,
           aspectRatio: options.aspectRatio,
           count: options.count,
+          context: { goal: 'collects' },
         });
         ok += 1;
         console.log(JSON.stringify({ type: 'result', idea, styleKey, prompts }));
@@ -89,4 +90,3 @@ main().catch((err) => {
   console.error('ideaPromptEval failed:', err);
   process.exit(1);
 });
-

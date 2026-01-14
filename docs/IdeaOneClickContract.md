@@ -40,6 +40,10 @@ created_at: 2026-01-14
 ```json
 {
   "idea": "秋天的咖啡馆",
+  "goal": "collects",
+  "persona": "25-35岁职场女性，追求实用与高效",
+  "tone": "干货/亲和",
+  "extraRequirements": "不要出现品牌logo；避免手部特写",
   "styleKey": "cozy",
   "aspectRatio": "3:4",
   "count": 4
@@ -47,6 +51,10 @@ created_at: 2026-01-14
 ```
 
 - `idea`：必填，`trim()` 后不能为空
+- `goal`：可选，枚举值：`collects` / `comments` / `followers`
+- `persona`：可选，目标受众画像（字符串）
+- `tone`：可选，语气偏好（字符串）
+- `extraRequirements`：可选，额外约束（字符串）
 - `styleKey`：可选，若不存在会降级为默认模板
 - `aspectRatio`：可选，枚举值：`3:4` / `1:1` / `4:3`
 - `count`：可选，整数；服务端裁剪到 `1..9`
@@ -141,4 +149,3 @@ created_at: 2026-01-14
 - **不得在日志/返回中输出任何密钥**（包括 `sk-...`、access_key、token 等）。
 - `error` 字段保持字符串，便于 UI 直接展示；建议使用前缀便于定位来源（例如 `IDEA_PREVIEW_*`）。
 - UI 不应依赖 `systemPrompt` 等敏感字段；风格模板列表 API 仅返回可枚举元信息。
-
