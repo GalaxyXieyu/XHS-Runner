@@ -122,6 +122,11 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
   const [ideaPreviewPrompts, setIdeaPreviewPrompts] = useState<string[]>([]);
   const [ideaPreviewLoading, setIdeaPreviewLoading] = useState(false);
   const [ideaPreviewError, setIdeaPreviewError] = useState('');
+  const [showIdeaConfirmModal, setShowIdeaConfirmModal] = useState(false);
+  const [ideaConfirming, setIdeaConfirming] = useState(false);
+  const [ideaConfirmError, setIdeaConfirmError] = useState('');
+  const [ideaCreativeId, setIdeaCreativeId] = useState<number | null>(null);
+  const [ideaTaskIds, setIdeaTaskIds] = useState<number[]>([]);
 
   // 选择状态
   const [selectedPackages, setSelectedPackages] = useState<string[]>([]);
@@ -322,6 +327,61 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
       copy[nextIndex] = tmp;
       return copy;
     });
+  };
+
+  const sanitizeIdeaPromptsForConfirm = () => {
+    return ideaPreviewPrompts
+      .map((p) => String(p ?? '').trim())
+      .filter(Boolean)
+      .slice(0, 9);
+  };
+
+  const handleIdeaConfirm = async () => {
+    if (ideaConfirming) return;
+
+    const prompts = sanitizeIdeaPromptsForConfirm();
+    if (prompts.length === 0) {
+      setIdeaConfirmError('prompts 不能为空（可先预览或手动新增一条）');
+      return;
+    }
+
+    setIdeaConfirmError('');
+    setIdeaConfirming(true);
+
+    try {
+      const res = await fetch('/api/generate/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompts,
+          model: ideaConfig.model,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || `HTTP ${res.status}`);
+      }
+
+      const creativeId = Number(data?.creativeId);
+      const taskIds = Array.isArray(data?.taskIds)
+        ? data.taskIds.map((id: any) => Number(id)).filter((v: any) => Number.isFinite(v))
+        : [];
+
+      if (!Number.isFinite(creativeId) || taskIds.length === 0) {
+        throw new Error('入队成功但返回值不完整（缺少 creativeId/taskIds）');
+      }
+
+      setIdeaCreativeId(creativeId);
+      setIdeaTaskIds(taskIds);
+      setShowIdeaConfirmModal(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '确认生成失败';
+      console.error('Idea confirm failed:', message);
+      setIdeaConfirmError(message);
+    } finally {
+      setIdeaConfirming(false);
+    }
   };
 
   // 即时生成处理
@@ -710,6 +770,27 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
 
                     {generateMode === 'idea' && (
                       <div className="space-y-4">
+                        {ideaCreativeId !== null && (
+                          <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-800 flex items-start gap-2">
+                            <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                            <div className="flex-1">
+                              <div className="font-medium">已提交生成任务</div>
+                              <div className="text-xs mt-0.5">
+                                creativeId: {ideaCreativeId}，taskIds: {ideaTaskIds.length} 个（生成进度展示在后续任务中接入）
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => {
+                                setIdeaCreativeId(null);
+                                setIdeaTaskIds([]);
+                              }}
+                              className="text-xs text-emerald-700 hover:text-emerald-900"
+                            >
+                              重新开始
+                            </button>
+                          </div>
+                        )}
+
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-2">
                             输入 idea（用于生成多图 prompts） <span className="text-red-500">*</span>
@@ -884,8 +965,91 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
                             <Plus className="w-4 h-4" />
                             新增 prompt
                           </button>
-                          <div className="text-xs text-gray-500">下一步（确认生成）在后续任务中接入</div>
+
+                          <button
+                            onClick={() => {
+                              setIdeaConfirmError('');
+                              setShowIdeaConfirmModal(true);
+                            }}
+                            disabled={ideaCreativeId !== null || sanitizeIdeaPromptsForConfirm().length === 0}
+                            className="px-3 py-2 bg-emerald-500 text-white rounded-lg text-sm font-medium hover:bg-emerald-600 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
+                          >
+                            <Check className="w-4 h-4" />
+                            确认生成
+                          </button>
                         </div>
+
+                        {showIdeaConfirmModal && (
+                          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                            <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4">
+                              <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+                                <h3 className="text-base font-medium text-gray-900">确认生成</h3>
+                                <button
+                                  onClick={() => setShowIdeaConfirmModal(false)}
+                                  className="text-gray-400 hover:text-gray-600"
+                                >
+                                  <X className="w-5 h-5" />
+                                </button>
+                              </div>
+
+                              <div className="p-6 space-y-4">
+                                <div className="grid grid-cols-3 gap-3 text-sm">
+                                  <div className="p-3 bg-gray-50 rounded-lg">
+                                    <div className="text-xs text-gray-500 mb-1">Prompts</div>
+                                    <div className="font-medium">{sanitizeIdeaPromptsForConfirm().length} 条</div>
+                                  </div>
+                                  <div className="p-3 bg-gray-50 rounded-lg">
+                                    <div className="text-xs text-gray-500 mb-1">模型</div>
+                                    <div className="font-medium">{ideaConfig.model}</div>
+                                  </div>
+                                  <div className="p-3 bg-gray-50 rounded-lg">
+                                    <div className="text-xs text-gray-500 mb-1">风格</div>
+                                    <div className="font-medium">{resolveIdeaStyleKey() || 'cozy'}</div>
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <div className="text-sm font-medium text-gray-700 mb-2">即将入队的 prompts（可返回继续编辑）</div>
+                                  <div className="border border-gray-200 rounded-lg overflow-hidden">
+                                    <div className="max-h-64 overflow-auto divide-y divide-gray-100">
+                                      {sanitizeIdeaPromptsForConfirm().map((p, idx) => (
+                                        <div key={idx} className="p-3 text-sm text-gray-800 whitespace-pre-wrap break-words">
+                                          <span className="text-xs text-gray-500 mr-2">#{idx + 1}</span>
+                                          {p}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {ideaConfirmError && (
+                                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-start gap-2">
+                                    <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                                    <div className="flex-1">{ideaConfirmError}</div>
+                                  </div>
+                                )}
+
+                                <div className="flex items-center justify-end gap-2 pt-2">
+                                  <button
+                                    onClick={() => setShowIdeaConfirmModal(false)}
+                                    disabled={ideaConfirming}
+                                    className="px-4 py-2 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 disabled:opacity-60"
+                                  >
+                                    返回编辑
+                                  </button>
+                                  <button
+                                    onClick={handleIdeaConfirm}
+                                    disabled={ideaConfirming}
+                                    className="px-4 py-2 text-sm bg-emerald-500 text-white rounded hover:bg-emerald-600 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
+                                  >
+                                    {ideaConfirming ? <Loader className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                                    确认入队
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
 
