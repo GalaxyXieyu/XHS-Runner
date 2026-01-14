@@ -31,7 +31,7 @@ export function ApiConfigTab() {
   const [saving, setSaving] = useState(false);
   const [showKey, setShowKey] = useState(false);
 
-  const [otherConfig, setOtherConfig] = useState({ imageKey: '', volcengineAccessKey: '', volcengineSecretKey: '', superbedToken: '', nanobananaEndpoint: '', nanobananaMode: 'mock', nanobananaApiKey: '' });
+  const [otherConfig, setOtherConfig] = useState({ imageKey: '', volcengineAccessKey: '', volcengineSecretKey: '', superbedToken: '', nanobananaEndpoint: '', nanobananaApiKey: '' });
   const [showOtherModal, setShowOtherModal] = useState<'image' | 'nanobanana' | null>(null);
   const [showOtherKeys, setShowOtherKeys] = useState<Record<string, boolean>>({});
   const [savingOther, setSavingOther] = useState(false);
@@ -49,7 +49,7 @@ export function ApiConfigTab() {
     const data = await res.json();
     setOtherConfig({
       imageKey: data.imageKey || '', volcengineAccessKey: data.volcengineAccessKey || '', volcengineSecretKey: data.volcengineSecretKey || '',
-      superbedToken: data.superbedToken || '', nanobananaEndpoint: data.nanobananaEndpoint || '', nanobananaMode: data.nanobananaMode || 'mock', nanobananaApiKey: data.nanobananaApiKey || ''
+      superbedToken: data.superbedToken || '', nanobananaEndpoint: data.nanobananaEndpoint || '', nanobananaApiKey: data.nanobananaApiKey || ''
     });
   };
 
@@ -372,13 +372,6 @@ export function ApiConfigTab() {
             </div>
             <div className="px-6 py-5 space-y-4">
               <Field label="Endpoint" value={otherConfig.nanobananaEndpoint} onChange={v => setOtherConfig({ ...otherConfig, nanobananaEndpoint: v })} placeholder="https://..." />
-              <div>
-                <label className="block text-[11px] font-semibold text-gray-700 mb-1.5">模式</label>
-                <select value={otherConfig.nanobananaMode} onChange={e => setOtherConfig({ ...otherConfig, nanobananaMode: e.target.value })} className="w-full h-9 px-2.5 text-sm bg-white border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all cursor-pointer">
-                  <option value="mock">Mock</option>
-                  <option value="remote">Remote</option>
-                </select>
-              </div>
               <SecretField label="API Key" value={otherConfig.nanobananaApiKey} onChange={v => setOtherConfig({ ...otherConfig, nanobananaApiKey: v })} placeholder="api key" keyName="nanobananaApiKey" showKeys={showOtherKeys} toggleKey={k => setShowOtherKeys(p => ({ ...p, [k]: !p[k] }))} />
             </div>
             <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex justify-end gap-2.5">

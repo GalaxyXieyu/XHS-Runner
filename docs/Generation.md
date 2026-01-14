@@ -12,5 +12,10 @@ Templates live in src/server/services/xhs/promptTemplates.ts and are rendered wi
 Generated outputs are stored under the Electron userData assets directory.
 Metadata (prompt + generated text) is stored with each asset row.
 
-## Mock Mode
-Set NANOBANANA_MODE=mock to generate placeholder output without external API calls.
+## Image Generation (Remote Only)
+Image generation requires a remote provider configuration.
+
+- Settings: `nanobananaEndpoint` (+ optional `nanobananaApiKey`)
+- Env override: `NANOBANANA_ENDPOINT` / `NANOBANANA_API_KEY`
+
+If the endpoint is not configured, generation fails with `NANOBANANA_NOT_CONFIGURED`.

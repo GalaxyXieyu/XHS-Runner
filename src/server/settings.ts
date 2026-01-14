@@ -51,7 +51,6 @@ export async function getSettings() {
     'volcengineSecretKey',
     'superbedToken',
     'nanobananaEndpoint',
-    'nanobananaMode',
     'nanobananaApiKey',
   ];
 
@@ -79,7 +78,6 @@ export async function getSettings() {
     volcengineSecretKey: parsed.volcengineSecretKey ?? '',
     superbedToken: parsed.superbedToken ?? '',
     nanobananaEndpoint: parsed.nanobananaEndpoint ?? '',
-    nanobananaMode: parsed.nanobananaMode ?? 'mock',
     nanobananaApiKey: parsed.nanobananaApiKey ?? '',
   };
 }

@@ -181,8 +181,8 @@ score = (like + collect*2 + comment*3) * freshness * trendBoost
 ### Nanobanana（现有 XHS-Runner 实现）
 调用方式（当前）：`src/server/services/xhs/nanobananaClient.ts`
 - 环境变量：
-  - `NANOBANANA_MODE`: `mock | remote`（默认 `mock`）
-  - `NANOBANANA_ENDPOINT`: 远程 HTTP 端点
+  - `NANOBANANA_ENDPOINT`: 远程 HTTP 端点（必需）
+  - `NANOBANANA_API_KEY`: 可选鉴权 key（如服务需要）
 - 请求：`POST { endpoint }`，Body 为 `{ prompt }`
 - 响应：`{ text, image_base64 }`
 - 输出：`text` + `imageBuffer` + `metadata.mode`
@@ -205,7 +205,7 @@ score = (like + collect*2 + comment*3) * freshness * trendBoost
 ### 必需配置（建议纳入设置 UI）
 - 火山引擎：`volcengineAccessKey`, `volcengineSecretKey`
 - 图床：`superbedToken`（即梦上传图片用）
-- Nanobanana：`nanobananaEndpoint`, `nanobananaMode`
+- Nanobanana：`nanobananaEndpoint`
 - 可选：`nanobananaApiKey`（若后端需要鉴权）
 
 ### 接口适配建议
@@ -237,7 +237,7 @@ score = (like + collect*2 + comment*3) * freshness * trendBoost
    - 设置页提供火山引擎、图床、Nanobanana 配置入口
 5) 错误处理与降级：
    - 即梦调用失败时写入错误信息并保留文本内容
-   - Nanobanana endpoint 不可用时回落 mock 或跳过图片生成
+   - Nanobanana endpoint 不可用时跳过图片生成或标记失败（按业务选择）
 
 ### 配置映射建议（settings key）
 建议在 `settings` 表中新增以下 key：
@@ -245,7 +245,6 @@ score = (like + collect*2 + comment*3) * freshness * trendBoost
 - `volcengineSecretKey`
 - `superbedToken`
 - `nanobananaEndpoint`
-- `nanobananaMode`
 - `nanobananaApiKey`（可选）
 
 ## UI/配置建议
