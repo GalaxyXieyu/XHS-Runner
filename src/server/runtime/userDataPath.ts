@@ -31,7 +31,8 @@ export function getUserDataPath(): string {
   if (electronPath) {
     return electronPath;
   }
-  throw new Error('User data path not available. Set XHS_USER_DATA_PATH or call setUserDataPath().');
+  // 纯 Next.js 环境：使用项目根目录下的 .xhs-data
+  return path.join(process.cwd(), '.xhs-data');
 }
 
 export function resolveUserDataPath(...segments: string[]): string {

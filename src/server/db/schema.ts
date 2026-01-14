@@ -283,6 +283,30 @@ export const rateLimitState = pgTable('rate_limit_state', {
   blockReason: text('block_reason'),
 });
 
+// ==================== Image Generation Tables ====================
+
+export const imageStyleTemplates = pgTable('image_style_templates', {
+  id: serial('id').primaryKey(),
+  key: text('key').notNull().unique(),
+  name: text('name').notNull(),
+  category: text('category'),
+  systemPrompt: text('system_prompt').notNull(),
+  promptSuffix: text('prompt_suffix'),
+  defaultAspectRatio: text('default_aspect_ratio').default('3:4'),
+  examplePrompts: jsonb('example_prompts'),
+  isBuiltin: boolean('is_builtin').default(false),
+  isEnabled: boolean('is_enabled').default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const creativeAssets = pgTable('creative_assets', {
+  id: serial('id').primaryKey(),
+  creativeId: integer('creative_id').notNull().references(() => creatives.id, { onDelete: 'cascade' }),
+  assetId: integer('asset_id').notNull().references(() => assets.id, { onDelete: 'cascade' }),
+  sortOrder: integer('sort_order').default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ==================== Type Exports ====================
 
 export type Theme = typeof themes.$inferSelect;
@@ -344,3 +368,9 @@ export type NewJobExecution = typeof jobExecutions.$inferInsert;
 
 export type RateLimitState = typeof rateLimitState.$inferSelect;
 export type NewRateLimitState = typeof rateLimitState.$inferInsert;
+
+export type ImageStyleTemplate = typeof imageStyleTemplates.$inferSelect;
+export type NewImageStyleTemplate = typeof imageStyleTemplates.$inferInsert;
+
+export type CreativeAsset = typeof creativeAssets.$inferSelect;
+export type NewCreativeAsset = typeof creativeAssets.$inferInsert;
