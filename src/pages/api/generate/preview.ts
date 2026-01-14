@@ -13,7 +13,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const { idea, styleKey = DEFAULT_STYLE_KEY, aspectRatio = DEFAULT_ASPECT_RATIO, count = 4 } = req.body;
 
   if (!idea?.trim()) {
-    return res.status(400).json({ error: 'idea is required' });
+    return res.status(400).json({ error: 'IDEA_PREVIEW_BAD_REQUEST: idea is required' });
   }
 
   try {
@@ -45,6 +45,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Generation failed';
     console.error('Preview generation failed:', message);
-    return res.status(500).json({ error: message });
+    return res.status(500).json({ error: `IDEA_PREVIEW_INTERNAL: ${message}` });
   }
 }

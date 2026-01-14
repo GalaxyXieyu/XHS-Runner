@@ -14,7 +14,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const { prompts, model = 'nanobanana', themeId, saveAsTemplate } = req.body;
 
   if (!Array.isArray(prompts) || prompts.length === 0) {
-    return res.status(400).json({ error: 'prompts array is required' });
+    return res.status(400).json({ error: 'IDEA_CONFIRM_BAD_REQUEST: prompts array is required' });
   }
 
   try {
@@ -24,18 +24,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .slice(0, 9);
 
     if (normalizedPrompts.length === 0) {
-      return res.status(400).json({ error: 'prompts must contain non-empty strings' });
+      return res.status(400).json({ error: 'IDEA_CONFIRM_BAD_REQUEST: prompts must contain non-empty strings' });
     }
 
     const normalizedModel = String(model || '').trim() as ImageModel;
     if (!ALLOWED_IMAGE_MODELS.has(normalizedModel)) {
-      return res.status(400).json({ error: 'model must be nanobanana or jimeng' });
+      return res.status(400).json({ error: 'IDEA_CONFIRM_BAD_REQUEST: model must be nanobanana or jimeng' });
     }
 
     const normalizedThemeId =
       themeId !== undefined && themeId !== null && themeId !== '' ? Number(themeId) : null;
     if (normalizedThemeId !== null && !Number.isFinite(normalizedThemeId)) {
-      return res.status(400).json({ error: 'themeId must be a number' });
+      return res.status(400).json({ error: 'IDEA_CONFIRM_BAD_REQUEST: themeId must be a number' });
     }
 
     // 创建 creative 记录
@@ -63,10 +63,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const key = String(saveAsTemplate.key || '').trim();
       const name = String(saveAsTemplate.name || '').trim();
       if (!TEMPLATE_KEY_PATTERN.test(key)) {
-        return res.status(400).json({ error: 'saveAsTemplate.key is invalid' });
+        return res.status(400).json({ error: 'IDEA_CONFIRM_BAD_REQUEST: saveAsTemplate.key is invalid' });
       }
       if (!name) {
-        return res.status(400).json({ error: 'saveAsTemplate.name is required' });
+        return res.status(400).json({ error: 'IDEA_CONFIRM_BAD_REQUEST: saveAsTemplate.name is required' });
       }
       await db.insert(schema.imageStyleTemplates).values({
         key,
@@ -84,6 +84,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Generation failed';
     console.error('Confirm generation failed:', message);
-    return res.status(500).json({ error: message });
+    return res.status(500).json({ error: `IDEA_CONFIRM_INTERNAL: ${message}` });
   }
 }
