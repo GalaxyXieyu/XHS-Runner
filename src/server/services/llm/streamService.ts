@@ -11,43 +11,56 @@ export interface LLMConfig {
 
 /**
  * 获取 LLM 配置
- * 优先级: 指定 providerId > 默认启用的 provider > settings 配置
+ * 优先级: 环境变量 > 指定 providerId > 默认启用的 provider > settings 配置
  */
 export async function getLLMConfig(providerId?: number): Promise<LLMConfig | null> {
+  // 0. 优先从环境变量读取（方便脚本测试）
+  const envBaseUrl = process.env.LLM_BASE_URL;
+  const envApiKey = process.env.LLM_API_KEY;
+  const envModel = process.env.LLM_MODEL;
+  if (envBaseUrl && envApiKey && envModel) {
+    return { baseUrl: envBaseUrl, apiKey: envApiKey, model: envModel };
+  }
+
   const providers = schema.llmProviders;
 
-  // 1. 如果指定了 providerId，使用指定的 provider
-  if (providerId) {
-    const rows = await db
+  try {
+    // 1. 如果指定了 providerId，使用指定的 provider
+    if (providerId) {
+      const rows = await db
+        .select({
+          baseUrl: providers.baseUrl,
+          apiKey: providers.apiKey,
+          model: providers.modelName,
+        })
+        .from(providers)
+        .where(eq(providers.id, providerId))
+        .limit(1);
+
+      const row = rows[0];
+      if (row?.baseUrl && row?.apiKey && row?.model) {
+        return { baseUrl: row.baseUrl, apiKey: row.apiKey, model: row.model };
+      }
+    }
+
+    // 2. 查询默认启用的 provider
+    const allProviders = await db
       .select({
         baseUrl: providers.baseUrl,
         apiKey: providers.apiKey,
         model: providers.modelName,
+        isDefault: providers.isDefault,
+        isEnabled: providers.isEnabled,
       })
       .from(providers)
-      .where(eq(providers.id, providerId))
-      .limit(1);
+      .limit(10);
 
-    const row = rows[0];
-    if (row?.baseUrl && row?.apiKey && row?.model) {
-      return { baseUrl: row.baseUrl, apiKey: row.apiKey, model: row.model };
+    const defaultRow = allProviders.find((p) => p.isDefault && p.isEnabled);
+    if (defaultRow?.baseUrl && defaultRow?.apiKey && defaultRow?.model) {
+      return { baseUrl: defaultRow.baseUrl, apiKey: defaultRow.apiKey, model: defaultRow.model };
     }
-  }
-
-  // 2. 查询默认启用的 provider
-  const defaultRows = await db
-    .select({
-      baseUrl: providers.baseUrl,
-      apiKey: providers.apiKey,
-      model: providers.modelName,
-    })
-    .from(providers)
-    .where(and(eq(providers.isDefault, true), eq(providers.isEnabled, true)))
-    .limit(1);
-
-  const defaultRow = defaultRows[0];
-  if (defaultRow?.baseUrl && defaultRow?.apiKey && defaultRow?.model) {
-    return { baseUrl: defaultRow.baseUrl, apiKey: defaultRow.apiKey, model: defaultRow.model };
+  } catch {
+    // 数据库查询失败时 fallback 到 settings
   }
 
   // 3. 回退到 settings 配置
