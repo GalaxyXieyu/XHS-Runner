@@ -39,6 +39,23 @@ async function main() {
   const model = (args.model || 'nanobanana') as ImageModel;
   const prompt = String(args.prompt || '').trim();
   const outArg = args.out ? String(args.out).trim() : '';
+
+  if (args.baseUrl || args.geminiBaseUrl) {
+    process.env.NANOBANANA_ENDPOINT = String(args.baseUrl || args.geminiBaseUrl);
+  }
+  if (args.apiKey || args.geminiApiKey) {
+    process.env.NANOBANANA_API_KEY = String(args.apiKey || args.geminiApiKey);
+  }
+  if (args.volcengineAccessKey) {
+    process.env.VOLCENGINE_ACCESS_KEY = String(args.volcengineAccessKey);
+  }
+  if (args.volcengineSecretKey) {
+    process.env.VOLCENGINE_SECRET_KEY = String(args.volcengineSecretKey);
+  }
+  if (args.superbedToken) {
+    process.env.SUPERBED_TOKEN = String(args.superbedToken);
+  }
+
   const images = args.images
     ? String(args.images)
         .split(',')
@@ -48,7 +65,7 @@ async function main() {
 
   if (!prompt) {
     // eslint-disable-next-line no-console
-    console.error('Usage: --model <nanobanana|jimeng> --prompt "<text>" [--out <path>] [--images <comma-separated>]');
+    console.error('Usage: --model <nanobanana|jimeng> --prompt "<text>" [--out <path>] [--images <comma-separated>] [--baseUrl <url>] [--apiKey <key>] [--volcengineAccessKey <ak>] [--volcengineSecretKey <sk>] [--superbedToken <token>]');
     process.exitCode = 2;
     return;
   }
@@ -75,4 +92,3 @@ main().catch((error) => {
   console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
 });
-

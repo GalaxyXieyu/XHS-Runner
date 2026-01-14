@@ -294,40 +294,52 @@ async function generateJimengImage(params: {
 }
 
 async function getJimengConfig() {
-  // 优先从 extension_services 表读取
-  const [imageService, imagehostService] = await Promise.all([
-    getExtensionServiceByType('image'),
-    getExtensionServiceByType('imagehost')
-  ]);
+  let accessKey = String(process.env.VOLCENGINE_ACCESS_KEY || '').trim();
+  let secretKey = String(process.env.VOLCENGINE_SECRET_KEY || '').trim();
+  let superbedToken = String(process.env.SUPERBED_TOKEN || '').trim();
 
-  let accessKey = '';
-  let secretKey = '';
-  let superbedToken = '';
-
-  if (imageService?.config_json) {
+  if (!accessKey || !secretKey || !superbedToken) {
     try {
-      const config = JSON.parse(imageService.config_json);
-      accessKey = config.volcengine_access_key || '';
-      secretKey = config.volcengine_secret_key || '';
-    } catch {}
+      // 优先从 extension_services 表读取
+      const [imageService, imagehostService] = await Promise.all([
+        getExtensionServiceByType('image'),
+        getExtensionServiceByType('imagehost')
+      ]);
+
+      if (imageService?.config_json) {
+        try {
+          const config = JSON.parse(imageService.config_json);
+          accessKey = accessKey || config.volcengine_access_key || '';
+          secretKey = secretKey || config.volcengine_secret_key || '';
+        } catch {}
+      }
+
+      if (imagehostService?.api_key) {
+        superbedToken = superbedToken || imagehostService.api_key;
+      }
+    } catch {
+      // Ignore missing supabase / extension services
+    }
   }
 
-  if (imagehostService?.api_key) {
-    superbedToken = imagehostService.api_key;
+  if (!accessKey || !secretKey || !superbedToken) {
+    try {
+      // Fallback 到 settings 表
+      const [fallbackAccessKey, fallbackSecretKey, fallbackSuperbedToken] = await Promise.all([
+        getSetting('volcengineAccessKey'),
+        getSetting('volcengineSecretKey'),
+        getSetting('superbedToken')
+      ]);
+
+      accessKey = accessKey || fallbackAccessKey || '';
+      secretKey = secretKey || fallbackSecretKey || '';
+      superbedToken = superbedToken || fallbackSuperbedToken || '';
+    } catch {
+      // Ignore missing settings db
+    }
   }
 
-  // Fallback 到 settings 表
-  const [fallbackAccessKey, fallbackSecretKey, fallbackSuperbedToken] = await Promise.all([
-    getSetting('volcengineAccessKey'),
-    getSetting('volcengineSecretKey'),
-    getSetting('superbedToken')
-  ]);
-
-  return {
-    accessKey: accessKey || fallbackAccessKey || '',
-    secretKey: secretKey || fallbackSecretKey || '',
-    superbedToken: superbedToken || fallbackSuperbedToken || '',
-  };
+  return { accessKey, secretKey, superbedToken };
 }
 
 export async function generateImage(input: ImageGenerateInput): Promise<ImageGenerateResult> {
