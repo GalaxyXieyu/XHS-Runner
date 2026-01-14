@@ -13,9 +13,9 @@ Generated outputs are stored under the Electron userData assets directory.
 Metadata (prompt + generated text) is stored with each asset row.
 
 ## Image Generation (Remote Only)
-Image generation requires a remote provider configuration.
+Image generation currently uses **Gemini (via yunwuapi)** and requires remote configuration.
 
-- Settings: `nanobananaEndpoint` (+ optional `nanobananaApiKey`)
+- Settings: `nanobananaEndpoint` (Gemini Base URL, e.g. `https://yunwu.ai`) + `nanobananaApiKey` (Gemini API Key, e.g. `sk-...`)
 - Env override: `NANOBANANA_ENDPOINT` / `NANOBANANA_API_KEY`
 
-If the endpoint is not configured, generation fails with `NANOBANANA_NOT_CONFIGURED`.
+If the Base URL / API Key is not configured, generation fails with `GEMINI_NOT_CONFIGURED`.

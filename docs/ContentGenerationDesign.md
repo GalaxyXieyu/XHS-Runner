@@ -175,17 +175,18 @@ score = (like + collect*2 + comment*3) * freshness * trendBoost
 - `params_json` 中指定 `theme_id` 和 `output_count`。
 - 失败重试使用 `job_executions` 表记录。
 
-## 图文生成模型接入（Nanobanana + 即梦）
+## 图文生成模型接入（Gemini + 即梦）
 目标：在生成内容包时支持两种图像模型，按配置切换或并行生成。
 
-### Nanobanana（现有 XHS-Runner 实现）
-调用方式（当前）：`src/server/services/xhs/nanobananaClient.ts`
+### Gemini（yunwuapi，现以 `nanobanana` provider 名称对外）
+调用方式（当前）：`src/server/services/xhs/integration/nanobananaClient.ts`
 - 环境变量：
-  - `NANOBANANA_ENDPOINT`: 远程 HTTP 端点（必需）
-  - `NANOBANANA_API_KEY`: 可选鉴权 key（如服务需要）
-- 请求：`POST { endpoint }`，Body 为 `{ prompt }`
-- 响应：`{ text, image_base64 }`
-- 输出：`text` + `imageBuffer` + `metadata.mode`
+  - `NANOBANANA_ENDPOINT`: Gemini Base URL（例如 `https://yunwu.ai`）
+  - `NANOBANANA_API_KEY`: Gemini API Key（请求头 `x-goog-api-key`）
+- 请求：`POST {baseUrl}/v1beta/models/{model}:generateContent`（Gemini Native）
+- 响应：从 `candidates[0].content.parts[].inlineData.data` 提取图片 base64
+- 输出：`text` + `imageBuffer` + `metadata.provider/model/mimeType`
+- 参考契约：`docs/ImageProviderReferenceContract.md:20`
 
 ### 即梦（迁移自 ai-images-generated）
 来源路径：`/Users/galaxyxieyu/Documents/Coding/ai-images-generated/src/lib/image-processor`
@@ -205,8 +206,7 @@ score = (like + collect*2 + comment*3) * freshness * trendBoost
 ### 必需配置（建议纳入设置 UI）
 - 火山引擎：`volcengineAccessKey`, `volcengineSecretKey`
 - 图床：`superbedToken`（即梦上传图片用）
-- Nanobanana：`nanobananaEndpoint`
-- 可选：`nanobananaApiKey`（若后端需要鉴权）
+- Gemini：`nanobananaEndpoint`（Base URL）, `nanobananaApiKey`（API Key）
 
 ### 接口适配建议
 统一图像生成输出结构：
@@ -217,7 +217,7 @@ score = (like + collect*2 + comment*3) * freshness * trendBoost
   metadata: { model: 'nanobanana' | 'jimeng', ... }
 }
 ```
-即梦输出需从 `data:image/jpeg;base64,...` 转为 base64 或 buffer；Nanobanana 按现有输出适配即可。
+即梦输出需从 `data:image/jpeg;base64,...` 转为 base64 或 buffer；Gemini 按现有输出适配即可。
 
 ### 集成步骤（迁移计划）
 1) 迁移即梦相关实现到 XHS-Runner（服务端）：
@@ -234,10 +234,10 @@ score = (like + collect*2 + comment*3) * freshness * trendBoost
    - 生成图片写入 `assets` 并关联 `creatives`
 4) 设置与密钥配置接入：
    - Settings 表新增字段或复用 settings key
-   - 设置页提供火山引擎、图床、Nanobanana 配置入口
+   - 设置页提供火山引擎、图床、Gemini 配置入口
 5) 错误处理与降级：
    - 即梦调用失败时写入错误信息并保留文本内容
-   - Nanobanana endpoint 不可用时跳过图片生成或标记失败（按业务选择）
+   - Gemini endpoint/baseUrl 不可用时跳过图片生成或标记失败（按业务选择）
 
 ### 配置映射建议（settings key）
 建议在 `settings` 表中新增以下 key：
@@ -251,7 +251,7 @@ score = (like + collect*2 + comment*3) * freshness * trendBoost
 - 主题编辑页新增“内容生成配置”模块。
 - 提示词模板管理页：新增/编辑/复制/绑定主题。
 - 生成结果页：展示 5 个内容包，可一键选用或编辑。
-- 设置页新增“图像模型配置”：火山引擎、图床、Nanobanana 相关配置。
+- 设置页新增“图像模型配置”：火山引擎、图床、Gemini 相关配置。
 
 ## Graphiti 预留接口（后续 Docker 启动）
 当前不引入 GraphRAG/Graphiti，先预留接口抽象，避免后续大改：
