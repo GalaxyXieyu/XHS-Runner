@@ -162,6 +162,10 @@ function stripBase64Header(base64: string) {
   return base64.replace(/^data:image\/[^;]+;base64,/, '');
 }
 
+function isHttpUrl(value: string) {
+  return /^https?:\/\//i.test(value);
+}
+
 async function uploadBase64ToSuperbed(base64: string, filename: string, token?: string): Promise<string> {
   const resolvedToken = token || process.env.SUPERBED_TOKEN;
   if (!resolvedToken) {
@@ -200,6 +204,12 @@ async function generateJimengImage(params: {
     const imageUrls: string[] = [];
     if (Array.isArray(images) && images.length > 0) {
       for (const image of images) {
+        const normalized = String(image || '').trim();
+        if (!normalized) continue;
+        if (isHttpUrl(normalized)) {
+          imageUrls.push(normalized);
+          continue;
+        }
         const url = await uploadBase64ToSuperbed(image, `jimeng-${Date.now()}.png`, superbedToken);
         imageUrls.push(url);
       }
