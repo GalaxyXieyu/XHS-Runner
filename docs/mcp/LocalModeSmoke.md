@@ -2,7 +2,7 @@
 
 ## 前置条件
 
-- 构建内置 core：`npm run build:xhs-core`
+- 内置 core 已打包在 `electron/mcp/xhs-core/dist`
 - 构建服务层：`npm run build:server`
 - 设置驱动与必要配置：
   - `XHS_MCP_DRIVER=local`

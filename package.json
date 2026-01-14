@@ -10,6 +10,7 @@
     "build:server": "node_modules/typescript/bin/tsc -p tsconfig.server.json",
     "smoke:xhs": "npm run build:server && node electron/server/scripts/xhsSmoke.js",
     "smoke:xhs-capture": "npm run build:server && node electron/server/scripts/xhsThemeCaptureSmoke.js",
+    "test": "npm run build:server && node scripts/smoke/smokeTest.js",
     "build": "next build",
     "start": "next start",
     "pack": "npm run build:server && electron-builder --dir",

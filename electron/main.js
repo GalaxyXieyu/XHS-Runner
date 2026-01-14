@@ -444,10 +444,10 @@ ipcMain.handle('extensionServices:delete', (_event, id) => {
 function formatDatabaseInitError(error) {
   const message = error && error.message ? String(error.message) : String(error);
   return [
-    '数据库初始化失败，通常是 better-sqlite3 原生模块与 Electron ABI 不匹配导致。',
+    '数据库初始化失败，通常是未配置 DATABASE_URL 或 Postgres 连接不可用导致。',
     '',
-    `请在项目根目录执行：npm run rebuild`,
-    '如果仍然失败：删除 node_modules 后重新 npm install',
+    '请检查 .env.local 或环境变量中的 DATABASE_URL / POSTGRES_URL / SUPABASE_DB_URL',
+    '确保数据库可访问且连接串正确',
     '',
     `运行时版本：node=${process.versions.node} electron=${process.versions.electron} abi=${process.versions.modules}`,
     '',

@@ -18,7 +18,7 @@
 ## 运行模式与依赖
 
 - 驱动模式：`XHS_MCP_DRIVER=local|mock`，默认 `local`。
-- 内置 core 需先构建：`npm run build:xhs-core`。
+- 内置 core 已打包在 `electron/mcp/xhs-core/dist`。
 
 ## 环境变量清单
 

@@ -1,13 +1,13 @@
 # Database
 
-## Provider Switch
-- `XHS_DB_PROVIDER=supabase|sqlite` controls which backend is used (default: `supabase`).
-- `sqlite` uses a local file under Electron userData (`xhs-generator.db`).
-- `supabase` uses Postgres via Supabase (requires `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY`).
+## Provider
+- Postgres via Drizzle ORM.
+- Configure one of: `DATABASE_URL` / `POSTGRES_URL` / `SUPABASE_DB_URL`.
+  - Example: `DATABASE_URL=postgresql://<user>:<password>@<host>:5432/<db>`
 
-## Location
-The database is stored under the Electron userData directory as xhs-generator.db.
-A backup copy is written as xhs-generator.db.bak by default when invoking the backup helper.
+## Supabase (可选)
+- 客户端只需：`NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- 服务端仍使用 `DATABASE_URL` 连接 Postgres
 
 ## Schema
 - keywords: configured keyword list and enable flags

@@ -86,15 +86,10 @@ needed for the theme-driven workflow.
 - interactions:list
 - interactions:enqueue
 
-## DB Inventory (SQLite -> Supabase Baseline)
+## DB Inventory (Postgres / Supabase)
 
-### Existing SQLite data surface (observed)
+### Current data surface (observed)
 - Tables (union of docs + code usage): `themes`, `keywords`, `competitors`, `topics`, `generation_tasks`, `publish_records`, `metrics`, `settings`, `assets`, `creatives`, `prompt_profiles`, `llm_providers`, `trend_reports`, `accounts`, `extension_services`, `interaction_tasks`, `scheduled_jobs`, `job_executions`, `rate_limit_state`, `form_assist_records`.
-- Electron note: `electron/main.js` 仍包含 SQLite 初始化失败提示（better-sqlite3 ABI 不匹配），本地 DB 路径与备份规则见 `docs/DB.md`。
-- Files still using SQLite-style `.prepare(...)` (20 files / 107 call sites):
-  - `src/server/services/xhs/*`: `assetStore.ts`, `capture.ts`, `competitorService.ts`, `creativeService.ts`, `formAssistService.ts`, `insightService.ts`, `interactionService.ts`, `keywords.ts`, `metricsService.ts`, `promptProfileService.ts`, `publishService.ts`, `summaryService.ts`, `workflowService.ts`
-  - `src/server/services/scheduler/*`: `index.ts`, `jobExecutor.ts`, `jobQueue.ts`, `scheduler.ts`, `jobs/captureJob.ts`, `rateLimiter.ts`
-  - `src/server/scripts/xhsThemeCaptureSmoke.ts`
 
 ### Existing Supabase data surface
 - Schema already defined in `scripts/supabase-schema.sql`: `themes`, `keywords`, `topics`, `settings`, `llm_providers`, `prompt_profiles`, `trend_reports`, `accounts`, `extension_services`.
@@ -102,7 +97,7 @@ needed for the theme-driven workflow.
 
 ### Gap / To Add or Align (for full migration)
 - Missing in Supabase schema but still used by services: `generation_tasks`, `publish_records`, `metrics`, `assets`, `competitors`, `creatives`, `interaction_tasks`, `scheduled_jobs`, `job_executions`, `rate_limit_state`, `form_assist_records`.
-- Type/constraint alignment needed for SQLite-specific behavior: `datetime('now')`, `ON CONFLICT`, `lastInsertRowid` -> Postgres/Supabase equivalents.
+- Type/constraint alignment needed for Postgres/Supabase behavior differences (timestamps, upserts, primary key returns).
 
 ## References
 - plan/2026-01-07_16-42-18-prototype-migration-mcp.md:16

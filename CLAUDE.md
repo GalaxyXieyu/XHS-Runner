@@ -8,7 +8,7 @@
 - [x] 小红书登录（扫码/Cookie）
 - [x] 多主题管理（创建/编辑/删除）
 - [x] 多关键词抓取（每主题支持多个关键词）
-- [x] 笔记抓取与存储（SQLite）
+- [x] 笔记抓取与存储（Postgres / Supabase）
 
 ### 数据洞察 (InsightTab)
 - [x] 热门标签提取（中文正则 + 互动加权排序）
@@ -49,7 +49,7 @@
 ## 技术栈
 
 - Frontend: React + TypeScript + Tailwind CSS
-- Backend: Next.js API Routes + SQLite (better-sqlite3)
+- Backend: Next.js API Routes + Postgres (Supabase) + Drizzle
 - Desktop: Electron
 - LLM: 可配置（支持 OpenAI 兼容 API）
 

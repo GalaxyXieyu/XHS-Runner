@@ -8,8 +8,8 @@
 5. Open Operations tab and refresh publish queue.
 
 ## Database Rebuild
-- Remove the local DB file (userData/xhs-generator.db) to force a clean rebuild.
-- Launch the Electron app to re-run migrations.
+- Use a dedicated Postgres database for testing/migrations.
+- For a clean start, drop/recreate the schema or use a fresh database.
 
 ## Supabase Security Model
 
@@ -47,15 +47,13 @@
 - Operations: publish record creation + metrics summary (reads)
 
 ### Rollout / Gray Switch (migration phase)
-- Data/DB backend switch: `XHS_DB_PROVIDER=supabase|sqlite`
-  - First, keep `sqlite` as baseline.
-  - Run one-time SQLite -> Supabase migration script (see migration issue) and validate counts + sampling.
-  - Switch to `supabase` for a small cohort, monitor error logs and write/read correctness, then expand.
+- Use separate Postgres databases or schemas for canary vs production.
+- Run one-time data migration (if any) and validate counts + sampling.
+- Gradually move traffic to the new database, monitor error logs and read/write correctness.
 
 ### Rollback
-- Immediate: set `XHS_DB_PROVIDER=sqlite` and restart app.
-- Data safety: keep `userData/xhs-generator.db` backups and avoid destructive Supabase operations until migration is verified.
+- Restore from Postgres backup/snapshot or switch back to the previous database connection string.
 
 ## XHS Core Configuration
-- Build core before running: `npm run build:xhs-core`.
+- Core is bundled under `electron/mcp/xhs-core/dist`.
 - Use `XHS_MCP_DRIVER=mock` for local dry runs.

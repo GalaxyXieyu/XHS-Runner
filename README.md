@@ -1,48 +1,68 @@
-# XHS Generator
+# XHS Runner
 
-小红书内容分析工具 - Electron + Next.js 桌面应用，支持笔记抓取、数据洞察、AI 分析。
+小红书内容分析与运营桌面应用（Electron + Next.js），覆盖主题/关键词管理、采集、洞察、内容生成与运营排期。
 
-## 功能特性
+## 当前能力
 
-### 已实现
-- **主题管理**: 创建多个主题，每个主题支持多关键词抓取
-- **笔记抓取**: 自动抓取小红书笔记（标题/作者/互动数据/封面）
-- **数据洞察**: 热门标签提取、爆款标题排行、互动统计
-- **AI 分析**: LLM 总结爆款标题规律、生成趋势报告
-- **筛选排序**: 按时间范围、互动类型筛选和排序
+- **主题管理**：主题/关键词/竞品管理
+- **抓取采集**：按关键词抓取笔记与互动数据；支持 local/mock 驱动
+- **数据洞察**：指标汇总、趋势分析、竞品对比、导出 CSV
+- **内容创作**：LLM 流式分析/生成、Prompt Profile、创作包管理
+- **运营中心**：发布任务、互动任务、执行历史与队列
+- **调度系统**：Cron 任务、限流与失败重试
+- **系统设置**：采集频率、LLM/外部服务配置、运行参数
 
-### 开发中
+## 开发中 / 计划
+
 - 视频笔记过滤
 - 词云可视化
 - 历史趋势图表
+- 内容生成调试与验证
+  - 生成链路可观测性：Prompt 预览、模型/参数、token/耗时、失败原因归因
+  - 可重放：同一输入一键复跑 + 版本对比
+  - 最小 API 测试：/api/generate、/api/insights/analyze、/api/agent/stream 的基础烟测（先无 DB 场景可跑）
+- 发布跟踪与指标体系
+  - 基础指标：views/likes/comments/saves/follows
+  - 派生指标：互动率、收藏率、评论率、关注转化率、峰值时间、增长斜率
+  - 数据采集节奏：发布后 1h/6h/24h/48h/7d 的快照
+  - 展示与过滤：按主题/关键词/内容类型/发布时间的对比
+- AI 创作建议
+  - 输入：高分样本（标题/标签/发布时间/封面/内容结构）+ 指标
+  - 输出：标题/标签/发布时间/结构建议 + 可执行模板
+  - 运营闭环：建议 → 生成 → 发布 → 回传指标 → 更新建议
+- 自动化测试与发布流水线
 
-## 代码架构（核心路径）
+## 架构概览
 
-- **UI 层**：`src/pages/` + `src/components/`
+- **Electron 主进程**：`electron/main.js`（IPC 路由、窗口生命周期）
+- **Preload**：`electron/preload.js`（暴露 IPC API）
+- **Renderer UI**：`src/pages/` + `src/components/`
 - **服务层（TS）**：`src/server/services/xhs/`
-  - `xhsClient.ts`：统一入口，负责 local/mock 驱动选择与参数标准化
-  - `localService.ts`：内置服务适配层，调用 xhs-core
-  - `capture.ts`：抓取流程入口（调用 xhsClient）
-- **运行时输出**：`electron/server/`（由 `npm run build:server` 生成）
-- **主进程**：`electron/main.js`（仅做 IPC 路由与依赖注入）
-- **内联 core**：`electron/mcp/xhs-core/`（Auth/Feed/Publish/Note/Delete + shared）
-- **数据层**：`src/server/db.ts` + `data/schema.*`
+- **Next API**：`src/pages/api/`（桥接服务层）
+- **编译产物**：`electron/server/`（由 `npm run build:server` 生成）
 
-## 运行模式
+## 数据与配置
 
-- `XHS_MCP_DRIVER=local|mock`（默认 local）
-- 需要先构建服务层：`npm run build:server`
-- local 需要先构建 core：`npm run build:xhs-core`
+- **数据库**：Drizzle + Postgres（Supabase），需配置 `DATABASE_URL` / `POSTGRES_URL` / `SUPABASE_DB_URL`
+- **Supabase 客户端**：`src/server/supabase.ts`（遗留兼容）
+- **运行时配置**：`XHS_MCP_DRIVER=local|mock`（默认 local）、`XHS_MCP_XSEC_TOKEN`、`XHS_BROWSER_PATH`
+- **本地数据路径**：`XHS_USER_DATA_PATH`（默认 Electron userData）
 
-## 常用命令
+## 本地开发
 
-- 开发模式：`npm run dev`
-- 构建内置 core：`npm run build:xhs-core`
-- 构建服务层：`npm run build:server`
-- 登录与抓取冒烟：`npm run smoke:xhs`
+- `npm run dev`：启动 Next.js 并拉起 Electron
+- `npm run dev:next`：仅启动 Renderer
+- `npm run dev:electron`：仅启动 Electron（需 `http://localhost:3000` 就绪）
+- `npm run build:server`：编译服务层到 `electron/server/`
+- `npm run smoke:xhs` / `npm run smoke:xhs-capture`：登录/抓取冒烟
 
 ## 参考文档
 
-- `docs/mcp/LocalServiceArchitecture.md`
-- `docs/mcp/CallchainInventory.md`
+- `SETUP.md`
+- `docs/Config.md`
+- `docs/Settings.md`
+- `docs/Workflow.md`
+- `docs/Analytics.md`
+- `docs/IPC.md`
+- `docs/Packaging.md`
 - `docs/mcp/LocalModeSmoke.md`
