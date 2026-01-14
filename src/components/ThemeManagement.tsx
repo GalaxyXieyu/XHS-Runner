@@ -32,6 +32,13 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
   const [searchQuery, setSearchQuery] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
   const [capturing, setCapturing] = useState<string | null>(null);
+  const [captureProgress, setCaptureProgress] = useState<{
+    currentKeyword: string;
+    currentIndex: number;
+    totalKeywords: number;
+    fetchedSoFar: number;
+    insertedSoFar: number;
+  } | null>(null);
   const [captureResult, setCaptureResult] = useState<{ themeId: string; total: number; inserted: number } | null>(null);
   const [promptProfiles, setPromptProfiles] = useState<any[]>([]);
   const [formData, setFormData] = useState({
@@ -71,10 +78,19 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
     }
     setCapturing(theme.id);
     setCaptureResult(null);
+    setCaptureProgress(null);
     let totalInserted = 0;
     let totalFetched = 0;
     try {
-      for (const kw of theme.keywords) {
+      for (let i = 0; i < theme.keywords.length; i++) {
+        const kw = theme.keywords[i];
+        setCaptureProgress({
+          currentKeyword: kw.value,
+          currentIndex: i + 1,
+          totalKeywords: theme.keywords.length,
+          fetchedSoFar: totalFetched,
+          insertedSoFar: totalInserted,
+        });
         const result = window.capture
           ? await window.capture.run({ keywordId: kw.id, limit: 20 })
           : await fetch('/api/capture/run', {
@@ -93,6 +109,7 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
       alert('抓取失败: ' + (err as Error).message);
     } finally {
       setCapturing(null);
+      setCaptureProgress(null);
     }
   };
 
@@ -231,6 +248,12 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
                     <span>·</span>
                     <span>{selectedTheme.competitors.length} 竞品</span>
                   </div>
+                  {capturing === selectedTheme.id && (
+                    <div className="flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full text-xs">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      <span>抓取中</span>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <span className="text-xs text-gray-500">选择主题</span>
@@ -331,6 +354,32 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
                         {statusConfig[theme.status].label}
                       </span>
                     </div>
+
+                    {/* 抓取进度显示 */}
+                    {capturing === theme.id && captureProgress && (
+                      <div className="mt-2 p-2 bg-blue-50 border border-blue-100 rounded">
+                        <div className="flex items-center gap-2 text-xs text-blue-700 mb-1">
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          <span>正在抓取: {captureProgress.currentKeyword}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 h-1.5 bg-blue-100 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-blue-500 transition-all duration-300"
+                              style={{ width: `${(captureProgress.currentIndex / captureProgress.totalKeywords) * 100}%` }}
+                            />
+                          </div>
+                          <span className="text-xs text-blue-600">
+                            {captureProgress.currentIndex}/{captureProgress.totalKeywords}
+                          </span>
+                        </div>
+                        {captureProgress.fetchedSoFar > 0 && (
+                          <div className="text-xs text-blue-600 mt-1">
+                            已获取 {captureProgress.fetchedSoFar} 条，新增 {captureProgress.insertedSoFar} 条
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {captureResult?.themeId === theme.id && (
                       <div className="mt-2 text-xs text-green-600 bg-green-50 px-2 py-1 rounded">

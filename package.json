@@ -86,13 +86,17 @@
     "zustand": "^5.0.10"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
     "@types/node": "^20.10.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.1",
+    "autoprefixer": "^10.4.23",
     "concurrently": "8.2.2",
     "drizzle-kit": "^0.31.8",
     "electron": "^30.0.6",
     "electron-builder": "24.13.3",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.18",
     "typescript": "^5.4.5",
     "wait-on": "7.2.0"
   },

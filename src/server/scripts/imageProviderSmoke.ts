@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import dotenv from 'dotenv';
 import { generateImage, ImageModel } from '../services/xhs/integration/imageProvider';
 
 function parseArgs(argv: string[]) {
@@ -35,6 +36,9 @@ function extensionFromMime(mimeType: string | undefined) {
 }
 
 async function main() {
+  process.env.DOTENV_CONFIG_QUIET = 'true';
+  dotenv.config({ path: ['.env.local', '.env'] });
+
   const args = parseArgs(process.argv.slice(2));
   const model = (args.model || 'nanobanana') as ImageModel;
   const prompt = String(args.prompt || '').trim();

@@ -45,6 +45,89 @@ function serializeJson(value: any) {
   }
 }
 
+// 解析中文相对时间（如"9小时前"、"3天前"、"刚刚"）为 ISO 时间戳
+function parseRelativeTime(timeStr: string | null | undefined): string | null {
+  if (!timeStr) return null;
+
+  const str = timeStr.trim();
+  const now = new Date();
+
+  // 已经是有效的 ISO 时间戳格式
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+    try {
+      const d = new Date(str);
+      if (!isNaN(d.getTime())) return d.toISOString();
+    } catch {
+      // fall through
+    }
+  }
+
+  // 刚刚
+  if (str === '刚刚' || str === '刚才') {
+    return now.toISOString();
+  }
+
+  // X分钟前
+  const minutesMatch = str.match(/(\d+)\s*分钟前/);
+  if (minutesMatch) {
+    const minutes = parseInt(minutesMatch[1], 10);
+    return new Date(now.getTime() - minutes * 60 * 1000).toISOString();
+  }
+
+  // X小时前
+  const hoursMatch = str.match(/(\d+)\s*小时前/);
+  if (hoursMatch) {
+    const hours = parseInt(hoursMatch[1], 10);
+    return new Date(now.getTime() - hours * 60 * 60 * 1000).toISOString();
+  }
+
+  // X天前
+  const daysMatch = str.match(/(\d+)\s*天前/);
+  if (daysMatch) {
+    const days = parseInt(daysMatch[1], 10);
+    return new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString();
+  }
+
+  // X周前
+  const weeksMatch = str.match(/(\d+)\s*周前/);
+  if (weeksMatch) {
+    const weeks = parseInt(weeksMatch[1], 10);
+    return new Date(now.getTime() - weeks * 7 * 24 * 60 * 60 * 1000).toISOString();
+  }
+
+  // X月前
+  const monthsMatch = str.match(/(\d+)\s*月前/);
+  if (monthsMatch) {
+    const months = parseInt(monthsMatch[1], 10);
+    const d = new Date(now);
+    d.setMonth(d.getMonth() - months);
+    return d.toISOString();
+  }
+
+  // X年前
+  const yearsMatch = str.match(/(\d+)\s*年前/);
+  if (yearsMatch) {
+    const years = parseInt(yearsMatch[1], 10);
+    const d = new Date(now);
+    d.setFullYear(d.getFullYear() - years);
+    return d.toISOString();
+  }
+
+  // 昨天
+  if (str.includes('昨天')) {
+    return new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+  }
+
+  // 前天
+  if (str.includes('前天')) {
+    return new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000).toISOString();
+  }
+
+  // 无法解析，返回 null
+  console.log(`[capture] Unable to parse time: "${str}"`);
+  return null;
+}
+
 // 脏数据过滤：检测无效笔记
 function isInvalidNote(note: { title?: string; desc?: string; id?: string }): boolean {
   const title = note.title || '';
@@ -119,7 +202,7 @@ async function insertTopic(
       collect_count: note.collect_count ?? null,
       comment_count: note.comment_count ?? null,
       share_count: note.share_count ?? null,
-      published_at: note.published_at || null,
+      published_at: parseRelativeTime(note.published_at),
       fetched_at: now,
       raw_json: rawJson,
       created_at: new Date().toISOString(),

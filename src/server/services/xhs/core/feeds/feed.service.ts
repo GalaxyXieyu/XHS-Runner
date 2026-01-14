@@ -128,6 +128,9 @@ export class FeedService extends BaseService {
         const searchUrl = makeSearchUrl(trimmedKeyword);
         await this.getBrowserManager().navigateWithRetry(page, searchUrl);
 
+        // Wait for page to stabilize after navigation
+        await sleep(3000);
+
         // Wait for search results to load with multiple attempts
         let searchData: string | null = null;
         let attempts = 0;
@@ -137,25 +140,45 @@ export class FeedService extends BaseService {
           await sleep(2000); // Wait 2 seconds between attempts
           attempts++;
 
-          searchData = (await page.evaluate(`
-            (() => {
-              if (window.__INITIAL_STATE__ && window.__INITIAL_STATE__.search && window.__INITIAL_STATE__.search.feeds && window.__INITIAL_STATE__.search.feeds._value) {
-                try {
-                  // Try to serialize just the feeds data to avoid circular reference issues
-                  const feedsData = window.__INITIAL_STATE__.search.feeds._value;
-                  return JSON.stringify(feedsData);
-                } catch (e) {
-                  logger.warn('Failed to serialize feeds data:', e.message);
-                  return null;
-                }
-              }
-              return null;
-            })()
-          `)) as string | null;
+          try {
+            // Check if page is still valid before evaluate
+            const currentUrl = page.url();
+            if (!currentUrl.includes('search_result')) {
+              logger.warn(`Page navigated away from search, current URL: ${currentUrl}`);
+              // Re-navigate to search URL
+              await this.getBrowserManager().navigateWithRetry(page, searchUrl);
+              await sleep(3000);
+              continue;
+            }
 
-          if (searchData) {
-            logger.info(`Search results loaded after ${attempts} attempts`);
-            break;
+            searchData = (await page.evaluate(`
+              (() => {
+                if (window.__INITIAL_STATE__ && window.__INITIAL_STATE__.search && window.__INITIAL_STATE__.search.feeds && window.__INITIAL_STATE__.search.feeds._value) {
+                  try {
+                    const feedsData = window.__INITIAL_STATE__.search.feeds._value;
+                    return JSON.stringify(feedsData);
+                  } catch (e) {
+                    console.warn('Failed to serialize feeds data:', e.message);
+                    return null;
+                  }
+                }
+                return null;
+              })()
+            `)) as string | null;
+
+            if (searchData) {
+              logger.info(`Search results loaded after ${attempts} attempts`);
+              break;
+            }
+          } catch (evalError: unknown) {
+            const errorMessage = evalError instanceof Error ? evalError.message : String(evalError);
+            // Handle execution context destroyed error
+            if (errorMessage.includes('Execution context was destroyed')) {
+              logger.warn(`Execution context destroyed on attempt ${attempts}, waiting for page to stabilize...`);
+              await sleep(3000);
+              continue;
+            }
+            throw evalError;
           }
         }
 

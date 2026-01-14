@@ -449,8 +449,11 @@ export function InsightTab({ theme }: InsightTabProps) {
 	                      </span>
 	                      <div className="flex-1 h-5 bg-gray-100 rounded-full overflow-hidden">
 	                        <div
-	                          className="h-full bg-gradient-to-r from-red-400 to-red-500 rounded-full"
-	                          style={{ width: `${percent}%` }}
+	                          className="h-full rounded-full"
+	                          style={{
+	                            width: `${percent}%`,
+	                            background: 'linear-gradient(to right, #f87171, #ef4444)'
+	                          }}
 	                        />
 	                      </div>
 	                      <span className="w-8 text-xs text-gray-500 text-right">{item.count}</span>
@@ -583,7 +586,7 @@ export function InsightTab({ theme }: InsightTabProps) {
 
       {/* Notes Grid */}
       <div className="bg-white border border-gray-200 rounded-lg p-3">
-        <div className="text-sm font-medium text-gray-900 mb-3">全部笔记 ({topics.length})</div>
+        <div className="text-sm font-medium text-gray-900 mb-3">全部笔记 ({stats?.totalNotes || topics.length})</div>
         {showSkeleton && topics.length === 0 ? (
           <div className="grid grid-cols-4 gap-3 animate-pulse">
             {Array.from({ length: 8 }).map((_, idx) => (
@@ -612,15 +615,15 @@ export function InsightTab({ theme }: InsightTabProps) {
                   rel="noopener noreferrer"
                   className="group cursor-pointer"
                 >
-                  <div className="relative mb-2 overflow-hidden rounded-lg bg-gray-100">
-                    <div className="w-full h-32 flex items-center justify-center text-gray-400 text-xs">无封面</div>
+                  <div className="relative mb-2 overflow-hidden rounded-lg bg-gray-100 h-32">
+                    <div className="absolute inset-0 flex items-center justify-center text-gray-400 text-xs">无封面</div>
                     {coverSrc && (
                       <img
                         src={coverSrc}
                         alt={topic.title}
                         referrerPolicy="no-referrer"
                         loading="lazy"
-                        className="absolute inset-0 w-full h-32 object-cover group-hover:scale-105 transition-transform"
+                        className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform"
                         onError={(e) => {
                           e.currentTarget.style.display = 'none';
                         }}
