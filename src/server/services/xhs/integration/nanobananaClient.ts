@@ -1,50 +1,126 @@
 import { getSetting } from '../../../settings';
 
-function stripBase64Header(base64: string) {
-  return base64.replace(/^data:image\/[^;]+;base64,/, '');
+function normalizeBaseUrl(value: string) {
+  return value.trim().replace(/\/+$/, '');
+}
+
+function truncateLogBody(input: string, maxLen = 2000) {
+  if (input.length <= maxLen) return input;
+  return `${input.slice(0, maxLen)}…(truncated)`;
+}
+
+function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function postJsonWithRetry<T>(url: string, body: any, headers: Record<string, string>, options: { timeoutMs: number; retries: number }) {
+  const { timeoutMs, retries } = options;
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        const message = `HTTP ${response.status}: ${truncateLogBody(text)}`;
+        const retryable = response.status === 429 || (response.status >= 500 && response.status <= 504);
+        if (retryable && attempt < retries) {
+          await sleep(Math.min(1000 * Math.pow(2, attempt), 8000));
+          continue;
+        }
+        throw new Error(message);
+      }
+
+      return await response.json();
+    } catch (error: any) {
+      const message = error?.name === 'AbortError' ? 'TIMEOUT' : (error?.message || String(error));
+      const retryable = /TIMEOUT|AbortError|ECONNRESET|ETIMEDOUT|fetch failed/i.test(message);
+      if (retryable && attempt < retries) {
+        await sleep(Math.min(1000 * Math.pow(2, attempt), 8000));
+        continue;
+      }
+      throw new Error(message);
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  throw new Error('Unexpected retry loop exit');
+}
+
+interface GeminiNativeResponsePart {
+  text?: string;
+  inlineData?: { mimeType?: string; data?: string };
+}
+
+interface GeminiNativeResponse {
+  candidates?: Array<{
+    content?: {
+      parts?: GeminiNativeResponsePart[];
+    };
+  }>;
 }
 
 export async function generateContent(prompt: string) {
-  const endpoint = process.env.NANOBANANA_ENDPOINT || (await getSetting('nanobananaEndpoint'));
-  const apiKey = process.env.NANOBANANA_API_KEY || (await getSetting('nanobananaApiKey'));
+  const baseUrlRaw = process.env.NANOBANANA_ENDPOINT || (await getSetting('nanobananaEndpoint'));
+  const apiKeyRaw = process.env.NANOBANANA_API_KEY || (await getSetting('nanobananaApiKey'));
 
   if (!prompt || !String(prompt).trim()) {
     throw new Error('PROMPT_REQUIRED: prompt is required');
   }
 
-  if (!endpoint) {
-    throw new Error('NANOBANANA_NOT_CONFIGURED: 请先配置 Nanobanana Endpoint');
+  const baseUrl = baseUrlRaw ? normalizeBaseUrl(String(baseUrlRaw)) : '';
+  const apiKey = apiKeyRaw ? String(apiKeyRaw).trim() : '';
+
+  if (!baseUrl) {
+    throw new Error('GEMINI_NOT_CONFIGURED: 请先配置 Gemini Base URL');
   }
 
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (apiKey) {
-    headers['Authorization'] = `Bearer ${apiKey}`;
-  }
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ prompt }),
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Nanobanana request failed: ${response.status} ${body}`);
+  if (!apiKey) {
+    throw new Error('GEMINI_NOT_CONFIGURED: 请先配置 Gemini API Key');
   }
 
-  const data = await response.json();
-  if (!data || typeof data !== 'object') {
-    throw new Error('Nanobanana response invalid: expected JSON object');
+  const modelName = 'gemini-3-pro-image-preview';
+  const apiUrl = `${baseUrl}/v1beta/models/${modelName}:generateContent`;
+
+  const requestBody = {
+    contents: [
+      {
+        parts: [{ text: String(prompt).trim() }],
+      },
+    ],
+    generationConfig: {
+      responseModalities: ['IMAGE'],
+      imageConfig: { aspectRatio: '1:1' },
+    },
+  };
+
+  const data: GeminiNativeResponse = await postJsonWithRetry(apiUrl, requestBody, { 'x-goog-api-key': apiKey }, { timeoutMs: 300000, retries: 1 });
+
+  const parts = data.candidates?.[0]?.content?.parts;
+  if (!Array.isArray(parts) || parts.length === 0) {
+    throw new Error('Gemini response invalid: candidates[0].content.parts missing');
   }
 
-  const imageBase64Raw = (data as any).image_base64;
-  if (!imageBase64Raw || typeof imageBase64Raw !== 'string') {
-    throw new Error('Nanobanana response invalid: image_base64 missing');
+  const imagePart = parts.find(p => p?.inlineData?.data);
+  const inlineData = imagePart?.inlineData;
+  const imageBase64 = inlineData?.data;
+  if (!imageBase64) {
+    throw new Error('Gemini response invalid: inlineData.data missing');
   }
 
-  const imageBase64 = stripBase64Header(imageBase64Raw);
+  const text = parts.map(p => p.text).filter(Boolean).join('\n');
   return {
-    text: typeof (data as any).text === 'string' ? (data as any).text : '',
+    text,
     imageBuffer: Buffer.from(imageBase64, 'base64'),
-    metadata: { mode: 'remote' },
+    metadata: { mode: 'remote', provider: 'gemini', model: modelName, mimeType: inlineData?.mimeType || 'image/png' },
   };
 }
