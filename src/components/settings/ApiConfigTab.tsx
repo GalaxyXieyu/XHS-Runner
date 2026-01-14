@@ -184,7 +184,7 @@ export function ApiConfigTab() {
             </div>
           </div>
 
-          {/* Nanobanana */}
+          {/* Gemini */}
           <div
             onClick={() => setShowOtherModal('nanobanana')}
             className="group p-4 bg-white border border-gray-200 rounded-lg cursor-pointer transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 hover:border-amber-200"
@@ -194,7 +194,7 @@ export function ApiConfigTab() {
                 <Sparkles className="w-5 h-5" />
               </div>
               <div className="flex-1 min-w-0">
-                <h4 className="text-sm font-medium text-gray-900">Nanobanana</h4>
+                <h4 className="text-sm font-medium text-gray-900">Gemini</h4>
                 <p className="text-[11px] text-gray-500 mt-0.5 truncate">{otherConfig.nanobananaEndpoint ? '已连接服务' : '点击配置'}</p>
               </div>
               <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-amber-500 transition-colors shrink-0" />
@@ -352,7 +352,7 @@ export function ApiConfigTab() {
         </div>
       )}
 
-      {/* Nanobanana 配置弹窗 */}
+      {/* Gemini 配置弹窗 */}
       {showOtherModal === 'nanobanana' && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-50 p-4" onClick={() => setShowOtherModal(null)}>
           <div className="bg-white rounded-lg w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 border border-gray-100" onClick={e => e.stopPropagation()}>
@@ -365,14 +365,14 @@ export function ApiConfigTab() {
                   <Sparkles className="w-6 h-6" />
                 </div>
                 <div>
-                  <h4 className="text-lg font-bold text-gray-900">Nanobanana 配置</h4>
-                  <p className="text-xs text-gray-500 mt-0.5">配置图文生成服务</p>
+                  <h4 className="text-lg font-bold text-gray-900">Gemini 配置</h4>
+                  <p className="text-xs text-gray-500 mt-0.5">配置 yunwuapi 的 Gemini 图片服务</p>
                 </div>
               </div>
             </div>
             <div className="px-6 py-5 space-y-4">
-              <Field label="Endpoint" value={otherConfig.nanobananaEndpoint} onChange={v => setOtherConfig({ ...otherConfig, nanobananaEndpoint: v })} placeholder="https://..." />
-              <SecretField label="API Key" value={otherConfig.nanobananaApiKey} onChange={v => setOtherConfig({ ...otherConfig, nanobananaApiKey: v })} placeholder="api key" keyName="nanobananaApiKey" showKeys={showOtherKeys} toggleKey={k => setShowOtherKeys(p => ({ ...p, [k]: !p[k] }))} />
+              <Field label="Base URL" value={otherConfig.nanobananaEndpoint} onChange={v => setOtherConfig({ ...otherConfig, nanobananaEndpoint: v })} placeholder="https://yunwu.ai" />
+              <SecretField label="API Key" value={otherConfig.nanobananaApiKey} onChange={v => setOtherConfig({ ...otherConfig, nanobananaApiKey: v })} placeholder="sk-..." keyName="nanobananaApiKey" showKeys={showOtherKeys} toggleKey={k => setShowOtherKeys(p => ({ ...p, [k]: !p[k] }))} />
             </div>
             <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex justify-end gap-2.5">
               <button onClick={() => setShowOtherModal(null)} className="h-8 px-4 text-xs font-medium text-gray-600 bg-white border border-gray-200 hover:bg-gray-50 rounded-lg transition-all">取消</button>
