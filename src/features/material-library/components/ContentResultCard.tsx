@@ -53,12 +53,14 @@ export function ContentResultCard({
               <>
                 <button
                   onClick={handlePrevImage}
+                  aria-label="上一张"
                   className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-black/40 hover:bg-black/60 rounded-full flex items-center justify-center text-white transition-colors"
                 >
                   <ChevronLeft className="w-5 h-5" />
                 </button>
                 <button
                   onClick={handleNextImage}
+                  aria-label="下一张"
                   className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-black/40 hover:bg-black/60 rounded-full flex items-center justify-center text-white transition-colors"
                 >
                   <ChevronRight className="w-5 h-5" />
@@ -133,6 +135,7 @@ export function ContentResultCard({
           </button>
           <button
             onClick={() => onDelete?.(pkg.id)}
+            aria-label="删除内容"
             className="px-2 py-1.5 text-xs text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
           >
             <Trash2 className="w-3.5 h-3.5" />

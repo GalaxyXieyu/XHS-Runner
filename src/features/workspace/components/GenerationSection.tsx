@@ -26,6 +26,14 @@ import { MaterialGallery } from '@/features/material-library/components/Material
 import type { ContentPackage } from '@/features/material-library/types';
 import type { AutoTask } from '@/features/task-management/types';
 
+const FEATURE_CARDS = [
+  { title: '无限画布', desc: '灵感无界 · 自由创作', icon: Sparkles },
+  { title: '图片生成', desc: '智能美学提升', icon: Wand2 },
+  { title: '视频生成', desc: '支持音画同步', icon: RefreshCw },
+  { title: '数字人', desc: '大师级拟真', icon: Bot },
+  { title: '动作模仿', desc: '灵感更灵动', icon: Sparkles },
+];
+
 type IdeaConfig = {
   idea: string;
   styleKeyOption: 'cozy' | 'minimal' | 'illustration' | 'ink' | 'anime' | '3d' | 'cyberpunk' | 'photo' | 'custom';
@@ -173,14 +181,6 @@ export function GenerationSection({
     setShowTaskForm(true);
   };
 
-  const featureCards = [
-    { title: '无限画布', desc: '灵感无界 · 自由创作', icon: Sparkles },
-    { title: '图片生成', desc: '智能美学提升', icon: Wand2 },
-    { title: '视频生成', desc: '支持音画同步', icon: RefreshCw },
-    { title: '数字人', desc: '大师级拟真', icon: Bot },
-    { title: '动作模仿', desc: '灵感更灵动', icon: Sparkles },
-  ];
-
   return (
     <div className="flex gap-3 h-full">
       {/* 右侧主内容区 */}
@@ -282,7 +282,7 @@ export function GenerationSection({
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-                  {featureCards.map((card) => {
+                  {FEATURE_CARDS.map((card) => {
                     const Icon = card.icon;
                     return (
                       <div
