@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import {
   AlertCircle,
@@ -20,6 +21,7 @@ import {
 } from 'lucide-react';
 import type { Theme } from '@/App';
 import { AgentCreator } from '@/features/agent/components/AgentCreator';
+import { ContentResultCard } from '@/features/material-library/components/ContentResultCard';
 import { MaterialGallery } from '@/features/material-library/components/MaterialGallery';
 import type { ContentPackage } from '@/features/material-library/types';
 import type { AutoTask } from '@/features/task-management/types';
@@ -121,6 +123,32 @@ export function GenerationSection({
   const showDefaultLanding = generateMode === 'oneClick'
     && ideaCreativeId === null
     && !ideaConfig.idea.trim();
+
+  const ideaResultPackage = useMemo(() => {
+    if (!ideaContentPackage?.creative) return null;
+    const creative = ideaContentPackage.creative;
+    const rawTags = typeof creative.tags === 'string' ? creative.tags : '';
+    const tags = rawTags.split(/[,#\\s]+/).map((tag: string) => tag.trim()).filter(Boolean);
+    const title = creative.title || '未命名';
+    const assets = Array.isArray(ideaContentPackage.assets) ? ideaContentPackage.assets : [];
+    const coverImage = assets.length > 0 ? `/api/assets/${assets[0].id}` : undefined;
+    return {
+      id: String(creative.id ?? 'preview'),
+      titles: [title],
+      selectedTitleIndex: 0,
+      content: creative.content || '',
+      tags,
+      coverImage,
+      qualityScore: 0,
+      predictedMetrics: { likes: 0, collects: 0, comments: 0 },
+      rationale: '',
+      status: 'draft' as const,
+      createdAt: creative.createdAt ? new Date(creative.createdAt).toLocaleString('zh-CN') : new Date().toLocaleString('zh-CN'),
+      source: 'manual',
+      sourceName: '立即生成',
+      imageModel: creative.model || undefined,
+    };
+  }, [ideaContentPackage]);
 
   const featureCards = [
     { title: '无限画布', desc: '灵感无界 · 自由创作', icon: Sparkles },
@@ -328,21 +356,10 @@ export function GenerationSection({
                       </div>
                     )}
 
-                    {Array.isArray(ideaContentPackage?.assets) && ideaContentPackage.assets.length > 0 && (
+                    {ideaResultPackage && (
                       <div className="p-3 bg-white border border-gray-200 rounded-lg">
-                        <div className="text-sm font-medium text-gray-800 mb-2">已生成图片</div>
-                        <div className="grid grid-cols-3 gap-2">
-                          {ideaContentPackage.assets.slice(0, 9).map((asset: any) => (
-                            <div key={String(asset.id)} className="aspect-[3/4] bg-gray-100 rounded overflow-hidden">
-                              <img
-                                src={`/api/assets/${asset.id}`}
-                                alt={`asset-${asset.id}`}
-                                className="w-full h-full object-cover"
-                                loading="lazy"
-                              />
-                            </div>
-                          ))}
-                        </div>
+                        <div className="text-sm font-medium text-gray-800 mb-2">生成结果</div>
+                        <ContentResultCard pkg={ideaResultPackage} />
                       </div>
                     )}
                   </div>

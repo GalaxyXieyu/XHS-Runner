@@ -353,11 +353,16 @@ REASON: [简短说明原因]`;
   };
 
   const shouldContinueImage = (state: typeof AgentState.State): string => {
+    // 如果已生成 3 张图片，直接结束
+    if (state.imageCount >= 3) return END;
+
     const lastMessage = state.messages[state.messages.length - 1];
     if (lastMessage && "tool_calls" in lastMessage && (lastMessage as AIMessage).tool_calls?.length) {
       return "image_tools";
     }
-    return "supervisor";
+    // 还没生成够 3 张，继续让 image_agent 生成
+    if (state.imageCount < 3) return "image_agent";
+    return END;
   };
 
   // 构建 Graph
@@ -383,9 +388,15 @@ REASON: [简短说明原因]`;
     .addEdge("writer_agent", "supervisor")
     .addConditionalEdges("image_agent", shouldContinueImage, {
       image_tools: "image_tools",
-      supervisor: "supervisor",
+      image_agent: "image_agent",
+      [END]: END,
     })
-    .addEdge("image_tools", "image_agent");
+    .addConditionalEdges("image_tools", (state: typeof AgentState.State) => {
+      return state.imageCount >= 3 ? END : "image_agent";
+    }, {
+      image_agent: "image_agent",
+      [END]: END,
+    });
 
   return workflow.compile();
 }
