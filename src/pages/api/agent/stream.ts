@@ -176,6 +176,10 @@ const AgentState = Annotation.Root({
     value: (_, y) => y,
     default: () => false,
   }),
+  imageCount: Annotation<number>({
+    value: (x, y) => x + y,
+    default: () => 0,
+  }),
 });
 
 // 研究工具
@@ -206,11 +210,12 @@ async function createMultiAgentSystem() {
 1. 如果还没有研究数据，先派 research_agent 去研究
 2. 研究完成后，派 writer_agent 创作内容
 3. 内容创作完成后，派 image_agent 生成封面图
-4. 图片生成完成后结束
+4. 图片生成完成（已生成3张）后结束
 
 当前状态：
 - 研究完成: ${state.researchComplete}
 - 内容完成: ${state.contentComplete}
+- 已生成图片: ${state.imageCount} 张（需要3张）
 
 请回复你的决定，格式：
 NEXT: [agent_name] 或 NEXT: END
@@ -279,18 +284,23 @@ REASON: [简短说明原因]`;
 
     const systemPrompt = `你是小红书封面图设计专家。根据之前创作的内容生成封面图。
 
+小红书封面规范：
+- 比例：3:4 竖版（如 900x1200 或 1080x1440）
+- 构图：主体居中偏上，留出底部文字空间
+- 色彩：明亮饱和，符合小红书审美
+
 生成规则：
-1. 必须生成 3 张不同风格的封面图供用户选择
-2. 第1张：realistic 风格 - 真实感强，适合教程类
-3. 第2张：illustration 风格 - 插画风，适合分享类
-4. 第3张：minimalist 风格 - 简约风，适合干货类
+1. 生成 3 张不同风格的封面图供用户选择
+2. 第1张：realistic 风格 - 真实质感，适合教程类
+3. 第2张：illustration 风格 - 插画风格，适合分享类
+4. 第3张：minimalist 风格 - 简约干净，适合干货类
 
-提示词要求：
-- 具体描述画面主体、场景、光线、构图
-- 包含小红书封面特点：竖版构图、视觉冲击力强
-- 每张图的提示词要有差异化
+提示词必须包含：
+- "vertical composition, 3:4 aspect ratio" 确保竖版比例
+- 画面主体、场景、光线描述
+- "xiaohongshu cover style, eye-catching" 小红书风格
 
-请依次调用 3 次 generate_image 工具生成图片。`;
+请依次调用 3 次 generate_image 工具，每次使用不同风格。`;
 
     const filteredMessages = filterMessagesForAgent(state.messages);
     const response = await modelWithTools.invoke([
@@ -306,10 +316,20 @@ REASON: [简短说明原因]`;
 
   // Tool 节点
   const researchToolNode = new ToolNode(researchTools);
-  const imageToolNode = new ToolNode(imageTools);
+  const baseImageToolNode = new ToolNode(imageTools);
+
+  // 包装 image_tools 节点以追踪生成数量
+  const imageToolNode = async (state: typeof AgentState.State) => {
+    const result = await baseImageToolNode.invoke(state);
+    const generatedCount = result.messages?.length || 0;
+    return { ...result, imageCount: generatedCount };
+  };
 
   // 路由函数
   const routeFromSupervisor = (state: typeof AgentState.State): string => {
+    // 如果已生成 3 张图片，直接结束
+    if (state.imageCount >= 3) return END;
+
     const lastMessage = state.messages[state.messages.length - 1];
     const content = typeof lastMessage.content === "string" ? lastMessage.content : "";
 
@@ -320,6 +340,7 @@ REASON: [简短说明原因]`;
 
     if (!state.researchComplete) return "research_agent";
     if (!state.contentComplete) return "writer_agent";
+    if (state.imageCount < 3) return "image_agent";
     return END;
   };
 
@@ -405,9 +426,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       ? `[当前主题ID: ${themeId}] ${message}`
       : message;
 
-    const stream = await app.stream({
-      messages: [new HumanMessage(contextMessage)],
-    });
+    const stream = await app.stream(
+      { messages: [new HumanMessage(contextMessage)] },
+      { recursionLimit: 50 }
+    );
 
     for await (const chunk of stream) {
       for (const [nodeName, nodeOutput] of Object.entries(chunk)) {

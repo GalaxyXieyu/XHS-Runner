@@ -662,11 +662,57 @@ export function GenerationSection({
             )}
 
             {generateMode === 'agent' && (
-              <div className="h-full">
-                <AgentCreator
-                  theme={theme}
-                  onClose={() => setGenerateMode('oneClick')}
-                />
+              <div className="relative h-full">
+                <div className="absolute right-6 top-6 z-10 w-full max-w-xs rounded-2xl border border-gray-200 bg-white/95 shadow-lg p-4 backdrop-blur">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm font-medium text-gray-800">生成偏好</div>
+                    <span className="text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">自动</span>
+                  </div>
+
+                  <div className="mt-3">
+                    <div className="text-xs text-gray-500 mb-2">类型</div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button className="px-3 py-1.5 text-xs rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-100">
+                        图片
+                      </button>
+                      <button className="px-3 py-1.5 text-xs rounded-lg bg-gray-50 text-gray-400 border border-gray-100" disabled>
+                        视频
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-3">
+                    <label className="block text-xs text-gray-500 mb-2">选择比例</label>
+                    <select
+                      value={ideaConfig.aspectRatio}
+                      onChange={(e) => setIdeaConfig({ ...ideaConfig, aspectRatio: e.target.value as IdeaConfig['aspectRatio'] })}
+                      className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    >
+                      <option value="3:4">3:4</option>
+                      <option value="1:1">1:1</option>
+                      <option value="4:3">4:3</option>
+                    </select>
+                  </div>
+
+                  <div className="mt-3">
+                    <label className="block text-xs text-gray-500 mb-2">图像模型</label>
+                    <select
+                      value={ideaConfig.model}
+                      onChange={(e) => setIdeaConfig({ ...ideaConfig, model: e.target.value as IdeaConfig['model'] })}
+                      className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    >
+                      <option value="nanobanana">Nanobanana</option>
+                      <option value="jimeng">即梦</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="h-full">
+                  <AgentCreator
+                    theme={theme}
+                    onClose={() => setGenerateMode('oneClick')}
+                  />
+                </div>
               </div>
             )}
 
