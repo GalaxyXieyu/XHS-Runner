@@ -687,62 +687,85 @@ export function GenerationSection({
 
             {generateMode === 'agent' && (
               <div className="relative h-full">
-                <div className="absolute right-6 top-24 z-10 w-full max-w-xs rounded-2xl border border-gray-200 bg-white/95 shadow-lg p-4 backdrop-blur">
+                <div className="absolute right-8 bottom-28 z-10 w-full max-w-sm rounded-3xl border border-gray-200 bg-white/95 shadow-2xl p-5 backdrop-blur">
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="text-sm font-semibold text-gray-900">生成偏好</div>
                       <div className="text-xs text-gray-500 mt-1">仅影响图像比例与模型</div>
                     </div>
-                    <button
-                      onClick={() => setGenerateMode('oneClick')}
-                      className="px-2.5 py-1 text-xs rounded-full border border-gray-200 text-gray-600 hover:bg-gray-100"
-                    >
-                      立即生成
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-500">自动</span>
+                      <div className="w-9 h-5 rounded-full bg-emerald-500 flex items-center px-0.5 shadow-inner" aria-hidden="true">
+                        <span className="w-4 h-4 bg-white rounded-full shadow-sm" />
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="mt-3 flex items-center justify-between">
-                    <span className="text-xs text-gray-500">模式</span>
-                    <span className="text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">自动</span>
-                  </div>
-
-                  <div className="mt-3">
+                  <div className="mt-4">
                     <div className="text-xs text-gray-500 mb-2">类型</div>
                     <div className="grid grid-cols-2 gap-2">
-                      <button className="px-3 py-1.5 text-xs rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-100">
+                      <button className="px-3 py-1.5 text-xs rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-100">
                         图片
                       </button>
-                      <button className="px-3 py-1.5 text-xs rounded-lg bg-gray-50 text-gray-400 border border-gray-100" disabled>
+                      <button className="px-3 py-1.5 text-xs rounded-xl bg-gray-50 text-gray-400 border border-gray-100" disabled>
                         视频
                       </button>
                     </div>
                   </div>
 
-                  <div className="mt-3">
-                    <label htmlFor="agent-aspect" className="block text-xs text-gray-500 mb-2">选择比例</label>
-                    <select
-                      id="agent-aspect"
-                      value={ideaConfig.aspectRatio}
-                      onChange={(e) => setIdeaConfig({ ...ideaConfig, aspectRatio: e.target.value as IdeaConfig['aspectRatio'] })}
-                      className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    >
-                      <option value="3:4">3:4</option>
-                      <option value="1:1">1:1</option>
-                      <option value="4:3">4:3</option>
-                    </select>
+                  <div className="mt-4">
+                    <div className="text-xs text-gray-500 mb-2">选择比例</div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {['3:4', '1:1', '4:3'].map((ratio) => {
+                        const isActive = ideaConfig.aspectRatio === ratio;
+                        return (
+                          <button
+                            key={ratio}
+                            type="button"
+                            onClick={() => setIdeaConfig({ ...ideaConfig, aspectRatio: ratio as IdeaConfig['aspectRatio'] })}
+                            className={`px-2 py-2 rounded-xl border text-[11px] flex flex-col items-center gap-1 ${isActive ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-gray-200 bg-white text-gray-500'
+                              }`}
+                            aria-pressed={isActive}
+                            aria-label={`比例 ${ratio}`}
+                          >
+                            <span className={`w-6 h-6 rounded-md border ${isActive ? 'border-emerald-300 bg-white' : 'border-gray-200 bg-gray-50'}`} />
+                            {ratio}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
 
-                  <div className="mt-3">
-                    <label htmlFor="agent-model" className="block text-xs text-gray-500 mb-2">图像模型</label>
-                    <select
-                      id="agent-model"
-                      value={ideaConfig.model}
-                      onChange={(e) => setIdeaConfig({ ...ideaConfig, model: e.target.value as IdeaConfig['model'] })}
-                      className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  <div className="mt-4">
+                    <div className="text-xs text-gray-500 mb-2">其他设置</div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <select
+                        id="agent-model"
+                        value={ideaConfig.model}
+                        onChange={(e) => setIdeaConfig({ ...ideaConfig, model: e.target.value as IdeaConfig['model'] })}
+                        className="w-full px-3 py-2 text-xs border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        aria-label="图像模型"
+                      >
+                        <option value="nanobanana">Nanobanana</option>
+                        <option value="jimeng">即梦</option>
+                      </select>
+                      <button
+                        type="button"
+                        disabled
+                        className="w-full px-3 py-2 text-xs border border-gray-200 rounded-xl bg-gray-50 text-gray-400"
+                      >
+                        高清 2K
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex justify-end">
+                    <button
+                      onClick={() => setGenerateMode('oneClick')}
+                      className="px-3 py-1.5 text-xs rounded-full border border-gray-200 text-gray-600 hover:bg-gray-100"
                     >
-                      <option value="nanobanana">Nanobanana</option>
-                      <option value="jimeng">即梦</option>
-                    </select>
+                      立即生成
+                    </button>
                   </div>
                 </div>
 
