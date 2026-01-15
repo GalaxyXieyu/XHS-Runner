@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Archive,
   Activity,
-  Bot,
+  Sparkles,
 } from 'lucide-react';
 import { ContentPackageEditor } from '@/features/material-library/components/ContentPackageEditor';
 import type { ContentPackage } from '@/features/material-library/types';
@@ -35,7 +35,7 @@ function normalizeCreative(row: any): ContentPackage {
 
 export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) {
   const [mainTab, setMainTab] = useState<'generate' | 'library' | 'tasks'>('generate');
-  const [generateMode, setGenerateMode] = useState<'oneClick' | 'scheduled' | 'agent'>('oneClick');
+  const [generateMode, setGenerateMode] = useState<'oneClick' | 'scheduled' | 'agent'>('agent');
   const [taskStatusTab, setTaskStatusTab] = useState<'running' | 'completed' | 'failed'>('running');
   // UI 状态映射：
   // - 默认态：generateMode = oneClick 且 ideaCreativeId 为空
@@ -364,37 +364,42 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
   };
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col bg-white">
       {/* Header */}
-      <div className="bg-gradient-to-r from-pink-50 to-orange-50 border border-gray-200 rounded-lg px-4 py-2.5 mb-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Bot className="w-5 h-5 text-pink-500" />
-            <h1 className="text-base font-semibold text-gray-800">AI 智能创作</h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setMainTab(mainTab === 'library' ? 'generate' : 'library')}
-              className={`px-3 py-1.5 text-sm rounded-lg font-medium transition-all ${mainTab === 'library' ? 'bg-red-500 text-white shadow-sm' : 'bg-white text-gray-700 hover:bg-gray-100'
-                }`}
-            >
-              <Archive className="w-4 h-4 inline mr-1.5" />
-              素材库
-              <span className="ml-1.5 px-1.5 py-0.5 bg-white/20 rounded text-xs">{allPackages.length}</span>
-            </button>
-            <button
-              onClick={() => setMainTab(mainTab === 'tasks' ? 'generate' : 'tasks')}
-              className={`px-3 py-1.5 text-sm rounded-lg font-medium transition-all ${mainTab === 'tasks' ? 'bg-red-500 text-white shadow-sm' : 'bg-white text-gray-700 hover:bg-gray-100'
-                }`}
-            >
-              <Activity className="w-4 h-4 inline mr-1.5" />
-              任务管理
-              {runningTasks.length > 0 && (
-                <span className="ml-1.5 px-1.5 bg-white/20 rounded text-xs">{runningTasks.length}</span>
-              )}
-            </button>
-          </div>
-        </div>
+      <div className="flex justify-end gap-1.5 px-4 py-3">
+        {mainTab !== 'generate' && (
+          <button
+            onClick={() => setMainTab('generate')}
+            className="px-3 py-1.5 text-xs rounded-full font-medium transition-all bg-blue-50 text-blue-600 hover:bg-blue-100"
+          >
+            <Sparkles className="w-3.5 h-3.5 inline mr-1" />
+            返回创作
+          </button>
+        )}
+        <button
+          onClick={() => setMainTab('library')}
+          className={`px-3 py-1.5 text-xs rounded-full font-medium transition-all ${mainTab === 'library'
+            ? 'bg-gray-800 text-white'
+            : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+          }`}
+        >
+          <Archive className="w-3.5 h-3.5 inline mr-1" />
+          素材库
+          <span className="ml-1 text-[10px] opacity-60">{allPackages.length}</span>
+        </button>
+        <button
+          onClick={() => setMainTab('tasks')}
+          className={`px-3 py-1.5 text-xs rounded-full font-medium transition-all ${mainTab === 'tasks'
+            ? 'bg-gray-800 text-white'
+            : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+          }`}
+        >
+          <Activity className="w-3.5 h-3.5 inline mr-1" />
+          任务管理
+          {runningTasks.length > 0 && (
+            <span className="ml-1 text-[10px] opacity-60">{runningTasks.length}</span>
+          )}
+        </button>
       </div>
 
       {/* Content Area */}

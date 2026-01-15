@@ -2,7 +2,6 @@ import { useMemo } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import {
   AlertCircle,
-  Bot,
   Calendar,
   Check,
   CheckCircle2,
@@ -11,7 +10,6 @@ import {
   Clock,
   Loader,
   Plus,
-  RefreshCw,
   Sparkles,
   Trash2,
   Wand2,
@@ -179,7 +177,16 @@ export function GenerationSection({
 
   return (
     <div className="flex flex-col h-full">
-      {/* 右侧主内容区 */}
+      {/* Agent 模式：全屏无边框 */}
+      {generateMode === 'agent' ? (
+        <div className="flex-1 overflow-hidden">
+          <AgentCreator
+            theme={theme}
+            onClose={() => setGenerateMode('oneClick')}
+          />
+        </div>
+      ) : (
+      /* 其他模式：带边框和标题 */
       <div className="flex-1 bg-white border border-gray-200 rounded overflow-hidden">
         <div className="h-full overflow-y-auto p-6">
           <div className="max-w-3xl mx-auto">
@@ -191,7 +198,7 @@ export function GenerationSection({
             {/* 生成方式选择 - 隐藏，默认使用agent */}
             <div className="mb-6 hidden">
               <label className="block text-sm font-medium text-gray-700 mb-3">生成方式</label>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 gap-4">
                 <button
                   onClick={() => setGenerateMode('oneClick')}
                   className={`p-4 rounded-lg border-2 transition-all ${generateMode === 'oneClick' ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 hover:border-gray-300'
@@ -215,18 +222,6 @@ export function GenerationSection({
                   </div>
                   <div className="text-xs text-gray-500 mt-1">设置自动生成计划</div>
                 </button>
-
-                <button
-                  onClick={() => setGenerateMode('agent')}
-                  className={`p-4 rounded-lg border-2 transition-all ${generateMode === 'agent' ? 'border-red-500 bg-red-50' : 'border-gray-200 hover:border-gray-300'
-                    }`}
-                >
-                  <Bot className={`w-6 h-6 mx-auto mb-2 ${generateMode === 'agent' ? 'text-red-500' : 'text-gray-400'}`} />
-                  <div className={`text-sm font-medium ${generateMode === 'agent' ? 'text-red-700' : 'text-gray-700'}`}>
-                    智能代理
-                  </div>
-                  <div className="text-xs text-gray-500 mt-1">使用智能代理生成内容</div>
-                </button>
               </div>
             </div>
 
@@ -243,13 +238,13 @@ export function GenerationSection({
                       <div className="flex rounded-full border border-gray-200 bg-gray-50 p-1">
                         <button
                           onClick={() => setGenerateMode('oneClick')}
-                          className={`px-3 py-1 text-xs rounded-full transition ${generateMode === 'oneClick' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                          className="px-3 py-1 text-xs rounded-full transition bg-white text-gray-900 shadow-sm"
                         >
                           立即生成
                         </button>
                         <button
                           onClick={() => setGenerateMode('agent')}
-                          className={`px-3 py-1 text-xs rounded-full transition ${generateMode === 'agent' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                          className="px-3 py-1 text-xs rounded-full transition text-gray-500 hover:text-gray-700"
                         >
                           Agent 模式
                         </button>
@@ -685,99 +680,6 @@ export function GenerationSection({
               </div>
             )}
 
-            {generateMode === 'agent' && (
-              <div className="relative h-full">
-                <div className="absolute right-8 bottom-28 z-10 w-full max-w-sm rounded-3xl border border-gray-200 bg-white/95 shadow-2xl p-5 backdrop-blur">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-semibold text-gray-900">生成偏好</div>
-                      <div className="text-xs text-gray-500 mt-1">仅影响图像比例与模型</div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-gray-500">自动</span>
-                      <div className="w-9 h-5 rounded-full bg-emerald-500 flex items-center px-0.5 shadow-inner" aria-hidden="true">
-                        <span className="w-4 h-4 bg-white rounded-full shadow-sm" />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-4">
-                    <div className="text-xs text-gray-500 mb-2">类型</div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button className="px-3 py-1.5 text-xs rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-100">
-                        图片
-                      </button>
-                      <button className="px-3 py-1.5 text-xs rounded-xl bg-gray-50 text-gray-400 border border-gray-100" disabled>
-                        视频
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="mt-4">
-                    <div className="text-xs text-gray-500 mb-2">选择比例</div>
-                    <div className="grid grid-cols-3 gap-2">
-                      {['3:4', '1:1', '4:3'].map((ratio) => {
-                        const isActive = ideaConfig.aspectRatio === ratio;
-                        return (
-                          <button
-                            key={ratio}
-                            type="button"
-                            onClick={() => setIdeaConfig({ ...ideaConfig, aspectRatio: ratio as IdeaConfig['aspectRatio'] })}
-                            className={`px-2 py-2 rounded-xl border text-[11px] flex flex-col items-center gap-1 ${isActive ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-gray-200 bg-white text-gray-500'
-                              }`}
-                            aria-pressed={isActive}
-                            aria-label={`比例 ${ratio}`}
-                          >
-                            <span className={`w-6 h-6 rounded-md border ${isActive ? 'border-emerald-300 bg-white' : 'border-gray-200 bg-gray-50'}`} />
-                            {ratio}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="mt-4">
-                    <div className="text-xs text-gray-500 mb-2">其他设置</div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <select
-                        id="agent-model"
-                        value={ideaConfig.model}
-                        onChange={(e) => setIdeaConfig({ ...ideaConfig, model: e.target.value as IdeaConfig['model'] })}
-                        className="w-full px-3 py-2 text-xs border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                        aria-label="图像模型"
-                      >
-                        <option value="nanobanana">Nanobanana</option>
-                        <option value="jimeng">即梦</option>
-                      </select>
-                      <button
-                        type="button"
-                        disabled
-                        className="w-full px-3 py-2 text-xs border border-gray-200 rounded-xl bg-gray-50 text-gray-400"
-                      >
-                        高清 2K
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 flex justify-end">
-                    <button
-                      onClick={() => setGenerateMode('oneClick')}
-                      className="px-3 py-1.5 text-xs rounded-full border border-gray-200 text-gray-600 hover:bg-gray-100"
-                    >
-                      立即生成
-                    </button>
-                  </div>
-                </div>
-
-                <div className="h-full">
-                  <AgentCreator
-                    theme={theme}
-                    onClose={() => setGenerateMode('oneClick')}
-                  />
-                </div>
-              </div>
-            )}
-
             {generateMode === 'scheduled' && (
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
@@ -1013,6 +915,7 @@ export function GenerationSection({
           </div>
         </div>
       </div>
+      )}
 
       {/* 底部素材库预览 */}
       {allPackages.length > 0 && (

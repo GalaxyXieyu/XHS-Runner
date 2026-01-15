@@ -8,6 +8,11 @@ import { z } from "zod";
 import { supabase } from "@/server/supabase";
 import { getTagStats, getTopTitles, getLatestTrendReport } from "@/server/services/xhs/analytics/insightService";
 import { enqueueGeneration } from "@/server/services/xhs/llm/generationQueue";
+import { getAgentPrompt } from "@/server/services/xhs/llm/agentPromptService";
+import { createTrace, logGeneration, logSpan, flushLangfuse } from "@/server/services/langfuseService";
+
+// 图片生成目标数量（可配置）
+const IMAGE_TARGET = 3;
 
 // 过滤消息，移除 tool messages 和带 tool_calls 的 AI messages，只保留纯文本对话
 function filterMessagesForAgent(messages: BaseMessage[]): BaseMessage[] {
@@ -199,27 +204,12 @@ async function createMultiAgentSystem() {
 
   // Supervisor 节点
   const supervisorNode = async (state: typeof AgentState.State) => {
-    const systemPrompt = `你是小红书内容创作团队的主管。根据当前状态决定下一步：
-
-可用的专家：
-- research_agent: 研究专家，负责搜索笔记、分析标签、研究爆款标题
-- writer_agent: 创作专家，负责基于研究结果创作标题和正文
-- image_agent: 图片专家，负责生成封面图
-
-工作流程：
-1. 如果还没有研究数据，先派 research_agent 去研究
-2. 研究完成后，派 writer_agent 创作内容
-3. 内容创作完成后，派 image_agent 生成封面图
-4. 图片生成完成（已生成3张）后结束
-
-当前状态：
-- 研究完成: ${state.researchComplete}
-- 内容完成: ${state.contentComplete}
-- 已生成图片: ${state.imageCount} 张（需要3张）
-
-请回复你的决定，格式：
-NEXT: [agent_name] 或 NEXT: END
-REASON: [简短说明原因]`;
+    const systemPrompt = await getAgentPrompt('supervisor', {
+      researchComplete: state.researchComplete,
+      contentComplete: state.contentComplete,
+      imageCount: state.imageCount,
+      imageTarget: IMAGE_TARGET,
+    });
 
     const response = await model.invoke([
       new HumanMessage(systemPrompt),
@@ -232,13 +222,7 @@ REASON: [简短说明原因]`;
   // Research Agent 节点
   const researchAgentNode = async (state: typeof AgentState.State) => {
     const modelWithTools = model.bindTools(researchTools);
-
-    const systemPrompt = `你是小红书内容研究专家。你的职责是：
-1. 搜索相关笔记获取灵感
-2. 分析热门标签了解趋势
-3. 研究爆款标题的写作技巧
-
-请使用工具进行研究，完成后总结发现的关键信息。`;
+    const systemPrompt = await getAgentPrompt('research_agent');
 
     const response = await modelWithTools.invoke([
       new HumanMessage(systemPrompt),
@@ -253,17 +237,7 @@ REASON: [简短说明原因]`;
 
   // Writer Agent 节点
   const writerAgentNode = async (state: typeof AgentState.State) => {
-    const systemPrompt = `你是小红书爆款内容创作专家。基于之前的研究结果创作内容：
-
-输出格式：
-📌 标题：[吸引眼球的标题，15-25字，包含热门关键词]
-📝 正文：[分段清晰、包含emoji、有价值的内容，300-500字]
-🏷️ 标签：[5-10个相关标签]
-
-创作要求：
-- 标题要有吸引力，使用数字、疑问句或情感词
-- 正文要有干货，分点阐述，适当使用emoji
-- 标签要覆盖热门词和长尾词`;
+    const systemPrompt = await getAgentPrompt('writer_agent');
 
     const filteredMessages = filterMessagesForAgent(state.messages);
     const response = await model.invoke([
@@ -281,26 +255,9 @@ REASON: [简短说明原因]`;
   // Image Agent 节点
   const imageAgentNode = async (state: typeof AgentState.State) => {
     const modelWithTools = model.bindTools(imageTools);
-
-    const systemPrompt = `你是小红书封面图设计专家。根据之前创作的内容生成封面图。
-
-小红书封面规范：
-- 比例：3:4 竖版（如 900x1200 或 1080x1440）
-- 构图：主体居中偏上，留出底部文字空间
-- 色彩：明亮饱和，符合小红书审美
-
-生成规则：
-1. 生成 3 张不同风格的封面图供用户选择
-2. 第1张：realistic 风格 - 真实质感，适合教程类
-3. 第2张：illustration 风格 - 插画风格，适合分享类
-4. 第3张：minimalist 风格 - 简约干净，适合干货类
-
-提示词必须包含：
-- "vertical composition, 3:4 aspect ratio" 确保竖版比例
-- 画面主体、场景、光线描述
-- "xiaohongshu cover style, eye-catching" 小红书风格
-
-请依次调用 3 次 generate_image 工具，每次使用不同风格。`;
+    const systemPrompt = await getAgentPrompt('image_agent', {
+      imageTarget: IMAGE_TARGET,
+    });
 
     const filteredMessages = filterMessagesForAgent(state.messages);
     const response = await modelWithTools.invoke([
@@ -327,8 +284,8 @@ REASON: [简短说明原因]`;
 
   // 路由函数
   const routeFromSupervisor = (state: typeof AgentState.State): string => {
-    // 如果已生成 3 张图片，直接结束
-    if (state.imageCount >= 3) return END;
+    // 如果已生成足够图片，直接结束
+    if (state.imageCount >= IMAGE_TARGET) return END;
 
     const lastMessage = state.messages[state.messages.length - 1];
     const content = typeof lastMessage.content === "string" ? lastMessage.content : "";
@@ -340,7 +297,7 @@ REASON: [简短说明原因]`;
 
     if (!state.researchComplete) return "research_agent";
     if (!state.contentComplete) return "writer_agent";
-    if (state.imageCount < 3) return "image_agent";
+    if (state.imageCount < IMAGE_TARGET) return "image_agent";
     return END;
   };
 
@@ -353,15 +310,15 @@ REASON: [简短说明原因]`;
   };
 
   const shouldContinueImage = (state: typeof AgentState.State): string => {
-    // 如果已生成 3 张图片，直接结束
-    if (state.imageCount >= 3) return END;
+    // 如果已生成足够图片，直接结束
+    if (state.imageCount >= IMAGE_TARGET) return END;
 
     const lastMessage = state.messages[state.messages.length - 1];
     if (lastMessage && "tool_calls" in lastMessage && (lastMessage as AIMessage).tool_calls?.length) {
       return "image_tools";
     }
-    // 还没生成够 3 张，继续让 image_agent 生成
-    if (state.imageCount < 3) return "image_agent";
+    // 还没生成够，继续让 image_agent 生成
+    if (state.imageCount < IMAGE_TARGET) return "image_agent";
     return END;
   };
 
@@ -392,7 +349,7 @@ REASON: [简短说明原因]`;
       [END]: END,
     })
     .addConditionalEdges("image_tools", (state: typeof AgentState.State) => {
-      return state.imageCount >= 3 ? END : "image_agent";
+      return state.imageCount >= IMAGE_TARGET ? END : "image_agent";
     }, {
       image_agent: "image_agent",
       [END]: END,
@@ -430,6 +387,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.write(`data: ${JSON.stringify(event)}\n\n`);
   };
 
+  // 创建 Langfuse trace
+  const trace = await createTrace('agent-stream', {
+    message,
+    themeId,
+    imageTarget: IMAGE_TARGET,
+  });
+  const traceId = trace?.id;
+
   try {
     const app = await createMultiAgentSystem();
 
@@ -447,6 +412,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         if (nodeName === "__start__" || nodeName === "__end__") continue;
 
         const output = nodeOutput as any;
+        const nodeStartTime = new Date();
 
         sendEvent({
           type: "agent_start",
@@ -465,6 +431,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                   tool: tc.name,
                   content: `🔧 调用工具: ${tc.name}`,
                   timestamp: Date.now(),
+                });
+
+                // 记录工具调用到 Langfuse
+                await logSpan({
+                  traceId,
+                  name: `tool:${tc.name}`,
+                  input: tc.args,
+                  metadata: { agent: nodeName },
                 });
               }
             }
@@ -486,6 +460,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 content: msg.content,
                 timestamp: Date.now(),
               });
+
+              // 记录 LLM 生成到 Langfuse
+              await logGeneration({
+                traceId,
+                name: nodeName,
+                model: 'configured-model',
+                input: { agent: nodeName },
+                output: msg.content,
+                startTime: nodeStartTime,
+                endTime: new Date(),
+              });
             }
           }
         }
@@ -500,6 +485,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     res.write(`data: [DONE]\n\n`);
+    await flushLangfuse();
     res.end();
   } catch (error: any) {
     console.error("Multi-agent error:", error);

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Key, Database, Settings as SettingsIcon, QrCode, Smartphone, CheckCircle, Loader, Plus, Edit2, Trash2, FlaskConical } from 'lucide-react';
+import { Key, Database, Settings as SettingsIcon, QrCode, Smartphone, CheckCircle, Loader, Plus, Edit2, Trash2, FlaskConical, Activity } from 'lucide-react';
 import type { Theme } from '@/App';
 import { PromptPlayground } from '@/components/workspace/PromptPlayground';
 
@@ -39,6 +39,14 @@ interface ExtensionService {
   is_enabled: number;
 }
 
+interface LangfuseConfig {
+  configured: boolean;
+  enabled: boolean;
+  endpoint: string;
+  publicKey: string;
+  hasSecretKey: boolean;
+}
+
 const defaultExtensionTypes = [
   { service_type: 'image', name: '图像生成', description: 'AI 图像生成服务（如 DALL-E、Midjourney）' },
   { service_type: 'imagehost', name: '图床', description: '图片存储与 CDN 服务' },
@@ -60,6 +68,9 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
   const [rulesSubTab, setRulesSubTab] = useState<'manage' | 'test'>('manage');
   const [promptTemplates, setPromptTemplates] = useState<PromptTemplate[]>([]);
   const [captureEnabled, setCaptureEnabled] = useState(false);
+  const [langfuseConfig, setLangfuseConfig] = useState<LangfuseConfig | null>(null);
+  const [showLangfuseModal, setShowLangfuseModal] = useState(false);
+  const [langfuseSaving, setLangfuseSaving] = useState(false);
 
   // Form refs for modals
   const llmFormRef = {
@@ -79,6 +90,11 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
     apiKey: null as HTMLInputElement | null,
     endpoint: null as HTMLInputElement | null,
   };
+  const langfuseFormRef = {
+    secretKey: null as HTMLInputElement | null,
+    publicKey: null as HTMLInputElement | null,
+    endpoint: null as HTMLInputElement | null,
+  };
 
   // Load data on mount
   useEffect(() => {
@@ -86,6 +102,7 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
     loadPromptProfiles();
     loadExtensionServices();
     loadCaptureEnabled();
+    loadLangfuseConfig();
   }, []);
 
   const loadCaptureEnabled = async () => {
@@ -156,6 +173,55 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
       setExtensionServices(Array.isArray(data) ? data : []);
     } catch (e) {
       console.error('Failed to load extension services:', e);
+    }
+  };
+
+  const loadLangfuseConfig = async () => {
+    try {
+      const res = await fetch('/api/settings/langfuse');
+      const data = await res.json();
+      setLangfuseConfig(data);
+    } catch (e) {
+      console.error('Failed to load Langfuse config:', e);
+    }
+  };
+
+  const handleSaveLangfuse = async () => {
+    const secretKey = langfuseFormRef.secretKey?.value?.trim();
+    const publicKey = langfuseFormRef.publicKey?.value?.trim();
+    const endpoint = langfuseFormRef.endpoint?.value?.trim();
+
+    setLangfuseSaving(true);
+    try {
+      await fetch('/api/settings/langfuse', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          secretKey: secretKey || undefined,
+          publicKey,
+          endpoint,
+          enabled: true,
+        }),
+      });
+      await loadLangfuseConfig();
+      setShowLangfuseModal(false);
+    } catch (e) {
+      console.error('Failed to save Langfuse config:', e);
+    } finally {
+      setLangfuseSaving(false);
+    }
+  };
+
+  const handleToggleLangfuse = async (enabled: boolean) => {
+    try {
+      await fetch('/api/settings/langfuse', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      });
+      await loadLangfuseConfig();
+    } catch (e) {
+      console.error('Failed to toggle Langfuse:', e);
     }
   };
 
@@ -1010,10 +1076,118 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
                 </div>
               </div>
 
+              {/* Langfuse Monitoring */}
+              <div className="bg-white border border-gray-200 rounded p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-purple-500" />
+                    <div className="text-xs font-medium text-gray-900">LLM 监控 (Langfuse)</div>
+                    {langfuseConfig?.configured && langfuseConfig?.enabled && (
+                      <CheckCircle className="w-3 h-3 text-green-500" />
+                    )}
+                  </div>
+                  {langfuseConfig?.configured && (
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={langfuseConfig?.enabled ?? false}
+                        onChange={(e) => handleToggleLangfuse(e.target.checked)}
+                        className="w-3.5 h-3.5 text-purple-500 rounded"
+                      />
+                      <span className="text-xs text-gray-600">启用</span>
+                    </label>
+                  )}
+                </div>
+                <p className="text-xs text-gray-500 mb-3">
+                  追踪和分析所有 LLM 调用，查看 token 使用量、延迟和成本
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowLangfuseModal(true)}
+                    className="px-3 py-1.5 text-xs border border-gray-200 text-gray-700 rounded hover:bg-gray-50 transition-colors"
+                  >
+                    {langfuseConfig?.configured ? '重新配置' : '配置 Langfuse'}
+                  </button>
+                  {langfuseConfig?.configured && langfuseConfig?.endpoint && (
+                    <a
+                      href={langfuseConfig.endpoint}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-1.5 text-xs text-purple-600 hover:text-purple-700"
+                    >
+                      打开控制台 →
+                    </a>
+                  )}
+                </div>
+              </div>
+
               <button className="px-4 py-2 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors">
                 保存设置
               </button>
             </div>
+
+            {/* Langfuse Config Modal */}
+            {showLangfuseModal && (
+              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                <div className="bg-white rounded-lg p-4 max-w-md w-full mx-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Activity className="w-4 h-4 text-purple-500" />
+                    <div className="text-sm font-medium text-gray-900">配置 Langfuse</div>
+                  </div>
+                  <p className="text-xs text-gray-500 mb-4">
+                    Langfuse 是一个开源的 LLM 可观测性平台，用于追踪、评估和调试 LLM 应用。
+                  </p>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs text-gray-700 mb-1">Endpoint URL</label>
+                      <input
+                        ref={el => { langfuseFormRef.endpoint = el; }}
+                        type="text"
+                        defaultValue={langfuseConfig?.endpoint || 'http://localhost:23022'}
+                        placeholder="http://localhost:23022"
+                        className="w-full px-3 py-2 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-purple-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-700 mb-1">Public Key</label>
+                      <input
+                        ref={el => { langfuseFormRef.publicKey = el; }}
+                        type="text"
+                        defaultValue={langfuseConfig?.publicKey}
+                        placeholder="pk-lf-..."
+                        className="w-full px-3 py-2 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-purple-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-700 mb-1">
+                        Secret Key {langfuseConfig?.hasSecretKey && <span className="text-green-600">(已配置)</span>}
+                      </label>
+                      <input
+                        ref={el => { langfuseFormRef.secretKey = el; }}
+                        type="password"
+                        placeholder={langfuseConfig?.hasSecretKey ? '留空保持不变' : 'sk-lf-...'}
+                        className="w-full px-3 py-2 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-purple-500"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-2 mt-4">
+                    <button
+                      onClick={() => setShowLangfuseModal(false)}
+                      className="flex-1 px-3 py-1.5 text-xs border border-gray-200 text-gray-700 rounded hover:bg-gray-50 transition-colors"
+                    >
+                      取消
+                    </button>
+                    <button
+                      onClick={handleSaveLangfuse}
+                      disabled={langfuseSaving}
+                      className="flex-1 px-3 py-1.5 text-xs bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors disabled:opacity-50"
+                    >
+                      {langfuseSaving ? '保存中...' : '保存并启用'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
