@@ -670,9 +670,22 @@ export function GenerationSection({
 
             {generateMode === 'agent' && (
               <div className="relative h-full">
-                <div className="absolute right-6 top-6 z-10 w-full max-w-xs rounded-2xl border border-gray-200 bg-white/95 shadow-lg p-4 backdrop-blur">
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm font-medium text-gray-800">生成偏好</div>
+                <div className="absolute right-6 top-24 z-10 w-full max-w-xs rounded-2xl border border-gray-200 bg-white/95 shadow-lg p-4 backdrop-blur">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-gray-900">生成偏好</div>
+                      <div className="text-xs text-gray-500 mt-1">仅影响图像比例与模型</div>
+                    </div>
+                    <button
+                      onClick={() => setGenerateMode('oneClick')}
+                      className="px-2.5 py-1 text-xs rounded-full border border-gray-200 text-gray-600 hover:bg-gray-100"
+                    >
+                      立即生成
+                    </button>
+                  </div>
+
+                  <div className="mt-3 flex items-center justify-between">
+                    <span className="text-xs text-gray-500">模式</span>
                     <span className="text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">自动</span>
                   </div>
 
@@ -693,7 +706,7 @@ export function GenerationSection({
                     <select
                       value={ideaConfig.aspectRatio}
                       onChange={(e) => setIdeaConfig({ ...ideaConfig, aspectRatio: e.target.value as IdeaConfig['aspectRatio'] })}
-                      className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     >
                       <option value="3:4">3:4</option>
                       <option value="1:1">1:1</option>
@@ -706,7 +719,7 @@ export function GenerationSection({
                     <select
                       value={ideaConfig.model}
                       onChange={(e) => setIdeaConfig({ ...ideaConfig, model: e.target.value as IdeaConfig['model'] })}
-                      className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     >
                       <option value="nanobanana">Nanobanana</option>
                       <option value="jimeng">即梦</option>
