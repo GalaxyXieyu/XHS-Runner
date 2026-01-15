@@ -2,7 +2,6 @@ import { useMemo } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import {
   AlertCircle,
-  ArrowUp,
   Bot,
   Calendar,
   Check,
@@ -25,14 +24,6 @@ import { ContentResultCard } from '@/features/material-library/components/Conten
 import { MaterialGallery } from '@/features/material-library/components/MaterialGallery';
 import type { ContentPackage } from '@/features/material-library/types';
 import type { AutoTask } from '@/features/task-management/types';
-
-const FEATURE_CARDS = [
-  { title: '无限画布', desc: '灵感无界 · 自由创作', icon: Sparkles },
-  { title: '图片生成', desc: '智能美学提升', icon: Wand2 },
-  { title: '视频生成', desc: '支持音画同步', icon: RefreshCw },
-  { title: '数字人', desc: '大师级拟真', icon: Bot },
-  { title: '动作模仿', desc: '灵感更灵动', icon: Sparkles },
-];
 
 type IdeaConfig = {
   idea: string;
@@ -128,10 +119,6 @@ export function GenerationSection({
   setMainTab,
   setEditingPackage,
 }: GenerationSectionProps) {
-  const showDefaultLanding = generateMode === 'oneClick'
-    && ideaCreativeId === null
-    && !ideaConfig.idea.trim();
-
   const ideaResultPackage = useMemo(() => {
     if (!ideaContentPackage?.creative) return null;
     const creative = ideaContentPackage.creative;
@@ -182,14 +169,15 @@ export function GenerationSection({
   };
 
   return (
-    <div className="flex gap-3 h-full">
+    <div className="flex flex-col h-full">
       {/* 右侧主内容区 */}
       <div className="flex-1 bg-white border border-gray-200 rounded overflow-hidden">
         <div className="h-full overflow-y-auto p-6">
           <div className="max-w-3xl mx-auto">
-            {!showDefaultLanding && (
-              <h2 className="text-xl font-medium text-gray-900 mb-6">创建内容生成任务</h2>
-            )}
+            <div className="mb-6">
+              <h2 className="text-xl font-medium text-gray-900">创建内容生成任务</h2>
+              <div className="text-sm text-gray-500 mt-1">基于现有功能快速生成内容与素材</div>
+            </div>
 
             {/* 生成方式选择 - 隐藏，默认使用agent */}
             <div className="mb-6 hidden">
@@ -233,101 +221,55 @@ export function GenerationSection({
               </div>
             </div>
 
-            {showDefaultLanding && (
+            {generateMode === 'oneClick' && (
               <div className="space-y-6">
-                <div className="text-center text-lg font-medium text-gray-800">
-                  开启你的 <span className="text-sky-500">Agent 模式</span> 即刻造梦！
-                </div>
-
-                <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
-                  <div className="flex gap-4 items-start">
-                    <div className="w-14 h-20 rounded-xl bg-gray-100 flex items-center justify-center text-gray-400 text-xl">
-                      +
+                <div className="rounded-2xl border border-gray-200 bg-white px-5 py-4 shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-gray-900">立即生成</div>
+                      <div className="text-xs text-gray-500 mt-1">输入 idea，预览并确认多图 prompts</div>
                     </div>
-                    <textarea
-                      value={ideaConfig.idea}
-                      onChange={(e) => setIdeaConfig({ ...ideaConfig, idea: e.target.value })}
-                      placeholder="说说今天想做点什么"
-                      rows={3}
-                      className="flex-1 px-3 py-2 text-sm border border-transparent rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-400"
-                    />
-                    <button
-                      className="w-10 h-10 rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 flex items-center justify-center"
-                      aria-label="发送"
-                    >
-                      <ArrowUp className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  <div className="mt-4 flex items-center gap-2 flex-wrap">
-                    <button
-                      onClick={() => setGenerateMode('agent')}
-                      className="px-3 py-1.5 text-xs rounded-full border border-sky-200 text-sky-600 bg-sky-50 hover:bg-sky-100"
-                    >
-                      Agent 模式
-                    </button>
-                    <button
-                      onClick={() => setGenerateMode('oneClick')}
-                      className="px-3 py-1.5 text-xs rounded-full border border-gray-200 text-gray-600 hover:bg-gray-100"
-                    >
-                      自动
-                    </button>
-                    <button className="px-3 py-1.5 text-xs rounded-full border border-gray-200 text-gray-600 hover:bg-gray-100">
-                      灵感搜索
-                    </button>
-                    <button className="px-3 py-1.5 text-xs rounded-full border border-gray-200 text-gray-600 hover:bg-gray-100">
-                      创意设计
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-400">模式</span>
+                      <div className="flex rounded-full border border-gray-200 bg-gray-50 p-1">
+                        <button
+                          onClick={() => setGenerateMode('oneClick')}
+                          className={`px-3 py-1 text-xs rounded-full transition ${generateMode === 'oneClick' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                        >
+                          立即生成
+                        </button>
+                        <button
+                          onClick={() => setGenerateMode('agent')}
+                          className={`px-3 py-1 text-xs rounded-full transition ${generateMode === 'agent' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                        >
+                          Agent 模式
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-                  {FEATURE_CARDS.map((card) => {
-                    const Icon = card.icon;
-                    return (
-                      <div
-                        key={card.title}
-                        className="bg-white border border-gray-200 rounded-2xl px-4 py-3 flex items-center gap-3"
+                {ideaCreativeId !== null && (
+                  <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm space-y-3">
+                    <div className="flex items-start gap-2 bg-emerald-50 border border-emerald-100 rounded-xl p-3">
+                      <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0 text-emerald-600" />
+                      <div className="flex-1">
+                        <div className="font-medium text-emerald-800">已提交生成任务</div>
+                        <div className="text-xs mt-0.5 text-emerald-700">
+                          creativeId: {ideaCreativeId}，taskIds: {ideaTaskIds.length} 个
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setIdeaCreativeId(null);
+                          setIdeaTaskIds([]);
+                        }}
+                        className="text-xs text-emerald-700 hover:text-emerald-900"
                       >
-                        <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500">
-                          <Icon className="w-5 h-5" />
-                        </div>
-                        <div>
-                          <div className="text-sm font-medium text-gray-800">{card.title}</div>
-                          <div className="text-xs text-gray-500">{card.desc}</div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {generateMode === 'oneClick' && !showDefaultLanding && (
-              <div className="space-y-4">
-                {ideaCreativeId !== null && (
-                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-800 flex items-start gap-2">
-                    <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                    <div className="flex-1">
-                      <div className="font-medium">已提交生成任务</div>
-                      <div className="text-xs mt-0.5">
-                        creativeId: {ideaCreativeId}，taskIds: {ideaTaskIds.length} 个
-                      </div>
+                        重新开始
+                      </button>
                     </div>
-                    <button
-                      onClick={() => {
-                        setIdeaCreativeId(null);
-                        setIdeaTaskIds([]);
-                      }}
-                      className="text-xs text-emerald-700 hover:text-emerald-900"
-                    >
-                      重新开始
-                    </button>
-                  </div>
-                )}
 
-                {ideaCreativeId !== null && (
-                  <div className="space-y-3">
                     {ideaPollingError && (
                       <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-start gap-2">
                         <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
@@ -336,7 +278,7 @@ export function GenerationSection({
                     )}
 
                     {ideaContentPackage && (
-                      <div className="p-3 bg-white border border-gray-200 rounded-lg">
+                      <div className="rounded-xl border border-gray-100 bg-gray-50 p-3">
                         <div className="flex items-center justify-between mb-2">
                           <div className="text-sm font-medium text-gray-800">生成进度</div>
                           <div className="text-xs text-gray-500">
@@ -347,7 +289,7 @@ export function GenerationSection({
                           </div>
                         </div>
 
-                        <div className="w-full h-2 bg-gray-100 rounded overflow-hidden mb-3">
+                        <div className="w-full h-2 bg-gray-200/60 rounded-full overflow-hidden mb-3">
                           <div
                             className="h-full bg-emerald-500"
                             style={{
@@ -380,7 +322,7 @@ export function GenerationSection({
                     )}
 
                     {ideaResultPackage ? (
-                      <div className="p-3 bg-white border border-gray-200 rounded-lg">
+                      <div>
                         <div className="text-sm font-medium text-gray-800 mb-2">生成结果</div>
                         <ContentResultCard
                           pkg={ideaResultPackage}
@@ -401,10 +343,12 @@ export function GenerationSection({
                   </div>
                 )}
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    输入 idea（用于生成多图 prompts） <span className="text-red-500">*</span>
-                  </label>
+                <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 text-xs font-semibold">1</span>
+                    <div className="text-sm font-semibold text-gray-900">填写 idea</div>
+                    <div className="text-xs text-gray-500">用于生成多图 prompts</div>
+                  </div>
                   <textarea
                     value={ideaConfig.idea}
                     onChange={(e) => setIdeaConfig({ ...ideaConfig, idea: e.target.value })}
@@ -412,232 +356,242 @@ export function GenerationSection({
                     rows={3}
                     className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   />
-                  <div className="mt-1 text-xs text-gray-500 flex items-center justify-between">
+                  <div className="mt-2 text-xs text-gray-500 flex items-center justify-between">
                     <span>预览失败时也可手动编辑 prompts 继续</span>
                     <span>{ideaConfig.idea.length} 字</span>
                   </div>
                 </div>
 
-                <div className="p-3 border border-gray-200 rounded-lg bg-gray-50">
-                  <div className="text-sm font-medium text-gray-700 mb-2">参数（影响 prompts 质量）</div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm text-gray-700 mb-2">内容目标</label>
-                      <select
-                        value={ideaConfig.goal}
-                        onChange={(e) => setIdeaConfig({ ...ideaConfig, goal: e.target.value as IdeaConfig['goal'] })}
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                      >
-                        <option value="collects">收藏优先</option>
-                        <option value="comments">评论优先</option>
-                        <option value="followers">涨粉优先</option>
-                      </select>
+                <div className="rounded-2xl border border-gray-200 bg-gray-50 p-5">
+                  <div className="flex items-center gap-2 mb-4">
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 text-xs font-semibold">2</span>
+                    <div className="text-sm font-semibold text-gray-900">补充参数</div>
+                    <div className="text-xs text-gray-500">提升 prompts 质量</div>
+                  </div>
+                  <div className="grid gap-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm text-gray-700 mb-2">内容目标</label>
+                        <select
+                          value={ideaConfig.goal}
+                          onChange={(e) => setIdeaConfig({ ...ideaConfig, goal: e.target.value as IdeaConfig['goal'] })}
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        >
+                          <option value="collects">收藏优先</option>
+                          <option value="comments">评论优先</option>
+                          <option value="followers">涨粉优先</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm text-gray-700 mb-2">内容语气</label>
+                        <input
+                          type="text"
+                          value={ideaConfig.tone}
+                          onChange={(e) => setIdeaConfig({ ...ideaConfig, tone: e.target.value })}
+                          placeholder="例如：干货/亲和、犀利吐槽、温柔治愈"
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
                     </div>
 
                     <div>
-                      <label className="block text-sm text-gray-700 mb-2">内容语气</label>
+                      <label className="block text-sm text-gray-700 mb-2">目标受众</label>
                       <input
                         type="text"
-                        value={ideaConfig.tone}
-                        onChange={(e) => setIdeaConfig({ ...ideaConfig, tone: e.target.value })}
-                        placeholder="例如：干货/亲和、犀利吐槽、温柔治愈"
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        value={ideaConfig.persona}
+                        onChange={(e) => setIdeaConfig({ ...ideaConfig, persona: e.target.value })}
+                        placeholder="例如：学生党、职场女性、宝妈、露营新手"
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                       />
                     </div>
-                  </div>
 
-                  <div className="mt-3">
-                    <label className="block text-sm text-gray-700 mb-2">目标受众</label>
-                    <input
-                      type="text"
-                      value={ideaConfig.persona}
-                      onChange={(e) => setIdeaConfig({ ...ideaConfig, persona: e.target.value })}
-                      placeholder="例如：学生党、职场女性、宝妈、露营新手"
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                  </div>
-
-                  <div className="mt-3">
-                    <label className="block text-sm text-gray-700 mb-2">额外要求（可选）</label>
-                    <textarea
-                      value={ideaConfig.extraRequirements}
-                      onChange={(e) => setIdeaConfig({ ...ideaConfig, extraRequirements: e.target.value })}
-                      placeholder="例如：不要出现品牌 logo；画面更极简；避免手部特写"
-                      rows={2}
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm text-gray-700 mb-2">风格</label>
-                    <select
-                      value={ideaConfig.styleKeyOption}
-                      onChange={(e) => setIdeaConfig({ ...ideaConfig, styleKeyOption: e.target.value as IdeaConfig['styleKeyOption'] })}
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    >
-                      {ideaStyleOptions.map((opt) => (
-                        <option key={opt.key} value={opt.key}>{opt.name}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm text-gray-700 mb-2">比例</label>
-                    <select
-                      value={ideaConfig.aspectRatio}
-                      onChange={(e) => setIdeaConfig({ ...ideaConfig, aspectRatio: e.target.value as IdeaConfig['aspectRatio'] })}
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    >
-                      <option value="3:4">3:4（小红书）</option>
-                      <option value="1:1">1:1</option>
-                      <option value="4:3">4:3</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm text-gray-700 mb-2">数量</label>
-                    <input
-                      type="number"
-                      value={ideaConfig.count}
-                      onChange={(e) => setIdeaConfig({ ...ideaConfig, count: parseInt(e.target.value) || 1 })}
-                      min={1}
-                      max={9}
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm text-gray-700 mb-2">图像模型</label>
-                    <select
-                      value={ideaConfig.model}
-                      onChange={(e) => setIdeaConfig({ ...ideaConfig, model: e.target.value as IdeaConfig['model'] })}
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    >
-                      <option value="nanobanana">Nanobanana</option>
-                      <option value="jimeng">即梦</option>
-                    </select>
-                  </div>
-                </div>
-
-                {ideaConfig.styleKeyOption === 'custom' && (
-                  <div>
-                    <label className="block text-sm text-gray-700 mb-2">自定义 styleKey</label>
-                    <input
-                      type="text"
-                      value={ideaConfig.customStyleKey}
-                      onChange={(e) => setIdeaConfig({ ...ideaConfig, customStyleKey: e.target.value })}
-                      placeholder="例如：cozy（或任意自定义 key，若不存在将降级为默认）"
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                  </div>
-                )}
-
-                {ideaPreviewError && (
-                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-start gap-2">
-                    <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                    <div className="flex-1">
-                      <div className="font-medium">预览失败</div>
-                      <div className="text-xs mt-0.5">{ideaPreviewError}</div>
+                    <div>
+                      <label className="block text-sm text-gray-700 mb-2">额外要求（可选）</label>
+                      <textarea
+                        value={ideaConfig.extraRequirements}
+                        onChange={(e) => setIdeaConfig({ ...ideaConfig, extraRequirements: e.target.value })}
+                        placeholder="例如：不要出现品牌 logo；画面更极简；避免手部特写"
+                        rows={2}
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
                     </div>
-                  </div>
-                )}
 
-                <div className="flex items-center justify-between">
-                  <div className="text-sm font-medium text-gray-700">
-                    预览 prompts <span className="text-xs text-gray-500">({ideaPreviewPrompts.length})</span>
-                  </div>
-                  <button
-                    onClick={handleIdeaPreview}
-                    disabled={!ideaConfig.idea.trim() || ideaPreviewLoading}
-                    className="px-3 py-2 bg-emerald-500 text-white rounded-lg text-sm font-medium hover:bg-emerald-600 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  >
-                    {ideaPreviewLoading ? (
-                      <>
-                        <Loader className="w-4 h-4 animate-spin" />
-                        预览中...
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles className="w-4 h-4" />
-                        生成预览
-                      </>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm text-gray-700 mb-2">风格</label>
+                        <select
+                          value={ideaConfig.styleKeyOption}
+                          onChange={(e) => setIdeaConfig({ ...ideaConfig, styleKeyOption: e.target.value as IdeaConfig['styleKeyOption'] })}
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        >
+                          {ideaStyleOptions.map((opt) => (
+                            <option key={opt.key} value={opt.key}>{opt.name}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm text-gray-700 mb-2">比例</label>
+                        <select
+                          value={ideaConfig.aspectRatio}
+                          onChange={(e) => setIdeaConfig({ ...ideaConfig, aspectRatio: e.target.value as IdeaConfig['aspectRatio'] })}
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        >
+                          <option value="3:4">3:4（小红书）</option>
+                          <option value="1:1">1:1</option>
+                          <option value="4:3">4:3</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm text-gray-700 mb-2">数量</label>
+                        <input
+                          type="number"
+                          value={ideaConfig.count}
+                          onChange={(e) => setIdeaConfig({ ...ideaConfig, count: parseInt(e.target.value) || 1 })}
+                          min={1}
+                          max={9}
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm text-gray-700 mb-2">图像模型</label>
+                        <select
+                          value={ideaConfig.model}
+                          onChange={(e) => setIdeaConfig({ ...ideaConfig, model: e.target.value as IdeaConfig['model'] })}
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        >
+                          <option value="nanobanana">Nanobanana</option>
+                          <option value="jimeng">即梦</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {ideaConfig.styleKeyOption === 'custom' && (
+                      <div>
+                        <label className="block text-sm text-gray-700 mb-2">自定义 styleKey</label>
+                        <input
+                          type="text"
+                          value={ideaConfig.customStyleKey}
+                          onChange={(e) => setIdeaConfig({ ...ideaConfig, customStyleKey: e.target.value })}
+                          placeholder="例如：cozy（或任意自定义 key，若不存在将降级为默认）"
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
                     )}
-                  </button>
+                  </div>
                 </div>
 
-                <div className="border border-gray-200 rounded-lg overflow-hidden">
-                  {ideaPreviewPrompts.length === 0 ? (
-                    <div className="py-10 text-center text-sm text-gray-500">
-                      点击「生成预览」后在这里编辑 prompts
+                <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 text-xs font-semibold">3</span>
+                      <div className="text-sm font-semibold text-gray-900">预览 prompts</div>
+                      <span className="text-xs text-gray-500">({ideaPreviewPrompts.length})</span>
                     </div>
-                  ) : (
-                    <div className="divide-y divide-gray-100">
-                      {ideaPreviewPrompts.map((prompt, idx) => (
-                        <div key={idx} className="p-3">
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="text-xs text-gray-500">Prompt {idx + 1}</div>
-                            <div className="flex items-center gap-1">
-                              <button
-                                onClick={() => moveIdeaPrompt(idx, -1)}
-                                disabled={idx === 0}
-                                className="p-1 rounded hover:bg-gray-100 disabled:opacity-40 disabled:hover:bg-transparent"
-                                title="上移"
-                              >
-                                <ChevronUp className="w-4 h-4 text-gray-500" />
-                              </button>
-                              <button
-                                onClick={() => moveIdeaPrompt(idx, 1)}
-                                disabled={idx === ideaPreviewPrompts.length - 1}
-                                className="p-1 rounded hover:bg-gray-100 disabled:opacity-40 disabled:hover:bg-transparent"
-                                title="下移"
-                              >
-                                <ChevronDown className="w-4 h-4 text-gray-500" />
-                              </button>
-                              <button
-                                onClick={() => removeIdeaPrompt(idx)}
-                                className="p-1 rounded hover:bg-red-50"
-                                title="删除"
-                              >
-                                <Trash2 className="w-4 h-4 text-red-600" />
-                              </button>
-                            </div>
-                          </div>
-                          <textarea
-                            value={prompt}
-                            onChange={(e) => updateIdeaPrompt(idx, e.target.value)}
-                            rows={3}
-                            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                          />
-                        </div>
-                      ))}
+                    <button
+                      onClick={handleIdeaPreview}
+                      disabled={!ideaConfig.idea.trim() || ideaPreviewLoading}
+                      className="px-3 py-2 bg-emerald-500 text-white rounded-lg text-sm font-medium hover:bg-emerald-600 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    >
+                      {ideaPreviewLoading ? (
+                        <>
+                          <Loader className="w-4 h-4 animate-spin" />
+                          预览中...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-4 h-4" />
+                          生成预览
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {ideaPreviewError && (
+                    <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                      <div className="flex-1">
+                        <div className="font-medium">预览失败</div>
+                        <div className="text-xs mt-0.5">{ideaPreviewError}</div>
+                      </div>
                     </div>
                   )}
-                </div>
 
-                <div className="flex items-center justify-between">
-                  <button
-                    onClick={addIdeaPrompt}
-                    className="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 flex items-center gap-2"
-                  >
-                    <Plus className="w-4 h-4" />
-                    新增 prompt
-                  </button>
+                  <div className="mt-3 border border-gray-200 rounded-lg overflow-hidden bg-white">
+                    {ideaPreviewPrompts.length === 0 ? (
+                      <div className="py-10 text-center text-sm text-gray-500">
+                        点击「生成预览」后在这里编辑 prompts
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-gray-100">
+                        {ideaPreviewPrompts.map((prompt, idx) => (
+                          <div key={idx} className="p-3">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="text-xs text-gray-500">Prompt {idx + 1}</div>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => moveIdeaPrompt(idx, -1)}
+                                  disabled={idx === 0}
+                                  className="p-1 rounded hover:bg-gray-100 disabled:opacity-40 disabled:hover:bg-transparent"
+                                  title="上移"
+                                >
+                                  <ChevronUp className="w-4 h-4 text-gray-500" />
+                                </button>
+                                <button
+                                  onClick={() => moveIdeaPrompt(idx, 1)}
+                                  disabled={idx === ideaPreviewPrompts.length - 1}
+                                  className="p-1 rounded hover:bg-gray-100 disabled:opacity-40 disabled:hover:bg-transparent"
+                                  title="下移"
+                                >
+                                  <ChevronDown className="w-4 h-4 text-gray-500" />
+                                </button>
+                                <button
+                                  onClick={() => removeIdeaPrompt(idx)}
+                                  className="p-1 rounded hover:bg-red-50"
+                                  title="删除"
+                                >
+                                  <Trash2 className="w-4 h-4 text-red-600" />
+                                </button>
+                              </div>
+                            </div>
+                            <textarea
+                              value={prompt}
+                              onChange={(e) => updateIdeaPrompt(idx, e.target.value)}
+                              rows={3}
+                              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
 
-                  <button
-                    onClick={() => {
-                      setIdeaConfirmError('');
-                      setShowIdeaConfirmModal(true);
-                    }}
-                    disabled={ideaCreativeId !== null || sanitizeIdeaPromptsForConfirm().length === 0}
-                    className="px-3 py-2 bg-emerald-500 text-white rounded-lg text-sm font-medium hover:bg-emerald-600 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
-                  >
-                    <Check className="w-4 h-4" />
-                    确认生成
-                  </button>
+                  <div className="mt-3 flex items-center justify-between">
+                    <button
+                      onClick={addIdeaPrompt}
+                      className="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 flex items-center gap-2"
+                    >
+                      <Plus className="w-4 h-4" />
+                      新增 prompt
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setIdeaConfirmError('');
+                        setShowIdeaConfirmModal(true);
+                      }}
+                      disabled={ideaCreativeId !== null || sanitizeIdeaPromptsForConfirm().length === 0}
+                      className="px-3 py-2 bg-emerald-500 text-white rounded-lg text-sm font-medium hover:bg-emerald-600 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                      <Check className="w-4 h-4" />
+                      确认生成
+                    </button>
+                  </div>
                 </div>
 
                 {showIdeaConfirmModal && (
@@ -993,11 +947,15 @@ export function GenerationSection({
       </div>
 
       {/* 底部素材库预览 */}
-      <MaterialGallery
-        packages={allPackages}
-        onViewAll={() => setMainTab('library')}
-        onSelect={(pkg) => setEditingPackage(pkg)}
-      />
+      {allPackages.length > 0 && (
+        <div className="mt-3">
+          <MaterialGallery
+            packages={allPackages}
+            onViewAll={() => setMainTab('library')}
+            onSelect={(pkg) => setEditingPackage(pkg)}
+          />
+        </div>
+      )}
     </div>
   );
 }
