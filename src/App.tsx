@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { FolderKanban, Sparkles, BarChart3, Settings as SettingsIcon } from 'lucide-react';
+import { FolderKanban, Sparkles, BarChart3, Settings as SettingsIcon, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { ThemeManagement } from './components/ThemeManagement';
-import { CreativeTab } from './components/workspace/CreativeTab';
-import { OperationsTab } from './components/workspace/OperationsTab';
-import { SettingsTab } from './components/workspace/SettingsTab';
+import { CreativeTab } from '@/features/workspace/components/CreativeTab';
+import { OperationsTab } from '@/features/workspace/components/OperationsTab';
+import { SettingsTab } from '@/features/workspace/components/SettingsTab';
 
 export interface Keyword {
   id: number;
@@ -51,6 +51,7 @@ export default function App() {
   const [selectedTheme, setSelectedTheme] = useState<Theme | null>(null);
   const [themes, setThemes] = useState<Theme[]>([]);
   const [loading, setLoading] = useState(true);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
     loadThemes();
@@ -83,35 +84,80 @@ export default function App() {
   return (
     <div className="flex h-screen bg-gray-50">
       {/* Sidebar */}
-      <aside className="w-56 bg-white border-r border-gray-200 flex flex-col">
+      <aside
+        className={`bg-white border-r border-gray-200 flex flex-col transition-all duration-300 ease-in-out ${
+          sidebarCollapsed ? 'w-12' : 'w-56'
+        }`}
+      >
         {/* Logo */}
-        <div className="h-12 px-3 border-b border-gray-200 flex items-center gap-2">
+        <div className={`h-12 border-b border-gray-200 flex items-center ${
+          sidebarCollapsed ? 'justify-center px-0' : 'px-3 gap-2'
+        }`}>
           <div className="w-6 h-6 bg-red-500 rounded flex items-center justify-center flex-shrink-0">
             <span className="text-white font-bold text-xs">小</span>
           </div>
-          <span className="text-xs font-bold text-gray-900">小红书运营系统</span>
+          {!sidebarCollapsed && (
+            <span className="text-xs font-bold text-gray-900">小红书运营系统</span>
+          )}
+          {/* Collapse Button */}
+          <button
+            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            className={`ml-auto p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors ${
+              sidebarCollapsed ? 'hidden' : ''
+            }`}
+            title="收起侧边栏"
+          >
+            <PanelLeftClose className="w-4 h-4" />
+          </button>
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 p-2 space-y-1">
+        <nav className={`flex-1 min-h-0 overflow-y-auto p-2 space-y-1 ${sidebarCollapsed ? 'flex flex-col items-center' : ''}`}>
           {navItems.map((item) => {
             const Icon = item.icon;
             return (
               <button
                 key={item.id}
                 onClick={() => setCurrentView(item.id)}
-                className={`w-full flex items-center gap-2 px-3 py-2 rounded text-xs transition-colors ${
+                className={`flex items-center gap-2 px-3 py-2 rounded text-xs transition-colors ${
+                  sidebarCollapsed ? 'justify-center w-8 h-8' : 'w-full'
+                } ${
                   currentView === item.id
                     ? 'bg-red-500 text-white'
                     : 'text-gray-700 hover:bg-gray-100'
                 }`}
+                title={sidebarCollapsed ? item.label : undefined}
               >
-                <Icon className="w-3.5 h-3.5" />
-                <span>{item.label}</span>
+                <Icon className="w-3.5 h-3.5 flex-shrink-0" />
+                {!sidebarCollapsed && <span>{item.label}</span>}
               </button>
             );
           })}
         </nav>
+
+        {/* Collapse Toggle */}
+        <div className="p-2 border-t border-gray-200 shrink-0">
+          <button
+            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded text-xs transition-colors ${
+              sidebarCollapsed ? 'h-8 w-8' : ''
+            } ${
+              sidebarCollapsed
+                ? 'text-gray-500 hover:bg-gray-100'
+                : 'bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200'
+            }`}
+            title={sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}
+          >
+            {sidebarCollapsed ? (
+              <PanelLeftOpen className="w-4 h-4" />
+            ) : (
+              <>
+                <PanelLeftClose className="w-4 h-4" />
+                <span>收起</span>
+              </>
+            )}
+          </button>
+        </div>
       </aside>
 
       {/* Main Content */}

@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { Lightbulb, Sparkles, BarChart3 } from 'lucide-react';
 import type { Theme } from '../App';
-import { InsightTab } from './workspace/InsightTab';
-import { CreativeTab } from './workspace/CreativeTab';
-import { OperationsTab } from './workspace/OperationsTab';
+import { InsightTab } from '@/features/workspace/components/InsightTab';
+import { CreativeTab } from '@/features/workspace/components/CreativeTab';
+import { OperationsTab } from '@/features/workspace/components/OperationsTab';
 import { CaptureScheduleStatus } from './scheduler';
 
 interface ThemeWorkspaceProps {

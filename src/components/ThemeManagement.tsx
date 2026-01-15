@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Plus, Search, MoreVertical, Play, Pause, Archive, Trash2, Edit2, TrendingUp, ChevronDown, ChevronUp, Download, Loader2 } from 'lucide-react';
 import { Theme } from '../App';
-import { InsightTab } from './workspace/InsightTab';
+import { InsightTab } from '@/features/workspace/components/InsightTab';
 
 interface ThemeManagementProps {
   themes: Theme[];
