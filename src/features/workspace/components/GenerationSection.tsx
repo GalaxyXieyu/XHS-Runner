@@ -145,6 +145,15 @@ export function GenerationSection({
     };
   }, [ideaContentPackage]);
 
+  const ideaProgress = useMemo(() => {
+    const tasks = Array.isArray(ideaContentPackage?.tasks) ? ideaContentPackage.tasks : [];
+    const total = tasks.length;
+    const completed = tasks.filter((t: any) => t?.status === 'done').length;
+    const finished = tasks.filter((t: any) => t?.status === 'done' || t?.status === 'failed').length;
+    const percent = total > 0 ? Math.round((finished / total) * 100) : 0;
+    return { tasks, total, completed, percent };
+  }, [ideaContentPackage]);
+
   const handleCreateScheduleFromResult = () => {
     if (!ideaResultPackage) return;
     setEditingTask({
@@ -282,29 +291,20 @@ export function GenerationSection({
                         <div className="flex items-center justify-between mb-2">
                           <div className="text-sm font-medium text-gray-800">生成进度</div>
                           <div className="text-xs text-gray-500">
-                            {Array.isArray(ideaContentPackage?.tasks) ? ideaContentPackage.tasks.filter((t: any) => t?.status === 'done').length : 0}
-                            /
-                            {Array.isArray(ideaContentPackage?.tasks) ? ideaContentPackage.tasks.length : 0}
-                            已完成
+                            {ideaProgress.completed}/{ideaProgress.total} 已完成
                           </div>
                         </div>
 
                         <div className="w-full h-2 bg-gray-200/60 rounded-full overflow-hidden mb-3">
                           <div
                             className="h-full bg-emerald-500"
-                            style={{
-                              width: `${(() => {
-                                const total = Array.isArray(ideaContentPackage?.tasks) ? ideaContentPackage.tasks.length : 0;
-                                const done = Array.isArray(ideaContentPackage?.tasks) ? ideaContentPackage.tasks.filter((t: any) => t?.status === 'done' || t?.status === 'failed').length : 0;
-                                return total > 0 ? Math.round((done / total) * 100) : 0;
-                              })()}%`,
-                            }}
+                            style={{ width: `${ideaProgress.percent}%` }}
                           />
                         </div>
 
-                        {Array.isArray(ideaContentPackage?.tasks) && ideaContentPackage.tasks.length > 0 && (
+                        {ideaProgress.tasks.length > 0 && (
                           <div className="grid grid-cols-2 gap-2 text-xs">
-                            {ideaContentPackage.tasks.slice(0, 6).map((t: any) => (
+                            {ideaProgress.tasks.slice(0, 6).map((t: any) => (
                               <div key={String(t.id)} className="flex items-center gap-1 text-gray-600">
                                 {t.status === 'done' ? (
                                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
@@ -349,7 +349,11 @@ export function GenerationSection({
                     <div className="text-sm font-semibold text-gray-900">填写 idea</div>
                     <div className="text-xs text-gray-500">用于生成多图 prompts</div>
                   </div>
+                  <label htmlFor="idea-input" className="block text-sm font-medium text-gray-700 mb-2">
+                    输入 idea <span className="text-red-500">*</span>
+                  </label>
                   <textarea
+                    id="idea-input"
                     value={ideaConfig.idea}
                     onChange={(e) => setIdeaConfig({ ...ideaConfig, idea: e.target.value })}
                     placeholder="例如：秋天的咖啡馆、通勤穿搭分享、周末露营清单..."
@@ -371,8 +375,9 @@ export function GenerationSection({
                   <div className="grid gap-4">
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-sm text-gray-700 mb-2">内容目标</label>
+                        <label htmlFor="idea-goal" className="block text-sm text-gray-700 mb-2">内容目标</label>
                         <select
+                          id="idea-goal"
                           value={ideaConfig.goal}
                           onChange={(e) => setIdeaConfig({ ...ideaConfig, goal: e.target.value as IdeaConfig['goal'] })}
                           className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -384,8 +389,9 @@ export function GenerationSection({
                       </div>
 
                       <div>
-                        <label className="block text-sm text-gray-700 mb-2">内容语气</label>
+                        <label htmlFor="idea-tone" className="block text-sm text-gray-700 mb-2">内容语气</label>
                         <input
+                          id="idea-tone"
                           type="text"
                           value={ideaConfig.tone}
                           onChange={(e) => setIdeaConfig({ ...ideaConfig, tone: e.target.value })}
@@ -396,8 +402,9 @@ export function GenerationSection({
                     </div>
 
                     <div>
-                      <label className="block text-sm text-gray-700 mb-2">目标受众</label>
+                      <label htmlFor="idea-persona" className="block text-sm text-gray-700 mb-2">目标受众</label>
                       <input
+                        id="idea-persona"
                         type="text"
                         value={ideaConfig.persona}
                         onChange={(e) => setIdeaConfig({ ...ideaConfig, persona: e.target.value })}
@@ -407,8 +414,9 @@ export function GenerationSection({
                     </div>
 
                     <div>
-                      <label className="block text-sm text-gray-700 mb-2">额外要求（可选）</label>
+                      <label htmlFor="idea-extra" className="block text-sm text-gray-700 mb-2">额外要求（可选）</label>
                       <textarea
+                        id="idea-extra"
                         value={ideaConfig.extraRequirements}
                         onChange={(e) => setIdeaConfig({ ...ideaConfig, extraRequirements: e.target.value })}
                         placeholder="例如：不要出现品牌 logo；画面更极简；避免手部特写"
@@ -419,8 +427,9 @@ export function GenerationSection({
 
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-sm text-gray-700 mb-2">风格</label>
+                        <label htmlFor="idea-style" className="block text-sm text-gray-700 mb-2">风格</label>
                         <select
+                          id="idea-style"
                           value={ideaConfig.styleKeyOption}
                           onChange={(e) => setIdeaConfig({ ...ideaConfig, styleKeyOption: e.target.value as IdeaConfig['styleKeyOption'] })}
                           className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -432,8 +441,9 @@ export function GenerationSection({
                       </div>
 
                       <div>
-                        <label className="block text-sm text-gray-700 mb-2">比例</label>
+                        <label htmlFor="idea-aspect" className="block text-sm text-gray-700 mb-2">比例</label>
                         <select
+                          id="idea-aspect"
                           value={ideaConfig.aspectRatio}
                           onChange={(e) => setIdeaConfig({ ...ideaConfig, aspectRatio: e.target.value as IdeaConfig['aspectRatio'] })}
                           className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -447,8 +457,9 @@ export function GenerationSection({
 
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-sm text-gray-700 mb-2">数量</label>
+                        <label htmlFor="idea-count" className="block text-sm text-gray-700 mb-2">数量</label>
                         <input
+                          id="idea-count"
                           type="number"
                           value={ideaConfig.count}
                           onChange={(e) => setIdeaConfig({ ...ideaConfig, count: parseInt(e.target.value) || 1 })}
@@ -459,8 +470,9 @@ export function GenerationSection({
                       </div>
 
                       <div>
-                        <label className="block text-sm text-gray-700 mb-2">图像模型</label>
+                        <label htmlFor="idea-model" className="block text-sm text-gray-700 mb-2">图像模型</label>
                         <select
+                          id="idea-model"
                           value={ideaConfig.model}
                           onChange={(e) => setIdeaConfig({ ...ideaConfig, model: e.target.value as IdeaConfig['model'] })}
                           className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -473,8 +485,9 @@ export function GenerationSection({
 
                     {ideaConfig.styleKeyOption === 'custom' && (
                       <div>
-                        <label className="block text-sm text-gray-700 mb-2">自定义 styleKey</label>
+                        <label htmlFor="idea-custom-style" className="block text-sm text-gray-700 mb-2">自定义 styleKey</label>
                         <input
+                          id="idea-custom-style"
                           type="text"
                           value={ideaConfig.customStyleKey}
                           onChange={(e) => setIdeaConfig({ ...ideaConfig, customStyleKey: e.target.value })}
@@ -534,28 +547,31 @@ export function GenerationSection({
                             <div className="flex items-center justify-between mb-2">
                               <div className="text-xs text-gray-500">Prompt {idx + 1}</div>
                               <div className="flex items-center gap-1">
-                                <button
-                                  onClick={() => moveIdeaPrompt(idx, -1)}
-                                  disabled={idx === 0}
-                                  className="p-1 rounded hover:bg-gray-100 disabled:opacity-40 disabled:hover:bg-transparent"
-                                  title="上移"
-                                >
-                                  <ChevronUp className="w-4 h-4 text-gray-500" />
-                                </button>
-                                <button
-                                  onClick={() => moveIdeaPrompt(idx, 1)}
-                                  disabled={idx === ideaPreviewPrompts.length - 1}
-                                  className="p-1 rounded hover:bg-gray-100 disabled:opacity-40 disabled:hover:bg-transparent"
-                                  title="下移"
-                                >
-                                  <ChevronDown className="w-4 h-4 text-gray-500" />
-                                </button>
-                                <button
-                                  onClick={() => removeIdeaPrompt(idx)}
-                                  className="p-1 rounded hover:bg-red-50"
-                                  title="删除"
-                                >
-                                  <Trash2 className="w-4 h-4 text-red-600" />
+                              <button
+                                onClick={() => moveIdeaPrompt(idx, -1)}
+                                disabled={idx === 0}
+                                aria-label="上移 Prompt"
+                                className="p-1 rounded hover:bg-gray-100 disabled:opacity-40 disabled:hover:bg-transparent"
+                                title="上移"
+                              >
+                                <ChevronUp className="w-4 h-4 text-gray-500" />
+                              </button>
+                              <button
+                                onClick={() => moveIdeaPrompt(idx, 1)}
+                                disabled={idx === ideaPreviewPrompts.length - 1}
+                                aria-label="下移 Prompt"
+                                className="p-1 rounded hover:bg-gray-100 disabled:opacity-40 disabled:hover:bg-transparent"
+                                title="下移"
+                              >
+                                <ChevronDown className="w-4 h-4 text-gray-500" />
+                              </button>
+                              <button
+                                onClick={() => removeIdeaPrompt(idx)}
+                                aria-label="删除 Prompt"
+                                className="p-1 rounded hover:bg-red-50"
+                                title="删除"
+                              >
+                                <Trash2 className="w-4 h-4 text-red-600" />
                                 </button>
                               </div>
                             </div>
@@ -601,6 +617,7 @@ export function GenerationSection({
                         <h3 className="text-base font-medium text-gray-900">确认生成</h3>
                         <button
                           onClick={() => setShowIdeaConfirmModal(false)}
+                          aria-label="关闭"
                           className="text-gray-400 hover:text-gray-600"
                         >
                           <X className="w-5 h-5" />
@@ -702,8 +719,9 @@ export function GenerationSection({
                   </div>
 
                   <div className="mt-3">
-                    <label className="block text-xs text-gray-500 mb-2">选择比例</label>
+                    <label htmlFor="agent-aspect" className="block text-xs text-gray-500 mb-2">选择比例</label>
                     <select
+                      id="agent-aspect"
                       value={ideaConfig.aspectRatio}
                       onChange={(e) => setIdeaConfig({ ...ideaConfig, aspectRatio: e.target.value as IdeaConfig['aspectRatio'] })}
                       className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -715,8 +733,9 @@ export function GenerationSection({
                   </div>
 
                   <div className="mt-3">
-                    <label className="block text-xs text-gray-500 mb-2">图像模型</label>
+                    <label htmlFor="agent-model" className="block text-xs text-gray-500 mb-2">图像模型</label>
                     <select
+                      id="agent-model"
                       value={ideaConfig.model}
                       onChange={(e) => setIdeaConfig({ ...ideaConfig, model: e.target.value as IdeaConfig['model'] })}
                       className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -791,7 +810,10 @@ export function GenerationSection({
                         <button className="flex-1 px-2 py-1 text-xs bg-yellow-50 text-yellow-700 rounded hover:bg-yellow-100">
                           {task.status === 'active' ? '暂停' : '启动'}
                         </button>
-                        <button className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded">
+                        <button
+                          aria-label="删除任务"
+                          className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded"
+                        >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
@@ -814,6 +836,7 @@ export function GenerationSection({
                         setShowTaskForm(false);
                         setEditingTask(null);
                       }}
+                      aria-label="关闭"
                       className="text-gray-400 hover:text-gray-600"
                     >
                       <X className="w-5 h-5" />
@@ -822,10 +845,11 @@ export function GenerationSection({
 
                   <div className="p-6 space-y-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                      <label htmlFor="task-name" className="block text-sm font-medium text-gray-700 mb-2">
                         任务名称 <span className="text-red-500">*</span>
                       </label>
                       <input
+                        id="task-name"
                         type="text"
                         defaultValue={editingTask?.name || ''}
                         placeholder="例如：防晒主题每日内容"
@@ -834,10 +858,11 @@ export function GenerationSection({
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                      <label htmlFor="task-schedule" className="block text-sm font-medium text-gray-700 mb-2">
                         执行计划 <span className="text-red-500">*</span>
                       </label>
                       <input
+                        id="task-schedule"
                         type="text"
                         defaultValue={editingTask?.schedule || ''}
                         placeholder="例如：每日 09:00"
@@ -850,8 +875,9 @@ export function GenerationSection({
 
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">内容目标</label>
+                        <label htmlFor="task-goal" className="block text-sm font-medium text-gray-700 mb-2">内容目标</label>
                         <select
+                          id="task-goal"
                           defaultValue={editingTask?.config.goal || 'collects'}
                           className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
                         >
@@ -862,8 +888,9 @@ export function GenerationSection({
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">生成数量</label>
+                        <label htmlFor="task-output-count" className="block text-sm font-medium text-gray-700 mb-2">生成数量</label>
                         <input
+                          id="task-output-count"
                           type="number"
                           defaultValue={editingTask?.config.outputCount || 5}
                           min={1}
@@ -874,8 +901,9 @@ export function GenerationSection({
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">目标受众</label>
+                      <label htmlFor="task-persona" className="block text-sm font-medium text-gray-700 mb-2">目标受众</label>
                       <input
+                        id="task-persona"
                         type="text"
                         defaultValue={editingTask?.config.persona || ''}
                         placeholder="例如：学生党、职场女性"
@@ -884,8 +912,9 @@ export function GenerationSection({
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">内容语气</label>
+                      <label htmlFor="task-tone" className="block text-sm font-medium text-gray-700 mb-2">内容语气</label>
                       <input
+                        id="task-tone"
                         type="text"
                         defaultValue={editingTask?.config.tone || ''}
                         placeholder="例如：干货/亲和"
@@ -895,8 +924,9 @@ export function GenerationSection({
 
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">提示词模板</label>
+                        <label htmlFor="task-prompt-profile" className="block text-sm font-medium text-gray-700 mb-2">提示词模板</label>
                         <select
+                          id="task-prompt-profile"
                           defaultValue={editingTask?.config.promptProfileId || '1'}
                           className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
                         >
@@ -907,8 +937,9 @@ export function GenerationSection({
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">图像模型</label>
+                        <label htmlFor="task-image-model" className="block text-sm font-medium text-gray-700 mb-2">图像模型</label>
                         <select
+                          id="task-image-model"
                           defaultValue={editingTask?.config.imageModel || 'nanobanana'}
                           className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
                         >
@@ -919,8 +950,9 @@ export function GenerationSection({
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">最低质量分</label>
+                      <label htmlFor="task-min-quality" className="block text-sm font-medium text-gray-700 mb-2">最低质量分</label>
                       <input
+                        id="task-min-quality"
                         type="number"
                         defaultValue={editingTask?.config.minQualityScore || 70}
                         min={0}

@@ -26,33 +26,30 @@ export function MaterialGallery({
     return (
         <div className="border-t border-gray-200 bg-gray-50">
             {/* 标题栏 */}
-            <div
-                className="flex items-center justify-between px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors"
-                onClick={() => setIsExpanded(!isExpanded)}
-            >
-                <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-700">素材库</span>
+            <div className="flex items-center justify-between px-4 py-2">
+                <button
+                    type="button"
+                    onClick={() => setIsExpanded(!isExpanded)}
+                    className="flex items-center gap-2 text-sm font-medium text-gray-700 hover:text-gray-900"
+                >
+                    <span>素材库</span>
                     <span className="px-1.5 py-0.5 bg-gray-200 text-gray-600 rounded text-xs">
                         {packages.length}
                     </span>
-                </div>
-                <div className="flex items-center gap-2">
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onViewAll?.();
-                        }}
-                        className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1"
-                    >
-                        查看全部
-                        <ExternalLink className="w-3 h-3" />
-                    </button>
                     {isExpanded ? (
-                        <ChevronDown className="w-4 h-4 text-gray-400" />
+                        <ChevronDown className="w-4 h-4 text-gray-400" aria-hidden="true" />
                     ) : (
-                        <ChevronUp className="w-4 h-4 text-gray-400" />
+                        <ChevronUp className="w-4 h-4 text-gray-400" aria-hidden="true" />
                     )}
-                </div>
+                </button>
+                <button
+                    type="button"
+                    onClick={() => onViewAll?.()}
+                    className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                >
+                    查看全部
+                    <ExternalLink className="w-3 h-3" aria-hidden="true" />
+                </button>
             </div>
 
             {/* 素材卡片列表 */}
@@ -60,10 +57,11 @@ export function MaterialGallery({
                 <div className="px-4 pb-3 overflow-x-auto">
                     <div className="flex gap-3" style={{ minWidth: "max-content" }}>
                         {displayPackages.map((pkg) => (
-                            <div
+                            <button
+                                type="button"
                                 key={pkg.id}
                                 onClick={() => onSelect?.(pkg)}
-                                className="w-32 flex-shrink-0 bg-white rounded-lg border border-gray-200 overflow-hidden cursor-pointer hover:shadow-md transition-shadow"
+                                className="w-32 flex-shrink-0 bg-white rounded-lg border border-gray-200 overflow-hidden text-left hover:shadow-md transition-shadow"
                             >
                                 {/* 缩略图 */}
                                 <div className="aspect-[3/4] bg-gray-100">
@@ -71,6 +69,8 @@ export function MaterialGallery({
                                         <img
                                             src={pkg.coverImage}
                                             alt={pkg.titles?.[pkg.selectedTitleIndex] || "素材"}
+                                            width={128}
+                                            height={170}
                                             className="w-full h-full object-cover"
                                             loading="lazy"
                                         />
@@ -86,14 +86,15 @@ export function MaterialGallery({
                                         {pkg.titles?.[pkg.selectedTitleIndex] || "未命名"}
                                     </div>
                                 </div>
-                            </div>
+                            </button>
                         ))}
 
                         {/* 查看更多按钮 */}
                         {packages.length > 10 && (
-                            <div
+                            <button
+                                type="button"
                                 onClick={onViewAll}
-                                className="w-32 flex-shrink-0 bg-gray-100 rounded-lg border border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:bg-gray-200 transition-colors"
+                                className="w-32 flex-shrink-0 bg-gray-100 rounded-lg border border-dashed border-gray-300 flex items-center justify-center hover:bg-gray-200 transition-colors"
                             >
                                 <div className="text-center">
                                     <div className="text-sm text-gray-500">
@@ -101,7 +102,7 @@ export function MaterialGallery({
                                     </div>
                                     <div className="text-xs text-gray-400">更多素材</div>
                                 </div>
-                            </div>
+                            </button>
                         )}
                     </div>
                 </div>
