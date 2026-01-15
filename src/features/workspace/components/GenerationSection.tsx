@@ -150,6 +150,29 @@ export function GenerationSection({
     };
   }, [ideaContentPackage]);
 
+  const handleCreateScheduleFromResult = () => {
+    if (!ideaResultPackage) return;
+    setEditingTask({
+      id: 'new',
+      name: `${ideaResultPackage.titles[0] || '内容生成'} 定时任务`,
+      schedule: '每日 09:00',
+      config: {
+        goal: ideaConfig.goal,
+        persona: ideaConfig.persona,
+        tone: ideaConfig.tone,
+        promptProfileId: promptProfiles[0]?.id || '1',
+        imageModel: ideaConfig.model,
+        outputCount: ideaConfig.count,
+        minQualityScore: 70,
+      },
+      status: 'paused',
+      nextRunAt: new Date().toISOString(),
+      totalRuns: 0,
+      successfulRuns: 0,
+    });
+    setShowTaskForm(true);
+  };
+
   const featureCards = [
     { title: '无限画布', desc: '灵感无界 · 自由创作', icon: Sparkles },
     { title: '图片生成', desc: '智能美学提升', icon: Wand2 },
@@ -356,10 +379,23 @@ export function GenerationSection({
                       </div>
                     )}
 
-                    {ideaResultPackage && (
+                    {ideaResultPackage ? (
                       <div className="p-3 bg-white border border-gray-200 rounded-lg">
                         <div className="text-sm font-medium text-gray-800 mb-2">生成结果</div>
-                        <ContentResultCard pkg={ideaResultPackage} />
+                        <ContentResultCard
+                          pkg={ideaResultPackage}
+                          onCreateSchedule={() => handleCreateScheduleFromResult()}
+                        />
+                      </div>
+                    ) : (
+                      <div className="p-3 bg-gray-50 border border-dashed border-gray-200 rounded-lg text-xs text-gray-500 flex items-center justify-between">
+                        <span>生成完成后可创建定时任务</span>
+                        <button
+                          className="px-2 py-1 text-xs rounded bg-gray-200 text-gray-400 cursor-not-allowed"
+                          disabled
+                        >
+                          定时发布
+                        </button>
                       </div>
                     )}
                   </div>
