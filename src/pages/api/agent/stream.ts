@@ -10,9 +10,33 @@ import { getTagStats, getTopTitles, getLatestTrendReport } from "@/server/servic
 import { enqueueGeneration } from "@/server/services/xhs/llm/generationQueue";
 import { getAgentPrompt } from "@/server/services/xhs/llm/agentPromptService";
 import { createTrace, logGeneration, logSpan, flushLangfuse } from "@/server/services/langfuseService";
+import { createCreative } from "@/server/services/xhs/data/creativeService";
 
 // 图片生成目标数量（可配置）
 const IMAGE_TARGET = 3;
+
+// 解析 writer_agent 生成的内容
+function parseWriterContent(content: string): { title: string; body: string; tags: string[] } {
+  // 提取标题 (支持多种格式)
+  const titleMatch = content.match(/(?:📌\s*)?标题[：:]\s*(.+?)(?:\n|$)/);
+  const title = titleMatch?.[1]?.trim() || "AI 生成内容";
+
+  // 提取标签
+  const tagMatch = content.match(/(?:🏷️\s*)?标签[：:]\s*(.+?)(?:\n|$)/);
+  const tagsStr = tagMatch?.[1] || "";
+  const tags = tagsStr.match(/#[\w\u4e00-\u9fa5]+/g)?.map(t => t.slice(1)) || [];
+
+  // 提取正文 (标题和标签之间的内容)
+  let body = content;
+  if (titleMatch) {
+    body = content.slice(content.indexOf(titleMatch[0]) + titleMatch[0].length);
+  }
+  if (tagMatch) {
+    body = body.slice(0, body.indexOf(tagMatch[0])).trim();
+  }
+
+  return { title, body: body.trim() || content, tags };
+}
 
 // 过滤消息，移除 tool messages 和带 tool_calls 的 AI messages，只保留纯文本对话
 function filterMessagesForAgent(messages: BaseMessage[]): BaseMessage[] {
@@ -139,7 +163,7 @@ const getTrendReportTool = tool(
   }
 );
 
-const generateImageTool = tool(
+const generateImageTool = (creativeIdRef: { current?: number }) => tool(
   async ({ prompt, style = "realistic" }) => {
     const stylePrompts: Record<string, string> = {
       realistic: "realistic photo style, high quality",
@@ -147,7 +171,7 @@ const generateImageTool = tool(
       minimalist: "minimalist design, clean, simple",
     };
     const finalPrompt = `${prompt}, ${stylePrompts[style] || stylePrompts.realistic}, suitable for xiaohongshu cover`;
-    const task = await enqueueGeneration({ prompt: finalPrompt });
+    const task = await enqueueGeneration({ prompt: finalPrompt, creativeId: creativeIdRef.current });
     return JSON.stringify({ taskId: task.id, status: "queued", message: "图片生成任务已加入队列" });
   },
   {
@@ -189,10 +213,10 @@ const AgentState = Annotation.Root({
 
 // 研究工具
 const researchTools = [searchNotesTool, analyzeTagsTool, getTopTitlesTool, getTrendReportTool];
-const imageTools = [generateImageTool];
 
 // 创建多 Agent 系统
-async function createMultiAgentSystem() {
+async function createMultiAgentSystem(creativeIdRef: { current?: number }) {
+  const imageTools = [generateImageTool(creativeIdRef)];
   const config = await getLLMConfig();
 
   const model = new ChatOpenAI({
@@ -380,11 +404,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   // 设置 SSE 响应头
   res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");  // 禁用 nginx 缓冲
 
   const sendEvent = (event: AgentEvent) => {
     res.write(`data: ${JSON.stringify(event)}\n\n`);
+    // 强制刷新缓冲区
+    if (typeof (res as any).flush === "function") {
+      (res as any).flush();
+    }
   };
 
   // 创建 Langfuse trace
@@ -395,8 +424,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   });
   const traceId = trace?.id;
 
+  // 用于在 writer_agent 创建 creative 后传递给 image_agent
+  const creativeIdRef: { current?: number } = { current: undefined };
+
+  // 立即发送连接确认，确保流式开始
+  sendEvent({
+    type: "agent_start",
+    agent: "supervisor",
+    content: "🚀 开始处理请求...",
+    timestamp: Date.now(),
+  });
+
   try {
-    const app = await createMultiAgentSystem();
+    const app = await createMultiAgentSystem(creativeIdRef);
 
     const contextMessage = themeId
       ? `[当前主题ID: ${themeId}] ${message}`
@@ -471,6 +511,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 startTime: nodeStartTime,
                 endTime: new Date(),
               });
+
+              // 保存 writer_agent 生成的内容到数据库
+              if (nodeName === "writer_agent" && themeId) {
+                try {
+                  const parsed = parseWriterContent(msg.content);
+                  const creative = await createCreative({
+                    themeId,
+                    title: parsed.title,
+                    content: parsed.body,
+                    tags: parsed.tags.join(","),
+                    status: "draft",
+                    model: "agent",
+                    prompt: message,
+                  });
+                  // 保存 creativeId 供 image_agent 使用
+                  creativeIdRef.current = creative.id;
+                } catch (saveError) {
+                  console.error("Failed to save creative:", saveError);
+                }
+              }
             }
           }
         }

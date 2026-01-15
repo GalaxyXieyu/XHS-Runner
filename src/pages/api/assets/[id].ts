@@ -46,10 +46,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   const absolutePath = path.resolve(asset.path);
-  const assetsDir = path.resolve(resolveUserDataPath('assets'));
+  // 允许访问的目录列表
+  const allowedDirs = [
+    path.resolve(resolveUserDataPath('assets')),
+    path.resolve(process.cwd(), 'assets'),
+  ];
 
-  // 仅允许访问 userData/assets 目录下的文件，避免任意文件读取
-  if (absolutePath !== assetsDir && !absolutePath.startsWith(`${assetsDir}${path.sep}`)) {
+  // 仅允许访问允许目录下的文件，避免任意文件读取
+  const isAllowed = allowedDirs.some(dir =>
+    absolutePath === dir || absolutePath.startsWith(`${dir}${path.sep}`)
+  );
+  if (!isAllowed) {
     return res.status(403).json({ error: 'Invalid asset path' });
   }
 

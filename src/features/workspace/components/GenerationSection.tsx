@@ -19,7 +19,6 @@ import {
 import type { Theme } from '@/App';
 import { AgentCreator } from '@/features/agent/components/AgentCreator';
 import { ContentResultCard } from '@/features/material-library/components/ContentResultCard';
-import { MaterialGallery } from '@/features/material-library/components/MaterialGallery';
 import type { ContentPackage } from '@/features/material-library/types';
 import type { AutoTask } from '@/features/task-management/types';
 
@@ -917,16 +916,6 @@ export function GenerationSection({
       </div>
       )}
 
-      {/* 底部素材库预览 */}
-      {allPackages.length > 0 && (
-        <div className="mt-3">
-          <MaterialGallery
-            packages={allPackages}
-            onViewAll={() => setMainTab('library')}
-            onSelect={(pkg) => setEditingPackage(pkg)}
-          />
-        </div>
-      )}
     </div>
   );
 }

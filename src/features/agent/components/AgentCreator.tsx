@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import type { Theme } from "@/App";
-import { Bot, Send, User, X, Wand2, Paperclip, ChevronDown, Image } from "lucide-react";
+import { Bot, Send, X, Wand2, Paperclip, ChevronDown, Image, RefreshCw, Download, Copy, MoreHorizontal } from "lucide-react";
 import type { AgentEvent, ChatMessage } from "../types";
+import type { ContentPackage } from "@/features/material-library/types";
 
 type AspectRatio = "3:4" | "1:1" | "4:3";
 type ImageModel = "nanobanana" | "jimeng";
@@ -47,6 +48,7 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [showEvents, setShowEvents] = useState(false);
+  const [streamPhase, setStreamPhase] = useState<string>("");  // 当前阶段提示
   const [showCustomForm, setShowCustomForm] = useState(false);
   const [mode, setMode] = useState<Mode>("agent");
   const [customConfig, setCustomConfig] = useState<CustomConfig>({
@@ -62,8 +64,43 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
   });
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const eventsEndRef = useRef<HTMLDivElement>(null);
+  const [packages, setPackages] = useState<ContentPackage[]>([]);
 
   const hasMessages = messages.length > 0 || isStreaming;
+
+  // 获取素材库数据
+  const fetchPackages = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/creatives?themeId=${theme.id}&withAssets=true&limit=12`);
+      if (res.ok) {
+        const data = await res.json();
+        // 转换 API 返回格式为 ContentPackage
+        const mapped: ContentPackage[] = (Array.isArray(data) ? data : []).map((item: { creative: { id: number; title?: string; content?: string; tags?: string; status?: string; createdAt?: string }; assets?: { id: number }[] }) => ({
+          id: String(item.creative.id),
+          titles: item.creative.title ? [item.creative.title] : ["未命名"],
+          selectedTitleIndex: 0,
+          content: item.creative.content || "",
+          tags: item.creative.tags?.split(",").filter(Boolean) || [],
+          coverImage: item.assets?.[0]?.id ? `/api/assets/${item.assets[0].id}` : undefined,
+          qualityScore: 0,
+          predictedMetrics: { likes: 0, collects: 0, comments: 0 },
+          rationale: "",
+          status: (item.creative.status as "draft" | "published" | "archived") || "draft",
+          createdAt: item.creative.createdAt || new Date().toISOString(),
+          source: "agent",
+          sourceName: "Agent 生成",
+        }));
+        setPackages(mapped);
+      }
+    } catch (error) {
+      console.error("Failed to fetch packages:", error);
+    }
+  }, [theme.id]);
+
+  // 初始加载素材
+  useEffect(() => {
+    fetchPackages();
+  }, [fetchPackages]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -81,6 +118,7 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
     setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
     setEvents([]);
     setIsStreaming(true);
+    setStreamPhase("正在规划任务...");
 
     try {
       const response = await fetch("/api/agent/stream", {
@@ -110,6 +148,7 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
               const event: AgentEvent = JSON.parse(data);
               collectedEvents.push(event);
               setEvents([...collectedEvents]);
+              updatePhase(event);  // 更新阶段提示
 
               if (event.type === "message" && event.content) {
                 assistantContent += (assistantContent ? "\n\n" : "") + event.content;
@@ -141,6 +180,9 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
       ]);
     } finally {
       setIsStreaming(false);
+      setStreamPhase("");  // 清除阶段提示
+      // 生成完成后刷新素材库
+      fetchPackages();
     }
   };
 
@@ -162,6 +204,23 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
       case "writer_agent": return "text-emerald-700 bg-emerald-50 border border-emerald-100";
       case "image_agent": return "text-orange-700 bg-orange-50 border border-orange-100";
       default: return "text-gray-600 bg-gray-50 border border-gray-100";
+    }
+  };
+
+  // 根据事件更新阶段提示
+  const updatePhase = (event: AgentEvent) => {
+    if (event.type === "agent_start") {
+      switch (event.agent) {
+        case "research_agent": setStreamPhase("正在检索相关内容..."); break;
+        case "writer_agent": setStreamPhase("正在创作文案..."); break;
+        case "image_agent": setStreamPhase("正在生成图片..."); break;
+        case "supervisor": setStreamPhase("正在规划任务..."); break;
+      }
+    } else if (event.type === "tool_call") {
+      if (event.tool === "search_notes") setStreamPhase("搜索相关笔记...");
+      else if (event.tool === "analyze_tags") setStreamPhase("分析热门标签...");
+      else if (event.tool === "get_top_titles") setStreamPhase("获取爆款标题...");
+      else if (event.tool === "generate_image") setStreamPhase("生成封面图...");
     }
   };
 
@@ -208,7 +267,6 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
         >
           <Bot className="w-4 h-4" />
           Agent 模式
-          {mode === "agent" && <ChevronDown className="w-3.5 h-3.5" />}
         </button>
         <button
           onClick={() => { setMode("custom"); setShowCustomForm(!showCustomForm); }}
@@ -351,36 +409,48 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
                 <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
                   <Image className="w-4 h-4" />
                   <span>灵感素材</span>
+                  {packages.length > 0 && (
+                    <span className="px-1.5 py-0.5 bg-gray-200 text-gray-600 rounded text-xs">{packages.length}</span>
+                  )}
                 </div>
                 <button className="text-xs text-blue-500 hover:text-blue-600 font-medium">查看更多 →</button>
               </div>
-              {/* 素材网格 - 一行4个 */}
+              {/* 素材网格 - 真实数据或空状态 */}
               <div className="grid grid-cols-4 gap-4">
-                {[
-                  { color: "from-rose-200 to-pink-300", label: "美妆护肤" },
-                  { color: "from-amber-200 to-orange-300", label: "美食探店" },
-                  { color: "from-emerald-200 to-teal-300", label: "穿搭分享" },
-                  { color: "from-blue-200 to-indigo-300", label: "旅行攻略" },
-                  { color: "from-purple-200 to-violet-300", label: "家居好物" },
-                  { color: "from-cyan-200 to-sky-300", label: "数码科技" },
-                  { color: "from-pink-200 to-rose-300", label: "宠物日常" },
-                  { color: "from-lime-200 to-green-300", label: "健身运动" },
-                  { color: "from-orange-200 to-red-300", label: "职场干货" },
-                  { color: "from-indigo-200 to-purple-300", label: "学习笔记" },
-                  { color: "from-teal-200 to-cyan-300", label: "摄影技巧" },
-                  { color: "from-yellow-200 to-amber-300", label: "手工DIY" },
-                ].map((item, i) => (
-                  <div key={i} className="group cursor-pointer">
-                    <div className={`aspect-[3/4] rounded-2xl bg-gradient-to-br ${item.color} mb-2 overflow-hidden relative shadow-sm group-hover:shadow-lg group-hover:scale-[1.02] transition-all`}>
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="w-14 h-14 rounded-full bg-white/30 backdrop-blur-sm flex items-center justify-center">
-                          <Image className="w-7 h-7 text-white/80" />
-                        </div>
+                {packages.length > 0 ? (
+                  packages.slice(0, 12).map((pkg) => (
+                    <div key={pkg.id} className="group cursor-pointer">
+                      <div className="aspect-[3/4] rounded-2xl bg-gray-100 mb-2 overflow-hidden relative shadow-sm group-hover:shadow-lg group-hover:scale-[1.02] transition-all">
+                        {pkg.coverImage ? (
+                          <img
+                            src={pkg.coverImage}
+                            alt={pkg.titles?.[pkg.selectedTitleIndex] || "素材"}
+                            className="w-full h-full object-cover"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-200 to-gray-300">
+                            <div className="w-14 h-14 rounded-full bg-white/30 backdrop-blur-sm flex items-center justify-center">
+                              <Image className="w-7 h-7 text-white/80" />
+                            </div>
+                          </div>
+                        )}
                       </div>
+                      <p className="text-sm text-gray-600 text-center font-medium line-clamp-2">
+                        {pkg.titles?.[pkg.selectedTitleIndex] || "未命名"}
+                      </p>
                     </div>
-                    <p className="text-sm text-gray-600 text-center font-medium">{item.label}</p>
+                  ))
+                ) : (
+                  // 空状态 - 显示引导
+                  <div className="col-span-4 py-12 text-center">
+                    <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-100 flex items-center justify-center">
+                      <Image className="w-8 h-8 text-gray-300" />
+                    </div>
+                    <p className="text-sm text-gray-500 mb-2">还没有创作内容</p>
+                    <p className="text-xs text-gray-400">在上方输入框描述你想创作的内容，AI 将为你生成</p>
                   </div>
-                ))}
+                )}
               </div>
             </div>
           </div>
@@ -392,60 +462,80 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
         <>
           {/* 顶部工具栏 - 简洁风格 */}
           <div className="flex items-center justify-between px-6 py-3 border-b border-gray-100 bg-white">
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2 text-sm text-gray-600">
-                <Bot className="w-4 h-4" />
-                <span>{mode === "agent" ? "Agent 模式" : "自定义模式"}</span>
-              </div>
-              <span className="text-gray-300">·</span>
-              <span className="text-xs text-gray-400">{theme.name}</span>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-gray-700">{mode === "agent" ? "Agent 模式" : "自定义模式"}</span>
+              <span className="text-xs text-gray-400 px-2 py-0.5 bg-gray-100 rounded-full">{theme.name}</span>
             </div>
             <button
               onClick={() => setShowEvents(!showEvents)}
-              className={`px-3 py-1.5 text-xs rounded-lg transition-colors ${showEvents ? "bg-gray-100 text-gray-700" : "text-gray-500 hover:bg-gray-50"}`}
+              className={`px-3 py-1.5 text-xs rounded-full transition-colors ${showEvents ? "bg-orange-50 text-orange-600" : "text-gray-500 hover:bg-gray-50"}`}
             >
-              {showEvents ? "隐藏过程" : "显示过程"}
+              {showEvents ? "隐藏过程" : "查看过程"}
             </button>
           </div>
 
           {/* 消息区域 */}
           <div className="flex-1 flex overflow-hidden">
-            <div className={`flex-1 overflow-y-auto px-6 py-5 space-y-5 ${showEvents ? "mr-0" : ""}`}>
+            <div className={`flex-1 overflow-y-auto px-6 py-5 space-y-6 ${showEvents ? "mr-0" : ""}`}>
               {messages.map((msg, idx) => (
-                <div key={idx} className={`flex gap-3 ${msg.role === "user" ? "justify-end" : ""}`}>
-                  {msg.role !== "user" && (
-                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center flex-shrink-0 shadow-sm">
-                      <Bot className="w-5 h-5 text-white" />
+                <div key={idx} className="space-y-4">
+                  {/* 用户消息 - 橙色背景风格 */}
+                  {msg.role === "user" && (
+                    <div className="flex justify-start">
+                      <div className="max-w-[85%] rounded-2xl px-5 py-4 bg-gradient-to-r from-orange-400 to-amber-400 text-white shadow-sm">
+                        <div className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div>
+                      </div>
                     </div>
                   )}
-                  <div
-                    className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${msg.role === "user"
-                      ? "bg-gray-900 text-white"
-                      : "bg-white border border-gray-200 text-gray-800 shadow-sm"
-                      }`}
-                  >
-                    <div className="whitespace-pre-wrap">{msg.content}</div>
-                  </div>
-                  {msg.role === "user" && (
-                    <div className="w-9 h-9 rounded-xl bg-gray-900 flex items-center justify-center flex-shrink-0">
-                      <User className="w-5 h-5 text-white" />
+
+                  {/* AI 消息 - 卡片风格 */}
+                  {msg.role === "assistant" && (
+                    <div className="space-y-4">
+                      {/* 流式进度提示 - 只在当前消息正在生成时显示 */}
+                      {isStreaming && idx === messages.length - 1 && streamPhase && (
+                        <div className="flex items-center gap-3 px-4 py-3 bg-gray-50/80 rounded-xl">
+                          <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+                          <span className="text-sm text-gray-500">{streamPhase}</span>
+                        </div>
+                      )}
+
+                      {/* AI 文字回复 */}
+                      {msg.content && (
+                        <div className="bg-gray-50 rounded-2xl px-5 py-4">
+                          <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{msg.content}</div>
+                        </div>
+                      )}
+
+                      {/* 操作按钮 - 只在完成后显示 */}
+                      {!isStreaming && (
+                        <div className="flex items-center gap-2">
+                          <button className="flex items-center gap-1.5 px-4 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-full hover:bg-gray-50 hover:border-gray-300 transition-all">
+                            <RefreshCw className="w-4 h-4" />
+                            重新生成
+                          </button>
+                          <button className="flex items-center gap-1.5 px-4 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-full hover:bg-gray-50 hover:border-gray-300 transition-all">
+                            <Copy className="w-4 h-4" />
+                            复制文案
+                          </button>
+                          <button className="flex items-center gap-1.5 px-4 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-full hover:bg-gray-50 hover:border-gray-300 transition-all">
+                            <Download className="w-4 h-4" />
+                            下载图片
+                          </button>
+                          <button className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-all">
+                            <MoreHorizontal className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
               ))}
 
+              {/* 加载状态 - 轻量进度提示 */}
               {isStreaming && messages[messages.length - 1]?.role !== "assistant" && (
-                <div className="flex gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center animate-pulse">
-                    <Bot className="w-5 h-5 text-white" />
-                  </div>
-                  <div className="bg-white border border-gray-200 rounded-2xl px-4 py-3 shadow-sm">
-                    <div className="flex gap-1.5">
-                      <span className="w-2 h-2 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                      <span className="w-2 h-2 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                      <span className="w-2 h-2 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-                    </div>
-                  </div>
+                <div className="flex items-center gap-3 px-4 py-3 bg-gray-50/80 rounded-xl">
+                  <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+                  <span className="text-sm text-gray-500">{streamPhase || "AI 正在创作中..."}</span>
                 </div>
               )}
               <div ref={messagesEndRef} />
@@ -484,10 +574,25 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
             )}
           </div>
 
-          {/* 底部输入框 */}
-          <div className="border-t border-gray-100 bg-white p-4">
-            <div className="max-w-3xl mx-auto">
-              <InputBox />
+          {/* 底部输入框 - 紧凑版 */}
+          <div className="bg-white px-4 py-3">
+            <div className="max-w-3xl mx-auto flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-2.5">
+              <input
+                type="text"
+                value={requirement}
+                onChange={(e) => setRequirement(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSubmit()}
+                placeholder="继续对话..."
+                className="flex-1 text-sm text-gray-700 placeholder:text-gray-400 bg-transparent focus:outline-none"
+                disabled={isStreaming}
+              />
+              <button
+                onClick={handleSubmit}
+                disabled={isStreaming || !requirement.trim()}
+                className="w-8 h-8 rounded-lg bg-gray-900 text-white flex items-center justify-center hover:bg-gray-800 disabled:opacity-40 transition-colors"
+              >
+                <Send className="w-4 h-4" />
+              </button>
             </div>
           </div>
         </>

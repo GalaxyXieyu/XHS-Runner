@@ -281,6 +281,7 @@ async function handleTask(taskId: number) {
 export async function enqueueGeneration(payload: {
   themeId?: number;
   topicId?: number;
+  creativeId?: number;
   prompt: string;
   templateKey?: string;
   model?: ImageModel;

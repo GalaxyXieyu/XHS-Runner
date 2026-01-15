@@ -31,8 +31,8 @@ export function getUserDataPath(): string {
   if (electronPath) {
     return electronPath;
   }
-  // 纯 Next.js 环境：使用项目根目录下的 .xhs-data
-  return path.join(process.cwd(), '.xhs-data');
+  // 纯 Next.js 环境：使用项目根目录
+  return process.cwd();
 }
 
 export function resolveUserDataPath(...segments: string[]): string {
