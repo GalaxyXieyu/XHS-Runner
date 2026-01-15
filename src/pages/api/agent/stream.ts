@@ -1,6 +1,6 @@
 import { NextApiRequest, NextApiResponse } from "next";
 import { StateGraph, Annotation, END, START } from "@langchain/langgraph";
-import { BaseMessage, HumanMessage, AIMessage } from "@langchain/core/messages";
+import { BaseMessage, HumanMessage, AIMessage, ToolMessage } from "@langchain/core/messages";
 import { ChatOpenAI } from "@langchain/openai";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { tool } from "@langchain/core/tools";
@@ -8,6 +8,15 @@ import { z } from "zod";
 import { supabase } from "@/server/supabase";
 import { getTagStats, getTopTitles, getLatestTrendReport } from "@/server/services/xhs/analytics/insightService";
 import { enqueueGeneration } from "@/server/services/xhs/llm/generationQueue";
+
+// 过滤消息，移除 tool messages 和带 tool_calls 的 AI messages，只保留纯文本对话
+function filterMessagesForAgent(messages: BaseMessage[]): BaseMessage[] {
+  return messages.filter((msg) => {
+    if (msg instanceof ToolMessage) return false;
+    if (msg instanceof AIMessage && msg.tool_calls?.length) return false;
+    return true;
+  });
+}
 
 // Agent 执行事件类型
 interface AgentEvent {
@@ -196,8 +205,8 @@ async function createMultiAgentSystem() {
 工作流程：
 1. 如果还没有研究数据，先派 research_agent 去研究
 2. 研究完成后，派 writer_agent 创作内容
-3. 内容创作完成后，询问用户是否需要生成图片
-4. 如果用户需要图片，派 image_agent 生成
+3. 内容创作完成后，派 image_agent 生成封面图
+4. 图片生成完成后结束
 
 当前状态：
 - 研究完成: ${state.researchComplete}
@@ -251,9 +260,10 @@ REASON: [简短说明原因]`;
 - 正文要有干货，分点阐述，适当使用emoji
 - 标签要覆盖热门词和长尾词`;
 
+    const filteredMessages = filterMessagesForAgent(state.messages);
     const response = await model.invoke([
       new HumanMessage(systemPrompt),
-      ...state.messages.slice(-15),
+      ...filteredMessages.slice(-10),
     ]);
 
     return {
@@ -267,16 +277,25 @@ REASON: [简短说明原因]`;
   const imageAgentNode = async (state: typeof AgentState.State) => {
     const modelWithTools = model.bindTools(imageTools);
 
-    const systemPrompt = `你是小红书封面图设计专家。根据之前创作的内容生成合适的封面图：
+    const systemPrompt = `你是小红书封面图设计专家。根据之前创作的内容生成封面图。
 
-要求：
-- 提示词要具体描述画面内容
-- 选择合适的风格（realistic/illustration/minimalist）
-- 确保图片适合小红书封面展示`;
+生成规则：
+1. 必须生成 3 张不同风格的封面图供用户选择
+2. 第1张：realistic 风格 - 真实感强，适合教程类
+3. 第2张：illustration 风格 - 插画风，适合分享类
+4. 第3张：minimalist 风格 - 简约风，适合干货类
 
+提示词要求：
+- 具体描述画面主体、场景、光线、构图
+- 包含小红书封面特点：竖版构图、视觉冲击力强
+- 每张图的提示词要有差异化
+
+请依次调用 3 次 generate_image 工具生成图片。`;
+
+    const filteredMessages = filterMessagesForAgent(state.messages);
     const response = await modelWithTools.invoke([
       new HumanMessage(systemPrompt),
-      ...state.messages.slice(-10),
+      ...filteredMessages.slice(-10),
     ]);
 
     return {

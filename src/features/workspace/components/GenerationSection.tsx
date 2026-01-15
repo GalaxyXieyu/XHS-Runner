@@ -1,6 +1,7 @@
 import type { Dispatch, SetStateAction } from 'react';
 import {
   AlertCircle,
+  ArrowUp,
   Bot,
   Calendar,
   Check,
@@ -117,13 +118,27 @@ export function GenerationSection({
   setMainTab,
   setEditingPackage,
 }: GenerationSectionProps) {
+  const showDefaultLanding = generateMode === 'oneClick'
+    && ideaCreativeId === null
+    && !ideaConfig.idea.trim();
+
+  const featureCards = [
+    { title: '无限画布', desc: '灵感无界 · 自由创作', icon: Sparkles },
+    { title: '图片生成', desc: '智能美学提升', icon: Wand2 },
+    { title: '视频生成', desc: '支持音画同步', icon: RefreshCw },
+    { title: '数字人', desc: '大师级拟真', icon: Bot },
+    { title: '动作模仿', desc: '灵感更灵动', icon: Sparkles },
+  ];
+
   return (
     <div className="flex gap-3 h-full">
       {/* 右侧主内容区 */}
       <div className="flex-1 bg-white border border-gray-200 rounded overflow-hidden">
         <div className="h-full overflow-y-auto p-6">
           <div className="max-w-3xl mx-auto">
-            <h2 className="text-xl font-medium text-gray-900 mb-6">创建内容生成任务</h2>
+            {!showDefaultLanding && (
+              <h2 className="text-xl font-medium text-gray-900 mb-6">创建内容生成任务</h2>
+            )}
 
             {/* 生成方式选择 - 隐藏，默认使用agent */}
             <div className="mb-6 hidden">
@@ -167,7 +182,77 @@ export function GenerationSection({
               </div>
             </div>
 
-            {generateMode === 'oneClick' && (
+            {showDefaultLanding && (
+              <div className="space-y-6">
+                <div className="text-center text-lg font-medium text-gray-800">
+                  开启你的 <span className="text-sky-500">Agent 模式</span> 即刻造梦！
+                </div>
+
+                <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
+                  <div className="flex gap-4 items-start">
+                    <div className="w-14 h-20 rounded-xl bg-gray-100 flex items-center justify-center text-gray-400 text-xl">
+                      +
+                    </div>
+                    <textarea
+                      value={ideaConfig.idea}
+                      onChange={(e) => setIdeaConfig({ ...ideaConfig, idea: e.target.value })}
+                      placeholder="说说今天想做点什么"
+                      rows={3}
+                      className="flex-1 px-3 py-2 text-sm border border-transparent rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-400"
+                    />
+                    <button
+                      className="w-10 h-10 rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 flex items-center justify-center"
+                      aria-label="发送"
+                    >
+                      <ArrowUp className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="mt-4 flex items-center gap-2 flex-wrap">
+                    <button
+                      onClick={() => setGenerateMode('agent')}
+                      className="px-3 py-1.5 text-xs rounded-full border border-sky-200 text-sky-600 bg-sky-50 hover:bg-sky-100"
+                    >
+                      Agent 模式
+                    </button>
+                    <button
+                      onClick={() => setGenerateMode('oneClick')}
+                      className="px-3 py-1.5 text-xs rounded-full border border-gray-200 text-gray-600 hover:bg-gray-100"
+                    >
+                      自动
+                    </button>
+                    <button className="px-3 py-1.5 text-xs rounded-full border border-gray-200 text-gray-600 hover:bg-gray-100">
+                      灵感搜索
+                    </button>
+                    <button className="px-3 py-1.5 text-xs rounded-full border border-gray-200 text-gray-600 hover:bg-gray-100">
+                      创意设计
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                  {featureCards.map((card) => {
+                    const Icon = card.icon;
+                    return (
+                      <div
+                        key={card.title}
+                        className="bg-white border border-gray-200 rounded-2xl px-4 py-3 flex items-center gap-3"
+                      >
+                        <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500">
+                          <Icon className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <div className="text-sm font-medium text-gray-800">{card.title}</div>
+                          <div className="text-xs text-gray-500">{card.desc}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {generateMode === 'oneClick' && !showDefaultLanding && (
               <div className="space-y-4">
                 {ideaCreativeId !== null && (
                   <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-800 flex items-start gap-2">
