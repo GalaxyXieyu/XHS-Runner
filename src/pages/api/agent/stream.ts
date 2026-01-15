@@ -23,8 +23,8 @@ async function getLLMConfig() {
   const { data } = await supabase
     .from("llm_providers")
     .select("base_url, api_key, model_name")
-    .eq("is_default", true)
-    .eq("is_enabled", true)
+    .eq("is_default", 1)
+    .eq("is_enabled", 1)
     .maybeSingle();
 
   if (data?.base_url && data?.api_key && data?.model_name) {

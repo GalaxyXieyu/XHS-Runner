@@ -37,6 +37,10 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
   const [mainTab, setMainTab] = useState<'generate' | 'library' | 'tasks'>('generate');
   const [generateMode, setGenerateMode] = useState<'oneClick' | 'scheduled' | 'agent'>('oneClick');
   const [taskStatusTab, setTaskStatusTab] = useState<'running' | 'completed' | 'failed'>('running');
+  // UI 状态映射：
+  // - 默认态：generateMode = oneClick 且 ideaCreativeId 为空
+  // - Agent 模式态：generateMode = agent
+  // - 运行态：ideaCreativeId 非空（进入生成/结果流）
 
   // 一键生成配置（= 立即生成，多图 + 可编辑 prompts）
   const [ideaConfig, setIdeaConfig] = useState({
@@ -140,6 +144,13 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
     loadCreatives();
     loadJobs();
   }, [theme.id]);
+
+  // 数据流边界：
+  // - /api/creatives: 内容包列表与运行态轮询数据源
+  // - /api/jobs: 定时任务列表数据源
+  // - /api/generate/preview: 仅生成 prompts 预览
+  // - /api/generate/confirm: 进入生成队列并返回 creativeId/taskIds
+  // 错误处理：统一走 try/catch，设置错误提示状态并记录 console
 
   useEffect(() => {
     if (ideaCreativeId === null) {
