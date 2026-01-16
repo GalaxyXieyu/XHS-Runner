@@ -188,8 +188,8 @@ async function handleTask(taskId: number) {
     .eq('id', taskId);
 
   try {
-    const result = await generateImage({ prompt: task.prompt, model: task.model || 'nanobanana' });
-    const filename = `${task.model || 'nanobanana'}-${task.id}.png`;
+    const result = await generateImage({ prompt: task.prompt, model: task.model || 'jimeng' });
+    const filename = `${task.model || 'jimeng'}-${task.id}.png`;
     const asset = await storeAsset({
       type: 'image',
       filename,

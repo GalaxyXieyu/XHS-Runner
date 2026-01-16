@@ -50,18 +50,23 @@ export class AuthService extends BaseService {
         this.qrCodePage = null;
       }
 
-      // 创建 headless 浏览器页面
-      const page = await this.getBrowserManager().createPage(true, browserPath, true);
+      // 创建 headless 浏览器页面（不加载 cookies，因为要登录）
+      const page = await this.getBrowserManager().createPage(true, browserPath, false);
       this.qrCodePage = page;
       this.qrCodeSessionActive = true;
+
+      // 设置 User-Agent 避免被检测
+      await page.setUserAgent(
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      );
 
       // 直接导航到小红书登录页面
       logger.info('正在导航到小红书登录页面...');
       await page.goto('https://www.xiaohongshu.com/login', {
-        waitUntil: 'networkidle2',
+        waitUntil: 'domcontentloaded',
         timeout: 30000,
       });
-      await sleep(3000);
+      await sleep(2000);
 
       // 检查是否已登录（会自动跳转）
       const currentUrl = page.url();
@@ -76,58 +81,39 @@ export class AuthService extends BaseService {
         };
       }
 
-      // 等待二维码出现 - 小红书登录页面的二维码选择器
+      // 等待二维码出现 - 直接使用已知有效的选择器
       logger.info('等待二维码加载...');
-      const qrCodeSelectors = [
-        // 小红书登录页面常见的二维码选择器
-        '.qrcode-img',
-        '.qrcode-img img',
-        '[class*="qrcode-img"]',
-        '[class*="qrcode"] img',
-        '.css-1v7lkqq img', // 小红书特定类名
-        '.login-qrcode img',
-        'img[class*="qrcode"]',
-        'img[class*="QRCode"]',
-        // 通用选择器
-        'img[src*="qrcode"]',
-        'img[src*="/qr/"]',
-        'canvas',
-      ];
-
       let qrCodeElement = null;
-      for (const selector of qrCodeSelectors) {
-        try {
-          logger.info(`尝试选择器: ${selector}`);
-          await page.waitForSelector(selector, { timeout: 5000 });
-          qrCodeElement = await page.$(selector);
-          if (qrCodeElement) {
-            logger.info(`找到二维码元素: ${selector}`);
-            break;
-          }
-        } catch {
-          continue;
+
+      try {
+        // 小红书登录页面的二维码选择器
+        await page.waitForSelector('.qrcode-img', { timeout: 10000 });
+        qrCodeElement = await page.$('.qrcode-img');
+        if (qrCodeElement) {
+          logger.info('找到二维码元素: .qrcode-img');
         }
+      } catch {
+        logger.info('.qrcode-img 未找到，尝试其他选择器...');
       }
 
-      // 如果还没找到，尝试查找页面上所有图片
+      // 备用选择器
       if (!qrCodeElement) {
-        logger.info('尝试查找页面上的二维码图片...');
-        qrCodeElement = await page.evaluateHandle(() => {
-          const imgs = Array.from(document.querySelectorAll('img'));
-          // 查找尺寸合适的图片（二维码通常是正方形，100-300px）
-          return imgs.find(img => {
-            const rect = img.getBoundingClientRect();
-            const isSquare = Math.abs(rect.width - rect.height) < 20;
-            const isRightSize = rect.width >= 100 && rect.width <= 350;
-            return isSquare && isRightSize;
-          });
-        });
-
-        if (qrCodeElement && (qrCodeElement as any).asElement()) {
-          qrCodeElement = (qrCodeElement as any).asElement();
-          logger.info('通过尺寸匹配找到二维码图片');
-        } else {
-          qrCodeElement = null;
+        const backupSelectors = [
+          'img[class*="qrcode"]',
+          '[class*="qrcode"] img',
+          'img[src*="qrcode"]',
+        ];
+        for (const selector of backupSelectors) {
+          try {
+            await page.waitForSelector(selector, { timeout: 3000 });
+            qrCodeElement = await page.$(selector);
+            if (qrCodeElement) {
+              logger.info(`找到二维码元素: ${selector}`);
+              break;
+            }
+          } catch {
+            continue;
+          }
         }
       }
 

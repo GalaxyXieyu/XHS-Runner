@@ -28,7 +28,7 @@ const { getInsights, refreshInsights } = require('./server/services/xhs/insightS
 const { enqueueInteraction, listInteractions } = require('./server/services/xhs/interactionService');
 const { enqueuePublish, listPublishes } = require('./server/services/xhs/publishService');
 const { createTheme, listThemes, removeTheme, setThemeStatus, updateTheme } = require('./server/services/xhs/themeService');
-const { login, logout, checkStatus, getQRCode, pollLoginStatus, cancelQRCodeSession } = require('./server/services/xhs/localService');
+const { login, logout, checkStatus, getQRCode, pollLoginStatus, cancelQRCodeSession } = require('./server/services/xhs/integration/localService');
 const {
   listLlmProviders,
   createLlmProvider,

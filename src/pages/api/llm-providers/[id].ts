@@ -6,7 +6,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const id = Number(req.query.id);
 
   if (req.method === 'PUT') {
-    const { name, provider_type, base_url, api_key, model_name, temperature, max_tokens, is_default, is_enabled, icon } = req.body;
+    const { name, provider_type, base_url, api_key, model_name, temperature, max_tokens, is_default, is_enabled, icon, supports_vision, supports_image_gen } = req.body;
 
     const providers = schema.llmProviders;
     const isDefault = Boolean(is_default);
@@ -29,6 +29,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         isDefault,
         isEnabled,
         icon,
+        supportsVision: Boolean(supports_vision),
+        supportsImageGen: Boolean(supports_image_gen),
         updatedAt: new Date(),
       })
       .where(eq(providers.id, id));

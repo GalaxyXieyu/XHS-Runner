@@ -77,6 +77,8 @@ export const llmProviders = pgTable('llm_providers', {
   isDefault: boolean('is_default').default(false),
   isEnabled: boolean('is_enabled').default(true),
   icon: text('icon'),
+  supportsVision: boolean('supports_vision').default(false),      // 是否支持图片输入
+  supportsImageGen: boolean('supports_image_gen').default(false), // 是否支持图片生成
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -181,6 +183,9 @@ export const generationTasks = pgTable('generation_tasks', {
   resultAssetId: integer('result_asset_id').references(() => assets.id, { onDelete: 'set null' }),
   result: jsonb('result_json'),
   errorMessage: text('error_message'),
+  referenceImageUrl: text('reference_image_url'),
+  imagePlanId: integer('image_plan_id'),
+  sequence: integer('sequence'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -310,6 +315,32 @@ export const creativeAssets = pgTable('creative_assets', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ==================== Reference Image & Image Plan Tables ====================
+
+export const referenceImages = pgTable('reference_images', {
+  id: serial('id').primaryKey(),
+  themeId: integer('theme_id').references(() => themes.id, { onDelete: 'set null' }),
+  name: text('name'),
+  path: text('path'),
+  url: text('url'),
+  styleAnalysis: jsonb('style_analysis'),
+  tags: text('tags').array(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const imagePlans = pgTable('image_plans', {
+  id: serial('id').primaryKey(),
+  creativeId: integer('creative_id').references(() => creatives.id, { onDelete: 'cascade' }),
+  sequence: integer('sequence').notNull(),
+  role: text('role').notNull(),
+  description: text('description'),
+  prompt: text('prompt'),
+  referenceImageId: integer('reference_image_id').references(() => referenceImages.id, { onDelete: 'set null' }),
+  assetId: integer('asset_id').references(() => assets.id, { onDelete: 'set null' }),
+  status: text('status').notNull().default('planned'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ==================== Type Exports ====================
 
 export type Theme = typeof themes.$inferSelect;
@@ -377,3 +408,9 @@ export type NewImageStyleTemplate = typeof imageStyleTemplates.$inferInsert;
 
 export type CreativeAsset = typeof creativeAssets.$inferSelect;
 export type NewCreativeAsset = typeof creativeAssets.$inferInsert;
+
+export type ReferenceImage = typeof referenceImages.$inferSelect;
+export type NewReferenceImage = typeof referenceImages.$inferInsert;
+
+export type ImagePlan = typeof imagePlans.$inferSelect;
+export type NewImagePlan = typeof imagePlans.$inferInsert;

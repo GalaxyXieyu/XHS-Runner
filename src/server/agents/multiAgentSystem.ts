@@ -5,17 +5,27 @@ import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { supabase } from "../supabase";
+import { db, schema } from "../db";
+import { eq, and } from "drizzle-orm";
 import { getTagStats, getTopTitles, getLatestTrendReport } from "../services/xhs/analytics/insightService";
 import { enqueueTask } from "../services/xhs/llm/generationQueue";
+import { analyzeReferenceImage } from "../services/xhs/llm/geminiClient";
+import { generateImage as generateJimengImage } from "../services/xhs/integration/imageProvider";
 
 // 获取 LLM 配置
-async function getLLMConfig() {
-  const { data } = await supabase
+async function getLLMConfig(requireVision = false) {
+  let query = supabase
     .from("llm_providers")
-    .select("base_url, api_key, model_name")
-    .eq("is_default", true)
-    .eq("is_enabled", true)
-    .maybeSingle();
+    .select("base_url, api_key, model_name, supports_vision, supports_image_gen")
+    .eq("is_enabled", 1);
+
+  if (requireVision) {
+    query = query.eq("supports_vision", true);
+  } else {
+    query = query.eq("is_default", 1);
+  }
+
+  const { data } = await query.maybeSingle();
 
   if (data?.base_url && data?.api_key && data?.model_name) {
     return { baseUrl: data.base_url, apiKey: data.api_key, model: data.model_name };
@@ -136,7 +146,34 @@ const generateImageTool = tool(
 );
 
 // Agent 类型
-type AgentType = "supervisor" | "research_agent" | "writer_agent" | "image_agent";
+type AgentType = "supervisor" | "research_agent" | "writer_agent" | "style_analyzer_agent" | "image_planner_agent" | "image_agent" | "review_agent";
+
+// 风格分析结果类型
+interface StyleAnalysis {
+  style: string;
+  colorPalette: string[];
+  mood: string;
+  composition: string;
+  lighting: string;
+  texture: string;
+  description: string;
+}
+
+// 图片规划类型
+interface ImagePlan {
+  sequence: number;
+  role: string;
+  description: string;
+  prompt?: string;
+}
+
+// 审核反馈类型
+interface ReviewFeedback {
+  approved: boolean;
+  suggestions: string[];
+  targetAgent?: "image_planner_agent" | "image_agent" | "writer_agent";
+  optimizedPrompts?: string[];
+}
 
 // State 定义
 const AgentState = Annotation.Root({
@@ -156,11 +193,140 @@ const AgentState = Annotation.Root({
     value: (_, y) => y,
     default: () => false,
   }),
+  // 新增状态
+  referenceImageUrl: Annotation<string | null>({
+    value: (_, y) => y,
+    default: () => null,
+  }),
+  styleAnalysis: Annotation<StyleAnalysis | null>({
+    value: (_, y) => y,
+    default: () => null,
+  }),
+  imagePlans: Annotation<ImagePlan[]>({
+    value: (_, y) => y,
+    default: () => [],
+  }),
+  creativeId: Annotation<number | null>({
+    value: (_, y) => y,
+    default: () => null,
+  }),
+  // 审核相关状态
+  reviewFeedback: Annotation<ReviewFeedback | null>({
+    value: (_, y) => y,
+    default: () => null,
+  }),
+  imagesComplete: Annotation<boolean>({
+    value: (_, y) => y,
+    default: () => false,
+  }),
+  // 迭代控制
+  iterationCount: Annotation<number>({
+    value: (x, y) => y,
+    default: () => 0,
+  }),
+  maxIterations: Annotation<number>({
+    value: (_, y) => y,
+    default: () => 3,  // 最多迭代3次
+  }),
 });
 
 // 研究工具
 const researchTools = [searchNotesTool, analyzeTagsTool, getTopTitlesTool, getTrendReportTool];
 const imageTools = [generateImageTool];
+
+// 风格分析工具
+const analyzeStyleTool = tool(
+  async ({ imageUrl }) => {
+    try {
+      const analysis = await analyzeReferenceImage(imageUrl);
+      return JSON.stringify({ success: true, analysis });
+    } catch (error) {
+      return JSON.stringify({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  },
+  {
+    name: "analyze_style",
+    description: "分析参考图的视觉风格特征，提取风格描述用于后续图片生成",
+    schema: z.object({
+      imageUrl: z.string().describe("参考图 URL 或 base64 数据"),
+    }),
+  }
+);
+
+// 带参考图生成图片工具 (使用火山引擎即梦)
+const generateWithReferenceTool = tool(
+  async ({ prompt, referenceImageUrl, sequence, role }) => {
+    try {
+      console.log(`[generateWithReference] prompt: ${prompt.slice(0, 50)}...`);
+      console.log(`[generateWithReference] referenceImageUrl: ${referenceImageUrl.slice(0, 50)}...`);
+      console.log(`[generateWithReference] sequence: ${sequence}, role: ${role}`);
+
+      const result = await generateJimengImage({
+        prompt,
+        model: "jimeng",
+        images: [referenceImageUrl], // 参考图作为风格参考
+      });
+
+      console.log(`[generateWithReference] Success! imageSize: ${result.imageBuffer.length}`);
+      return JSON.stringify({
+        success: true,
+        sequence,
+        role,
+        imageSize: result.imageBuffer.length,
+        message: "图片生成成功 (火山引擎即梦)",
+      });
+    } catch (error) {
+      console.error(`[generateWithReference] Error:`, error);
+      return JSON.stringify({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  },
+  {
+    name: "generate_with_reference",
+    description: "根据参考图风格生成小红书配图（使用火山引擎即梦）",
+    schema: z.object({
+      prompt: z.string().describe("中文生图提示词"),
+      referenceImageUrl: z.string().describe("参考图 URL"),
+      sequence: z.number().describe("图片序号 (0=封面)"),
+      role: z.enum(["cover", "step", "detail", "result", "comparison"]).describe("图片角色"),
+    }),
+  }
+);
+
+// 保存图片规划工具
+const saveImagePlanTool = tool(
+  async ({ creativeId, plans }) => {
+    try {
+      const insertData = plans.map((p: { sequence: number; role: string; description: string }) => ({
+        creative_id: creativeId,
+        sequence: p.sequence,
+        role: p.role,
+        description: p.description,
+        status: "planned",
+      }));
+      const { data, error } = await supabase.from("image_plans").insert(insertData).select("id, sequence, role");
+      if (error) throw error;
+      return JSON.stringify({ success: true, planIds: data?.map((p) => p.id) || [], count: data?.length || 0 });
+    } catch (error) {
+      return JSON.stringify({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  },
+  {
+    name: "save_image_plan",
+    description: "保存图片序列规划到数据库",
+    schema: z.object({
+      creativeId: z.number().describe("创意ID"),
+      plans: z.array(z.object({
+        sequence: z.number().describe("图片序号"),
+        role: z.string().describe("图片角色"),
+        description: z.string().describe("图片内容描述"),
+      })).describe("图片规划列表"),
+    }),
+  }
+);
+
+const styleTools = [analyzeStyleTool];
+const plannerTools = [saveImagePlanTool];
+const referenceImageTools = [generateWithReferenceTool];
 
 // 创建多 Agent 系统
 export async function createMultiAgentSystem() {
@@ -171,26 +337,53 @@ export async function createMultiAgentSystem() {
     apiKey: config.apiKey,
     modelName: config.model,
     temperature: 0.7,
+    timeout: 60000,  // 60秒超时
+    maxRetries: 3,   // 最多重试3次
   });
 
   // Supervisor 节点 - 决定下一步
   const supervisorNode = async (state: typeof AgentState.State) => {
+    console.log("[DEBUG] supervisorNode called with state:", {
+      messagesCount: state.messages.length,
+      referenceImageUrl: !!state.referenceImageUrl,
+      styleAnalysis: !!state.styleAnalysis,
+      researchComplete: state.researchComplete,
+      contentComplete: state.contentComplete,
+    });
+
     const systemPrompt = `你是小红书内容创作团队的主管。根据当前状态决定下一步：
 
 可用的专家：
 - research_agent: 研究专家，负责搜索笔记、分析标签、研究爆款标题
 - writer_agent: 创作专家，负责基于研究结果创作标题和正文
-- image_agent: 图片专家，负责生成封面图
+- style_analyzer_agent: 风格分析专家，负责分析参考图的视觉风格
+- image_planner_agent: 图片规划专家，负责规划图片序列（封面、步骤图、细节图等）
+- image_agent: 图片生成专家，负责按规划生成配图
+- review_agent: 审核专家，负责审核生成结果并提供优化建议
 
 工作流程：
-1. 如果还没有研究数据，先派 research_agent 去研究
-2. 研究完成后，派 writer_agent 创作内容
-3. 内容创作完成后，询问用户是否需要生成图片
-4. 如果用户需要图片，派 image_agent 生成
+1. 如果有参考图且未分析风格 → style_analyzer_agent
+2. 如果还没有研究数据 → research_agent
+3. 研究完成后 → writer_agent 创作内容
+4. 内容创作完成后 → image_planner_agent 规划图片
+5. 图片规划完成后 → image_agent 生成图片
+6. 图片生成完成后 → review_agent 审核
+7. 如果审核有建议 → 根据建议重新调用相应专家
+8. 审核通过 → END
 
 当前状态：
+- 参考图: ${state.referenceImageUrl ? "有" : "无"}
+- 风格分析: ${state.styleAnalysis ? "已完成" : "未完成"}
 - 研究完成: ${state.researchComplete}
 - 内容完成: ${state.contentComplete}
+- 图片规划: ${state.imagePlans.length > 0 ? `已规划${state.imagePlans.length}张` : "未规划"}
+- 图片生成: ${state.imagesComplete ? "已完成" : "未完成"}
+- 审核反馈: ${state.reviewFeedback ? (state.reviewFeedback.approved ? "已通过" : `需优化: ${state.reviewFeedback.targetAgent}`) : "未审核"}
+- 迭代次数: ${state.iterationCount}/${state.maxIterations}
+
+注意：
+- 如果迭代次数达到上限，即使审核未通过也应该结束
+- 重新调用 agent 后，需要再次审核
 
 请回复你的决定，格式：
 NEXT: [agent_name] 或 NEXT: END
@@ -201,11 +394,14 @@ REASON: [简短说明原因]`;
       ...state.messages.slice(-5),
     ]);
 
+    console.log("[DEBUG] supervisorNode response:", typeof response.content === "string" ? response.content : "non-string content");
+
     return { messages: [response] };
   };
 
   // Research Agent 节点
   const researchAgentNode = async (state: typeof AgentState.State) => {
+    console.log("[DEBUG] researchAgentNode called");
     const modelWithTools = model.bindTools(researchTools);
 
     const systemPrompt = `你是小红书内容研究专家。你的职责是：
@@ -220,9 +416,12 @@ REASON: [简短说明原因]`;
       ...state.messages.slice(-10),
     ]);
 
+    console.log("[DEBUG] researchAgentNode response:", typeof response.content === "string" ? response.content.slice(0, 200) : "non-string content");
+
     return {
       messages: [response],
       currentAgent: "research_agent" as AgentType,
+      researchComplete: true,  // 标记研究完成
     };
   };
 
@@ -254,9 +453,46 @@ REASON: [简短说明原因]`;
 
   // Image Agent 节点
   const imageAgentNode = async (state: typeof AgentState.State) => {
-    const modelWithTools = model.bindTools(imageTools);
+    const modelWithTools = state.referenceImageUrl
+      ? model.bindTools(referenceImageTools)
+      : model.bindTools(imageTools);
 
-    const systemPrompt = `你是小红书封面图设计专家。根据之前创作的内容生成合适的封面图：
+    const styleDesc = state.styleAnalysis?.description || "";
+    const plans = state.imagePlans;
+    // 如果有优化后的提示词，使用它们
+    const optimizedPrompts = state.reviewFeedback?.optimizedPrompts || [];
+
+    // 重要：明确告诉 agent 使用的参考图 URL
+    const refImageUrl = state.referenceImageUrl || "";
+
+    const systemPrompt = state.referenceImageUrl
+      ? `你是小红书配图生成专家。根据图片规划和风格描述生成配图。
+
+参考图风格: ${styleDesc}
+风格特征: ${JSON.stringify(state.styleAnalysis)}
+${optimizedPrompts.length > 0 ? `\n优化后的提示词参考:\n${optimizedPrompts.join("\n")}\n` : ""}
+
+图片规划:
+${plans.map((p) => `- 序号${p.sequence}: ${p.role} - ${p.description}`).join("\n")}
+
+生成规则：
+1. 按 sequence 顺序逐张生成
+2. 每张图的 prompt 必须使用【中文】描述，包含：
+   - 画面主体和场景描述（中文，详细具体）
+   - 小红书风格关键词：精致、高级感、氛围感、ins风、日系、韩系等
+   - 必须包含：竖版构图，3:4比例，小红书封面风格
+   - 风格参考: ${styleDesc}
+3. 禁止出现：logo、水印、文字、人脸、品牌名
+4. 图片尺寸：竖版 3:4 比例（适合小红书展示）
+
+提示词示例格式：
+"一杯精美的手冲咖啡，放在原木色桌面上，旁边有咖啡豆和滤杯，柔和的自然光线，日系清新风格，高级感，竖版构图，3:4比例，小红书封面风格"
+
+重要：调用 generate_with_reference 工具时，referenceImageUrl 参数必须使用以下值（这是用户上传的参考图）：
+${refImageUrl.slice(0, 100)}...
+
+请为每张图调用 generate_with_reference 工具，每次调用都使用上面的 referenceImageUrl，prompt 使用中文。`
+      : `你是小红书封面图设计专家。根据之前创作的内容生成合适的封面图：
 
 要求：
 - 提示词要具体描述画面内容
@@ -271,26 +507,252 @@ REASON: [简短说明原因]`;
     return {
       messages: [response],
       currentAgent: "image_agent" as AgentType,
+      // 重新生成后重置审核状态
+      reviewFeedback: null,
+    };
+  };
+
+  // Style Analyzer Agent 节点 - 直接调用 Gemini 原生 API
+  const styleAnalyzerNode = async (state: typeof AgentState.State) => {
+    console.log("[DEBUG] styleAnalyzerNode called, referenceImageUrl:", state.referenceImageUrl?.slice(0, 50));
+
+    try {
+      if (!state.referenceImageUrl) {
+        throw new Error("没有参考图 URL");
+      }
+
+      // 直接调用 Gemini 原生 API 分析风格
+      console.log("[DEBUG] Calling analyzeReferenceImage directly...");
+      const styleAnalysis = await analyzeReferenceImage(state.referenceImageUrl);
+      console.log("[DEBUG] Style analysis result:", styleAnalysis);
+
+      // 创建一个 AI 消息来记录分析结果
+      const summaryMessage = new AIMessage(
+        `风格分析完成！\n\n` +
+        `📊 风格类型: ${styleAnalysis.style}\n` +
+        `🎨 主色调: ${styleAnalysis.colorPalette.join(", ")}\n` +
+        `✨ 氛围: ${styleAnalysis.mood}\n` +
+        `📐 构图: ${styleAnalysis.composition}\n` +
+        `💡 光线: ${styleAnalysis.lighting}\n` +
+        `🖼️ 质感: ${styleAnalysis.texture}\n` +
+        `📝 风格描述: ${styleAnalysis.description}`
+      );
+
+      return {
+        messages: [summaryMessage],
+        currentAgent: "style_analyzer_agent" as AgentType,
+        styleAnalysis,  // 保存风格分析结果到 state
+      };
+    } catch (error) {
+      console.error("[DEBUG] styleAnalyzerNode error:", error);
+      throw error;
+    }
+  };
+
+  // Image Planner Agent 节点
+  const imagePlannerNode = async (state: typeof AgentState.State) => {
+    const styleDesc = state.styleAnalysis?.description || "高质量小红书风格";
+    // 如果是重新规划（有审核反馈），参考建议
+    const reviewSuggestions = state.reviewFeedback?.suggestions?.join("\n") || "";
+
+    const systemPrompt = `你是小红书图文配图规划专家。根据文案内容规划图片序列。
+
+风格参考: ${styleDesc}
+${reviewSuggestions ? `\n上次审核建议:\n${reviewSuggestions}\n` : ""}
+
+规划原则：
+1. 封面图 (sequence=0): 最吸引眼球，展示核心价值或最终效果
+2. 内容图: 根据正文结构规划，可以是步骤图、细节图、对比图等
+3. 图片数量: 3-9张，根据内容复杂度决定
+
+图片角色说明：
+- cover: 封面图，吸引点击
+- step: 步骤图，展示操作过程
+- detail: 细节图，放大展示关键细节
+- result: 成果图，展示最终效果
+- comparison: 对比图，前后对比
+
+请根据之前创作的内容，输出图片规划 JSON：
+[
+  { "sequence": 0, "role": "cover", "description": "封面：展示最终成品效果" },
+  { "sequence": 1, "role": "step", "description": "步骤1：准备材料清单" },
+  ...
+]
+
+只输出 JSON 数组，不要其他内容。`;
+
+    const response = await model.invoke([
+      new HumanMessage(systemPrompt),
+      ...state.messages.slice(-15),
+    ]);
+
+    // 解析规划结果
+    const content = typeof response.content === "string" ? response.content : "";
+    let plans: ImagePlan[] = [];
+    try {
+      const jsonMatch = content.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        plans = JSON.parse(jsonMatch[0]);
+      }
+    } catch {
+      // 解析失败，使用默认规划
+      plans = [
+        { sequence: 0, role: "cover", description: "封面图" },
+        { sequence: 1, role: "detail", description: "内容详情图1" },
+        { sequence: 2, role: "detail", description: "内容详情图2" },
+      ];
+    }
+
+    return {
+      messages: [response],
+      currentAgent: "image_planner_agent" as AgentType,
+      imagePlans: plans,
+      // 重新规划后重置审核状态，需要再次审核
+      reviewFeedback: null,
+      imagesComplete: false,
+    };
+  };
+
+  // Review Agent 节点
+  const reviewAgentNode = async (state: typeof AgentState.State) => {
+    const systemPrompt = `你是小红书内容审核专家。审核生成的内容和图片规划，提供优化建议。
+
+当前状态：
+- 图片规划: ${JSON.stringify(state.imagePlans)}
+- 风格分析: ${JSON.stringify(state.styleAnalysis)}
+
+审核维度：
+1. 图片规划是否合理（数量、角色分配、内容覆盖）
+2. 图片描述是否清晰具体
+3. 是否符合小红书爆款图文特征
+4. 风格是否统一
+
+请输出审核结果 JSON：
+{
+  "approved": true/false,
+  "suggestions": ["建议1", "建议2"],
+  "targetAgent": "image_planner_agent" | "image_agent" | "writer_agent" | null,
+  "optimizedPrompts": ["优化后的提示词1", "优化后的提示词2"] // 如果需要优化图片生成
+}
+
+如果 approved 为 true，targetAgent 应为 null。
+如果需要优化，指定 targetAgent 和具体建议。`;
+
+    const response = await model.invoke([
+      new HumanMessage(systemPrompt),
+      ...state.messages.slice(-10),
+    ]);
+
+    // 解析审核结果
+    const content = typeof response.content === "string" ? response.content : "";
+    let feedback: ReviewFeedback = { approved: true, suggestions: [] };
+    try {
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        feedback = JSON.parse(jsonMatch[0]);
+      }
+    } catch {
+      // 解析失败，默认通过
+    }
+
+    return {
+      messages: [response],
+      currentAgent: "review_agent" as AgentType,
+      reviewFeedback: feedback,
+      imagesComplete: feedback.approved,
+      iterationCount: state.iterationCount + 1,  // 每次审核后增加迭代计数
     };
   };
 
   // Tool 节点
   const researchToolNode = new ToolNode(researchTools);
   const imageToolNode = new ToolNode(imageTools);
+  const styleToolNode = new ToolNode(styleTools);
+  const referenceImageToolNode = new ToolNode(referenceImageTools);
 
   // 路由函数
   const routeFromSupervisor = (state: typeof AgentState.State): string => {
     const lastMessage = state.messages[state.messages.length - 1];
-    const content = typeof lastMessage.content === "string" ? lastMessage.content : "";
+    const content = lastMessage && typeof lastMessage.content === "string" ? lastMessage.content : "";
 
-    if (content.includes("NEXT: research_agent")) return "research_agent";
-    if (content.includes("NEXT: writer_agent")) return "writer_agent";
-    if (content.includes("NEXT: image_agent")) return "image_agent";
-    if (content.includes("NEXT: END")) return END;
+    console.log("[DEBUG] routeFromSupervisor - lastMessage content:", content.slice(0, 500));
+    console.log("[DEBUG] routeFromSupervisor - state:", {
+      referenceImageUrl: !!state.referenceImageUrl,
+      styleAnalysis: !!state.styleAnalysis,
+      researchComplete: state.researchComplete,
+      contentComplete: state.contentComplete,
+      imagePlans: state.imagePlans.length,
+      imagesComplete: state.imagesComplete,
+      reviewFeedback: state.reviewFeedback,
+    });
+
+    if (content.includes("NEXT: research_agent")) {
+      console.log("[DEBUG] Routing to: research_agent");
+      return "research_agent";
+    }
+    if (content.includes("NEXT: writer_agent")) {
+      console.log("[DEBUG] Routing to: writer_agent");
+      return "writer_agent";
+    }
+    if (content.includes("NEXT: style_analyzer_agent")) {
+      console.log("[DEBUG] Routing to: style_analyzer_agent");
+      return "style_analyzer_agent";
+    }
+    if (content.includes("NEXT: image_planner_agent")) {
+      console.log("[DEBUG] Routing to: image_planner_agent");
+      return "image_planner_agent";
+    }
+    if (content.includes("NEXT: image_agent")) {
+      console.log("[DEBUG] Routing to: image_agent");
+      return "image_agent";
+    }
+    if (content.includes("NEXT: review_agent")) {
+      console.log("[DEBUG] Routing to: review_agent");
+      return "review_agent";
+    }
+    if (content.includes("NEXT: END")) {
+      console.log("[DEBUG] Routing to: END");
+      return END;
+    }
 
     // 默认流程
-    if (!state.researchComplete) return "research_agent";
-    if (!state.contentComplete) return "writer_agent";
+    console.log("[DEBUG] Using default routing logic");
+    if (state.referenceImageUrl && !state.styleAnalysis) {
+      console.log("[DEBUG] Default routing to: style_analyzer_agent");
+      return "style_analyzer_agent";
+    }
+    if (!state.researchComplete) {
+      console.log("[DEBUG] Default routing to: research_agent");
+      return "research_agent";
+    }
+    if (!state.contentComplete) {
+      console.log("[DEBUG] Default routing to: writer_agent");
+      return "writer_agent";
+    }
+    if (state.imagePlans.length === 0) {
+      console.log("[DEBUG] Default routing to: image_planner_agent");
+      return "image_planner_agent";
+    }
+    if (!state.imagesComplete) {
+      console.log("[DEBUG] Default routing to: image_agent");
+      return "image_agent";
+    }
+    if (!state.reviewFeedback) {
+      console.log("[DEBUG] Default routing to: review_agent");
+      return "review_agent";
+    }
+
+    // 审核未通过但未达到迭代上限，重新调用目标 agent
+    if (state.reviewFeedback && !state.reviewFeedback.approved) {
+      if (state.iterationCount < state.maxIterations && state.reviewFeedback.targetAgent) {
+        console.log("[DEBUG] Routing to targetAgent:", state.reviewFeedback.targetAgent);
+        return state.reviewFeedback.targetAgent;
+      }
+      // 达到迭代上限，强制结束
+      console.log("[DEBUG] Iteration limit reached, routing to END");
+      return END;
+    }
+    console.log("[DEBUG] Final fallback routing to END");
     return END;
   };
 
@@ -302,10 +764,40 @@ REASON: [简短说明原因]`;
     return "supervisor";
   };
 
+  // 跟踪 image_agent 的工具调用次数
+  let imageToolCallCount = 0;
+  const MAX_IMAGE_TOOL_CALLS = 10; // 最多调用10次工具
+
   const shouldContinueImage = (state: typeof AgentState.State): string => {
     const lastMessage = state.messages[state.messages.length - 1];
     if (lastMessage && "tool_calls" in lastMessage && (lastMessage as AIMessage).tool_calls?.length) {
-      return "image_tools";
+      imageToolCallCount++;
+      console.log(`[DEBUG] Image tool call count: ${imageToolCallCount}/${MAX_IMAGE_TOOL_CALLS}`);
+      if (imageToolCallCount >= MAX_IMAGE_TOOL_CALLS) {
+        console.log("[DEBUG] Max image tool calls reached, stopping");
+        return "supervisor";
+      }
+      return state.referenceImageUrl ? "reference_image_tools" : "image_tools";
+    }
+    return "supervisor";
+  };
+
+  const shouldContinueStyle = (state: typeof AgentState.State): string => {
+    const lastMessage = state.messages[state.messages.length - 1];
+    if (lastMessage && "tool_calls" in lastMessage && (lastMessage as AIMessage).tool_calls?.length) {
+      return "style_tools";
+    }
+    // 解析风格分析结果
+    const content = lastMessage && typeof lastMessage.content === "string" ? lastMessage.content : "";
+    let styleAnalysis: StyleAnalysis | null = null;
+    try {
+      const jsonMatch = content.match(/\{[\s\S]*"style"[\s\S]*\}/);
+      if (jsonMatch) {
+        styleAnalysis = JSON.parse(jsonMatch[0]);
+      }
+    } catch {}
+    if (styleAnalysis) {
+      return "supervisor_with_style";
     }
     return "supervisor";
   };
@@ -315,14 +807,35 @@ REASON: [简短说明原因]`;
     .addNode("supervisor", supervisorNode)
     .addNode("research_agent", researchAgentNode)
     .addNode("writer_agent", writerAgentNode)
+    .addNode("style_analyzer_agent", styleAnalyzerNode)
+    .addNode("image_planner_agent", imagePlannerNode)
     .addNode("image_agent", imageAgentNode)
+    .addNode("review_agent", reviewAgentNode)
     .addNode("research_tools", researchToolNode)
     .addNode("image_tools", imageToolNode)
+    .addNode("style_tools", styleToolNode)
+    .addNode("reference_image_tools", referenceImageToolNode)
+    // 风格分析后更新状态的中间节点
+    .addNode("supervisor_with_style", async (state: typeof AgentState.State) => {
+      const lastMessage = state.messages[state.messages.length - 1];
+      const content = lastMessage && typeof lastMessage.content === "string" ? lastMessage.content : "";
+      let styleAnalysis: StyleAnalysis | null = null;
+      try {
+        const jsonMatch = content.match(/\{[\s\S]*"style"[\s\S]*\}/);
+        if (jsonMatch) {
+          styleAnalysis = JSON.parse(jsonMatch[0]);
+        }
+      } catch {}
+      return { styleAnalysis };
+    })
     .addEdge(START, "supervisor")
     .addConditionalEdges("supervisor", routeFromSupervisor, {
       research_agent: "research_agent",
       writer_agent: "writer_agent",
+      style_analyzer_agent: "style_analyzer_agent",
+      image_planner_agent: "image_planner_agent",
       image_agent: "image_agent",
+      review_agent: "review_agent",
       [END]: END,
     })
     .addConditionalEdges("research_agent", shouldContinueResearch, {
@@ -331,11 +844,22 @@ REASON: [简短说明原因]`;
     })
     .addEdge("research_tools", "research_agent")
     .addEdge("writer_agent", "supervisor")
+    .addConditionalEdges("style_analyzer_agent", shouldContinueStyle, {
+      style_tools: "style_tools",
+      supervisor: "supervisor",
+      supervisor_with_style: "supervisor_with_style",
+    })
+    .addEdge("style_tools", "style_analyzer_agent")
+    .addEdge("supervisor_with_style", "supervisor")
+    .addEdge("image_planner_agent", "supervisor")
     .addConditionalEdges("image_agent", shouldContinueImage, {
       image_tools: "image_tools",
+      reference_image_tools: "reference_image_tools",
       supervisor: "supervisor",
     })
-    .addEdge("image_tools", "image_agent");
+    .addEdge("image_tools", "image_agent")
+    .addEdge("reference_image_tools", "image_agent")
+    .addEdge("review_agent", "supervisor");
 
   return workflow.compile();
 }

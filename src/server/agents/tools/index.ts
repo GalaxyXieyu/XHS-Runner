@@ -1,8 +1,11 @@
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { supabase } from "../../supabase";
+import { db, schema } from "../../db";
 import { getTagStats, getTopTitles, getLatestTrendReport } from "../../services/xhs/analytics/insightService";
 import { enqueueTask } from "../../services/xhs/llm/generationQueue";
+import { analyzeReferenceImage } from "../../services/xhs/llm/geminiClient";
+import { generateImage as generateJimengImage } from "../../services/xhs/integration/imageProvider";
 
 // Tool 1: 搜索已抓取的笔记
 export const searchNotesTool = tool(
@@ -143,6 +146,132 @@ export const generateImageTool = tool(
   }
 );
 
+// Tool 6: 分析参考图风格
+export const analyzeReferenceImageTool = tool(
+  async ({ imageUrl }) => {
+    try {
+      const analysis = await analyzeReferenceImage(imageUrl);
+      return JSON.stringify({
+        success: true,
+        analysis,
+      });
+    } catch (error) {
+      return JSON.stringify({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+  {
+    name: "analyzeReferenceImage",
+    description: "分析参考图的视觉风格特征，提取风格描述用于后续图片生成",
+    schema: z.object({
+      imageUrl: z.string().describe("参考图 URL 或 base64 数据"),
+    }),
+  }
+);
+
+// Tool 7: 带参考图生成图片 (使用火山引擎即梦)
+export const generateImageWithReferenceTool = tool(
+  async ({ prompt, referenceImageUrl, sequence, role, creativeId }) => {
+    try {
+      // 使用火山引擎即梦 API，通过 images 参数传入参考图
+      const result = await generateJimengImage({
+        prompt,
+        model: "jimeng",
+        images: [referenceImageUrl], // 参考图作为风格参考
+      });
+
+      // 创建生成任务记录
+      const { data: task, error } = await supabase
+        .from("generation_tasks")
+        .insert({
+          creative_id: creativeId,
+          status: "done",
+          prompt,
+          model: "jimeng_t2i_v40",
+          reference_image_url: referenceImageUrl,
+          sequence,
+          result_json: { role, imageSize: result.imageBuffer.length },
+        })
+        .select("id")
+        .single();
+
+      if (error) throw error;
+
+      return JSON.stringify({
+        success: true,
+        taskId: task.id,
+        sequence,
+        role,
+        imageSize: result.imageBuffer.length,
+        message: "图片生成成功 (火山引擎即梦)",
+      });
+    } catch (error) {
+      return JSON.stringify({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+  {
+    name: "generateImageWithReference",
+    description: "根据参考图风格生成小红书配图（使用火山引擎即梦），支持指定图片序号和角色",
+    schema: z.object({
+      prompt: z.string().describe("中文或英文生图提示词"),
+      referenceImageUrl: z.string().describe("参考图 URL"),
+      sequence: z.number().describe("图片序号 (0=封面)"),
+      role: z.enum(["cover", "step", "detail", "result", "comparison"]).describe("图片角色"),
+      creativeId: z.number().optional().describe("关联的创意ID"),
+    }),
+  }
+);
+
+// Tool 8: 保存图片规划
+export const saveImagePlanTool = tool(
+  async ({ creativeId, plans }) => {
+    try {
+      const insertData = plans.map((p) => ({
+        creative_id: creativeId,
+        sequence: p.sequence,
+        role: p.role,
+        description: p.description,
+        status: "planned",
+      }));
+
+      const { data, error } = await supabase
+        .from("image_plans")
+        .insert(insertData)
+        .select("id, sequence, role");
+
+      if (error) throw error;
+
+      return JSON.stringify({
+        success: true,
+        planIds: data?.map((p) => p.id) || [],
+        count: data?.length || 0,
+      });
+    } catch (error) {
+      return JSON.stringify({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+  {
+    name: "saveImagePlan",
+    description: "保存图片序列规划到数据库",
+    schema: z.object({
+      creativeId: z.number().describe("创意ID"),
+      plans: z.array(z.object({
+        sequence: z.number().describe("图片序号"),
+        role: z.string().describe("图片角色"),
+        description: z.string().describe("图片内容描述"),
+      })).describe("图片规划列表"),
+    }),
+  }
+);
+
 // 导出所有工具
 export const xhsTools = [
   searchNotesTool,
@@ -150,4 +279,7 @@ export const xhsTools = [
   getTrendReportTool,
   getTopTitlesTool,
   generateImageTool,
+  analyzeReferenceImageTool,
+  generateImageWithReferenceTool,
+  saveImagePlanTool,
 ];

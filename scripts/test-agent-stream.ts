@@ -5,6 +5,7 @@
  *   npx tsx scripts/test-agent-stream.ts
  *   npx tsx scripts/test-agent-stream.ts --theme-id 1
  *   npx tsx scripts/test-agent-stream.ts --message "写一篇护肤笔记"
+ *   npx tsx scripts/test-agent-stream.ts --reference-image ./scripts/references/xxx.jpg
  *
  * 环境变量:
  *   API_URL - API 地址 (默认 http://localhost:3000)
@@ -31,7 +32,9 @@ interface AgentEvent {
 function parseArgs() {
   const args = process.argv.slice(2);
   let themeId: number | undefined;
-  let message = "帮我创作一篇关于咖啡的小红书笔记";
+  let message = "帮我创作一篇关于如何用Cursor快速写代码的小红书笔记";
+  // 默认使用参考图
+  let referenceImage: string | undefined = "./scripts/references/如何让AI「抄」参考图？【附指令词】_1_珍珠奶茶_来自小红书网页版.jpg";
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--theme-id" && args[i + 1]) {
@@ -40,9 +43,24 @@ function parseArgs() {
     } else if (args[i] === "--message" && args[i + 1]) {
       message = args[i + 1];
       i++;
+    } else if (args[i] === "--reference-image" && args[i + 1]) {
+      referenceImage = args[i + 1];
+      i++;
     }
   }
-  return { themeId, message };
+  return { themeId, message, referenceImage };
+}
+
+// 读取图片并转换为 base64
+function readImageAsBase64(imagePath: string): string {
+  const absolutePath = path.isAbsolute(imagePath) ? imagePath : path.join(process.cwd(), imagePath);
+  if (!fs.existsSync(absolutePath)) {
+    throw new Error(`参考图不存在: ${absolutePath}`);
+  }
+  const buffer = fs.readFileSync(absolutePath);
+  const ext = path.extname(absolutePath).toLowerCase();
+  const mimeType = ext === ".png" ? "image/png" : "image/jpeg";
+  return `data:${mimeType};base64,${buffer.toString("base64")}`;
 }
 
 // 获取资源保存路径
@@ -53,7 +71,7 @@ function getAssetsPath(): string {
 }
 
 async function testAgentStream() {
-  const { themeId, message } = parseArgs();
+  const { themeId, message, referenceImage } = parseArgs();
   const assetsPath = getAssetsPath();
   const startTime = Date.now();
 
@@ -64,6 +82,7 @@ async function testAgentStream() {
   console.log(`📁 资源目录: ${assetsPath}`);
   console.log(`📝 消息:     "${message}"`);
   console.log(`🏷️  主题ID:   ${themeId ?? "无"}`);
+  console.log(`🖼️  参考图:   ${referenceImage ?? "无"}`);
   console.log("─".repeat(60));
 
   // 检查资源目录
@@ -75,14 +94,31 @@ async function testAgentStream() {
   }
   console.log("─".repeat(60));
 
+  // 准备参考图
+  let referenceImageBase64: string | undefined;
+  if (referenceImage) {
+    try {
+      referenceImageBase64 = readImageAsBase64(referenceImage);
+      console.log(`✅ 参考图已加载 (${Math.round(referenceImageBase64.length / 1024)}KB)`);
+    } catch (error: any) {
+      console.error(`❌ 参考图加载失败: ${error.message}`);
+      process.exit(1);
+    }
+  }
+
   const events: AgentEvent[] = [];
   const toolCalls: { tool: string; agent: string; time: string }[] = [];
 
   try {
+    const requestBody: any = { message, themeId };
+    if (referenceImageBase64) {
+      requestBody.referenceImageUrl = referenceImageBase64;
+    }
+
     const response = await fetch(`${API_URL}/api/agent/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, themeId }),
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {

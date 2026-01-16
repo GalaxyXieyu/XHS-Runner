@@ -55,45 +55,88 @@
 
 ## 数据库表
 
-- `themes` - 主题管理
-- `topics` - 抓取的笔记
-- `trend_reports` - 趋势报告历史
-- `settings` - 应用配置
+### 核心业务表
+| 表名 | 说明 | 记录数 |
+|------|------|--------|
+| `themes` | 主题管理 | 1 |
+| `keywords` | 关键词配置 | 5 |
+| `topics` | 抓取的笔记 | 160 |
+| `creatives` | 创意内容 | 58 |
+| `assets` | 资源文件 | 79 |
 
-## 数据库操作
+### 任务调度表
+| 表名 | 说明 |
+|------|------|
+| `scheduled_jobs` | 定时任务配置 |
+| `job_executions` | 任务执行记录 |
+| `generation_tasks` | 生成任务队列 |
 
-### 快速查询模板
+### 配置表
+| 表名 | 说明 |
+|------|------|
+| `settings` | 应用配置 |
+| `llm_providers` | LLM 服务商配置 |
+| `prompt_profiles` | Prompt 模板 |
+| `image_style_templates` | 图片风格模板 |
 
-```bash
-# 方式1: 使用 tsx 脚本 (推荐)
-DATABASE_URL="postgresql://postgres:密码@db.xxx.supabase.co:5432/postgres" \
-npx tsx -e "
-import { db, schema } from './src/server/db';
-import { eq, desc } from 'drizzle-orm';
+### 其他表
+`accounts`, `competitors`, `publish_records`, `metrics`, `interaction_tasks`, `form_assist_records`, `trend_reports`, `creative_assets`, `rate_limit_state`
 
-async function main() {
-  // 查询示例
-  const result = await db.select().from(schema.assets).limit(10);
-  console.log(JSON.stringify(result, null, 2));
-}
-main().catch(console.error);
-"
+## 数据库操作 (推荐使用 Supabase MCP)
+
+> ⚠️ **推荐方式**: 使用 Supabase MCP 进行数据库操作，无需手动编写脚本，直接在 Claude Code 中执行。
+
+### Supabase MCP 配置
+
+项目 ID: `emfhfxayynshmgkxdccb`
+
+### 常用 MCP 操作
+
+```yaml
+# 查看表结构
+mcp__supabase__list_tables:
+  project_id: emfhfxayynshmgkxdccb
+  schemas: ["public"]
+
+# 执行 SQL 查询
+mcp__supabase__execute_sql:
+  project_id: emfhfxayynshmgkxdccb
+  query: "SELECT * FROM topics ORDER BY like_count DESC LIMIT 10"
+
+# 执行 DDL 迁移
+mcp__supabase__apply_migration:
+  project_id: emfhfxayynshmgkxdccb
+  name: "add_new_column"
+  query: "ALTER TABLE topics ADD COLUMN new_field TEXT"
 ```
 
-### 常用操作
+### 常用查询示例
 
-| 操作 | Drizzle 语法 |
-|------|-------------|
-| 查询所有 | `db.select().from(schema.表名)` |
-| 按条件查 | `db.select().from(schema.表名).where(eq(schema.表名.字段, 值))` |
-| 排序 | `.orderBy(desc(schema.表名.createdAt))` |
-| 限制数量 | `.limit(10)` |
-| 删除 | `db.delete(schema.表名).where(...)` |
-| 更新 | `db.update(schema.表名).set(...)` |
+```sql
+-- 热门笔记 Top 10
+SELECT title, author_name, like_count, collect_count
+FROM topics ORDER BY like_count DESC LIMIT 10;
 
-### Supabase MCP (建议安装)
+-- 按主题统计笔记数
+SELECT t.name, COUNT(tp.id) as count
+FROM themes t LEFT JOIN topics tp ON t.id = tp.theme_id
+GROUP BY t.id;
+
+-- 查看任务执行状态
+SELECT status, COUNT(*) FROM job_executions GROUP BY status;
+
+-- 查看生成任务状态
+SELECT status, COUNT(*) FROM generation_tasks GROUP BY status;
+```
+
+### 备选方式: Drizzle ORM
 
 ```bash
-npm install -g @supabase/mcp-server-supabase
-# 在 Claude Code 配置中启用 MCP
+# 仅在 MCP 不可用时使用
+DATABASE_URL="postgresql://postgres:密码@db.emfhfxayynshmgkxdccb.supabase.co:5432/postgres" \
+npx tsx -e "
+import { db, schema } from './src/server/db';
+const result = await db.select().from(schema.topics).limit(10);
+console.log(JSON.stringify(result, null, 2));
+"
 ```

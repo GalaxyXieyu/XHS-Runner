@@ -31,6 +31,8 @@ interface LLMConfig {
   base_url?: string;
   api_key?: string;
   configured: boolean;
+  supports_vision?: boolean;
+  supports_image_gen?: boolean;
 }
 
 // 注意：base_url 已在接口中定义
@@ -92,6 +94,8 @@ export function SettingsTab({ theme: _theme, auth }: SettingsTabProps) {
     baseUrl: null as HTMLInputElement | null,
     apiKey: null as HTMLInputElement | null,
     model: null as HTMLInputElement | null,
+    supportsVision: null as HTMLInputElement | null,
+    supportsImageGen: null as HTMLInputElement | null,
   };
   const promptFormRef = {
     name: null as HTMLInputElement | null,
@@ -252,29 +256,31 @@ export function SettingsTab({ theme: _theme, auth }: SettingsTabProps) {
     const base_url = llmFormRef.baseUrl?.value?.trim();
     const api_key = llmFormRef.apiKey?.value?.trim();
     const model_name = llmFormRef.model?.value?.trim();
+    const supports_vision = llmFormRef.supportsVision?.checked ?? false;
+    const supports_image_gen = llmFormRef.supportsImageGen?.checked ?? false;
     if (!name) return;
 
     try {
       if (selectedLLM) {
         // Update
         if (window.llmProviders) {
-          await window.llmProviders.update({ id: selectedLLM.id, name, provider_type, base_url, api_key, model_name });
+          await window.llmProviders.update({ id: selectedLLM.id, name, provider_type, base_url, api_key, model_name, supports_vision, supports_image_gen });
         } else {
           await fetch(`/api/llm-providers/${selectedLLM.id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, provider_type, base_url, api_key, model_name }),
+            body: JSON.stringify({ name, provider_type, base_url, api_key, model_name, supports_vision, supports_image_gen }),
           });
         }
       } else {
         // Create
         if (window.llmProviders) {
-          await window.llmProviders.create({ name, provider_type, base_url, api_key, model_name });
+          await window.llmProviders.create({ name, provider_type, base_url, api_key, model_name, supports_vision, supports_image_gen });
         } else {
           await fetch('/api/llm-providers', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, provider_type, base_url, api_key, model_name }),
+            body: JSON.stringify({ name, provider_type, base_url, api_key, model_name, supports_vision, supports_image_gen }),
           });
         }
       }
@@ -708,6 +714,26 @@ export function SettingsTab({ theme: _theme, auth }: SettingsTabProps) {
                         placeholder="gpt-4"
                         className="w-full px-3 py-2 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
                       />
+                    </div>
+                    <div className="flex gap-4 pt-2">
+                      <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+                        <input
+                          ref={el => { llmFormRef.supportsVision = el; }}
+                          type="checkbox"
+                          defaultChecked={selectedLLM?.supports_vision ?? false}
+                          className="w-4 h-4 text-red-500 border-gray-300 rounded focus:ring-red-500"
+                        />
+                        支持图片输入 (Vision)
+                      </label>
+                      <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+                        <input
+                          ref={el => { llmFormRef.supportsImageGen = el; }}
+                          type="checkbox"
+                          defaultChecked={selectedLLM?.supports_image_gen ?? false}
+                          className="w-4 h-4 text-red-500 border-gray-300 rounded focus:ring-red-500"
+                        />
+                        支持图片生成
+                      </label>
                     </div>
                   </div>
                   <div className="flex gap-2 mt-4">

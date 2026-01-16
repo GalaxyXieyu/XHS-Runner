@@ -172,16 +172,36 @@ async function uploadBase64ToSuperbed(base64: string, filename: string, token?: 
     throw new Error('SUPERBED_NOT_CONFIGURED: 请先配置 Superbed Token');
   }
   const cleanBase64 = stripBase64Header(base64);
-  const buffer = Buffer.from(cleanBase64, 'base64');
-  const blob = new Blob([buffer], { type: 'image/png' });
-  const formData = new FormData();
-  formData.append('file', blob, filename);
+  let buffer = Buffer.from(cleanBase64, 'base64');
 
+  // 如果图片太大，尝试压缩
+  const MAX_SIZE = 500 * 1024; // 500KB
+  if (buffer.length > MAX_SIZE) {
+    console.log(`[uploadBase64ToSuperbed] Image too large (${Math.round(buffer.length / 1024)}KB), compressing...`);
+    try {
+      const { Jimp } = await import('jimp');
+      const image = await Jimp.read(buffer);
+      if (image.width > 1024) {
+        image.resize({ w: 1024 });
+      }
+      buffer = await image.getBuffer('image/jpeg');
+      console.log(`[uploadBase64ToSuperbed] Compressed to ${Math.round(buffer.length / 1024)}KB`);
+    } catch (e) {
+      console.error('[uploadBase64ToSuperbed] Compression failed:', e);
+    }
+  }
+
+  const blob = new Blob([buffer], { type: 'image/jpeg' });
+  const formData = new FormData();
+  formData.append('file', blob, filename.replace('.png', '.jpg'));
+
+  console.log(`[uploadBase64ToSuperbed] Uploading ${Math.round(buffer.length / 1024)}KB to Superbed...`);
   const response = await fetch(`https://api.superbed.cn/upload?token=${resolvedToken}`, {
     method: 'POST',
     body: formData,
   });
   const result = await response.json();
+  console.log(`[uploadBase64ToSuperbed] Response:`, result);
   if (result.err !== 0 || !result.url) {
     throw new Error(`superbed上传失败：${result.msg || '未知错误'}`);
   }
@@ -219,7 +239,7 @@ async function generateJimengImage(params: {
       req_key: 'jimeng_t2i_v40',
       req_json: '{}',
       prompt,
-      width: 2048,
+      width: 1536,   // 3:4 竖版比例，适合小红书
       height: 2048,
       scale: 0.5,
       force_single: true,

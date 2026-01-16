@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { toast } from 'sonner';
 
 export type AuthStatus = 'checking' | 'logged_in' | 'logged_out' | 'logging_in' | 'error';
 
@@ -119,6 +120,7 @@ export function useAuthStatus() {
 
           if (pollResult.loggedIn) {
             stopPolling();
+            toast.success('登录成功', { description: '小红书账号已连接' });
             setState({
               status: 'logged_in',
               isLoggedIn: true,
@@ -181,6 +183,7 @@ export function useAuthStatus() {
       }
 
       if (result.success) {
+        toast.success('登录成功', { description: '小红书账号已连接' });
         setState({
           status: 'logged_in',
           isLoggedIn: true,

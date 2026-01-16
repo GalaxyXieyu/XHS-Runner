@@ -18,6 +18,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         is_default: providers.isDefault,
         is_enabled: providers.isEnabled,
         icon: providers.icon,
+        supports_vision: providers.supportsVision,
+        supports_image_gen: providers.supportsImageGen,
         created_at: providers.createdAt,
         updated_at: providers.updatedAt,
       })
@@ -28,7 +30,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   if (req.method === 'POST') {
-    const { name, provider_type, base_url, api_key, model_name, temperature, max_tokens, is_default, icon } = req.body;
+    const { name, provider_type, base_url, api_key, model_name, temperature, max_tokens, is_default, icon, supports_vision, supports_image_gen } = req.body;
     if (!name) return res.status(400).json({ error: 'name required' });
 
     const providers = schema.llmProviders;
@@ -51,6 +53,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         isDefault,
         isEnabled: true,
         icon: icon || null,
+        supportsVision: Boolean(supports_vision),
+        supportsImageGen: Boolean(supports_image_gen),
         updatedAt: new Date(),
       })
       .returning({ id: providers.id });
