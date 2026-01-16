@@ -13,7 +13,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (req.method === 'GET') {
       const themeId = req.query.themeId ? Number(req.query.themeId) : undefined;
-      const jobs = await mod.listJobs(themeId);
+      const jobType = (req.query.jobType || req.query.job_type) as string | string[] | undefined;
+      const isEnabled = (req.query.isEnabled || req.query.is_enabled) as string | string[] | undefined;
+      let jobs = await mod.listJobs(themeId);
+
+      if (jobType) {
+        const value = Array.isArray(jobType) ? jobType[0] : jobType;
+        jobs = jobs.filter((job: any) => job.job_type === value);
+      }
+
+      if (isEnabled !== undefined) {
+        const raw = Array.isArray(isEnabled) ? isEnabled[0] : isEnabled;
+        const enabled = raw === '1' || raw === 'true';
+        jobs = jobs.filter((job: any) => {
+          if (typeof job.is_enabled === 'boolean') return job.is_enabled === enabled;
+          return Number(job.is_enabled) === (enabled ? 1 : 0);
+        });
+      }
+
       return res.status(200).json(jobs);
     }
 
