@@ -1,0 +1,1 @@
+ALTER TABLE "topics" ADD CONSTRAINT "topics_source_source_id_unique" UNIQUE("source","source_id");

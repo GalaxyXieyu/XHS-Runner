@@ -8,6 +8,13 @@
       "when": 1768382820492,
       "tag": "0000_chubby_maelstrom",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1768532400668,
+      "tag": "0001_lucky_the_santerians",
+      "breakpoints": true
     }
   ]
 }

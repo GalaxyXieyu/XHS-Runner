@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp, boolean, real, jsonb, date, primaryKey } from 'drizzle-orm/pg-core';
+import { pgTable, serial, text, integer, timestamp, boolean, real, jsonb, date, unique } from 'drizzle-orm/pg-core';
 
 // ==================== Core Tables ====================
 
@@ -55,7 +55,9 @@ export const topics = pgTable('topics', {
   rawJson: jsonb('raw_json'),
   status: text('status').notNull().default('captured'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => ({
+  sourceSourceIdUnique: unique().on(table.source, table.sourceId),
+}));
 
 export const settings = pgTable('settings', {
   key: text('key').primaryKey(),

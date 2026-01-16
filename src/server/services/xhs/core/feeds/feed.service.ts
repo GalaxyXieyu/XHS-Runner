@@ -251,17 +251,17 @@ export class FeedService extends BaseService {
         const domDetail = await page.evaluate(() => {
           const result: Record<string, unknown> = {};
 
-          // Title - look for note title specifically
-          const titleEl = document.querySelector('#detail-title, .note-content .title, [class*="noteDetail"] [class*="title"]');
+          // Title - look for note title specifically (expanded selectors)
+          const titleEl = document.querySelector('#detail-title, .note-content .title, [class*="noteDetail"] [class*="title"], .title, h1[class*="title"]');
           if (titleEl) result.title = titleEl.textContent?.trim();
 
           // Description/content - use specific selectors to avoid matching notification text
           // Priority: 1) #detail-desc 2) note-text class 3) meta description
-          const descEl = document.querySelector('#detail-desc, .note-text, .note-content .desc, [class*="noteDetail"] [class*="desc"]');
+          const descEl = document.querySelector('#detail-desc, .note-text, .note-content .desc, [class*="noteDetail"] [class*="desc"], .desc, [class*="content"]');
           if (descEl) {
             const text = descEl.textContent?.trim();
             // Filter out notification-like text (very short or contains "通知")
-            if (text && text.length > 20 && !text.includes('通知')) {
+            if (text && text.length > 10 && !text.includes('通知')) {
               result.desc = text;
             }
           }
@@ -271,6 +271,14 @@ export class FeedService extends BaseService {
             const metaDesc = document.querySelector('meta[name="description"]');
             if (metaDesc) {
               result.desc = metaDesc.getAttribute('content');
+            }
+          }
+
+          // Additional fallback: og:description
+          if (!result.desc) {
+            const ogDesc = document.querySelector('meta[property="og:description"]');
+            if (ogDesc) {
+              result.desc = ogDesc.getAttribute('content');
             }
           }
 
@@ -299,6 +307,16 @@ export class FeedService extends BaseService {
             url: detailUrl,
           };
         }
+
+        // Debug: 打印页面源内容帮助调试
+        const debugInfo = await page.evaluate(() => {
+          const html = document.documentElement.outerHTML;
+          const metaDesc = document.querySelector('meta[name="description"]')?.getAttribute('content');
+          const ogDesc = document.querySelector('meta[property="og:description"]')?.getAttribute('content');
+          const bodyText = document.body?.innerText?.slice(0, 2000);
+          return { metaDesc, ogDesc, bodyText, htmlLength: html.length };
+        });
+        logger.warn(`[FeedService] Failed to extract for ${feedId}, debug info:`, JSON.stringify(debugInfo, null, 2));
 
         throw new FeedParsingError(`Could not extract note details for feed: ${feedId}`, {
           feedId,

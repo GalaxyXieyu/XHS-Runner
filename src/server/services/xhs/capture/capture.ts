@@ -123,6 +123,28 @@ function parseRelativeTime(timeStr: string | null | undefined): string | null {
     return new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000).toISOString();
   }
 
+  // MM-DD 格式 (如 "01-09", "12-25")
+  const mmddMatch = str.match(/^(\d{1,2})-(\d{1,2})$/);
+  if (mmddMatch) {
+    const month = parseInt(mmddMatch[1], 10) - 1;
+    const day = parseInt(mmddMatch[2], 10);
+    const d = new Date(now.getFullYear(), month, day);
+    // 如果日期在未来，说明是去年的
+    if (d > now) {
+      d.setFullYear(d.getFullYear() - 1);
+    }
+    return d.toISOString();
+  }
+
+  // YYYY-MM-DD 或 YYYY/MM/DD 格式
+  const fullDateMatch = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (fullDateMatch) {
+    const year = parseInt(fullDateMatch[1], 10);
+    const month = parseInt(fullDateMatch[2], 10) - 1;
+    const day = parseInt(fullDateMatch[3], 10);
+    return new Date(year, month, day).toISOString();
+  }
+
   // 无法解析，返回 null
   console.log(`[capture] Unable to parse time: "${str}"`);
   return null;

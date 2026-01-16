@@ -19,6 +19,7 @@ type InsightCachePayload = {
   stats: InsightStats | null;
   trendReport: TrendReport | null;
   titleAnalysis: TitleAnalysis | null;
+  totalTopics: number;
 };
 
 type InsightCacheEntry = {
@@ -28,8 +29,8 @@ type InsightCacheEntry = {
 
 const insightCache = new Map<string, InsightCacheEntry>();
 
-const buildCacheKey = (themeId: string | number, days: number, sortBy: string) =>
-  `${CACHE_VERSION}|${themeId}|${days}|${sortBy}`;
+const buildCacheKey = (themeId: string | number, days: number, sortBy: string, page: number) =>
+  `${CACHE_VERSION}|${themeId}|${days}|${sortBy}|${page}`;
 
 const readCache = (key: string) => {
   const entry = insightCache.get(key);
@@ -45,16 +46,18 @@ const writeCache = (key: string, payload: InsightCachePayload) => {
   insightCache.set(key, { payload, fetchedAt: Date.now() });
 };
 
+const PAGE_SIZE = 20;
+
 export function useInsightData(themeId: string | number) {
   const {
-    topics, tags, topTitles, stats, trendReport, titleAnalysis,
+    topics, tags, topTitles, stats, trendReport, titleAnalysis, totalTopics, page,
     days, sortBy, loading, refreshing,
     setTopics, setTags, setTopTitles, setStats, setTrendReport, setTitleAnalysis,
-    setLoading, setRefreshing, setDays, setSortBy,
+    setLoading, setRefreshing, setDays, setSortBy, setTotalTopics, setPage,
   } = useInsightStore();
 
   const loadData = useCallback(async (options?: { force?: boolean }) => {
-    const cacheKey = buildCacheKey(themeId, days, sortBy);
+    const cacheKey = buildCacheKey(themeId, days, sortBy, page);
     if (!options?.force) {
       const cached = readCache(cacheKey);
       if (cached) {
@@ -64,6 +67,7 @@ export function useInsightData(themeId: string | number) {
         setStats(cached.stats);
         setTrendReport(cached.trendReport);
         setTitleAnalysis(cached.titleAnalysis);
+        setTotalTopics(cached.totalTopics);
         setLoading(false);
         return;
       }
@@ -75,8 +79,15 @@ export function useInsightData(themeId: string | number) {
       if (days > 0) params.set('days', String(days));
       if (sortBy !== 'engagement') params.set('sortBy', sortBy);
 
+      const topicsParams = new URLSearchParams({
+        themeId: String(themeId),
+        limit: String(PAGE_SIZE),
+        offset: String(page * PAGE_SIZE),
+        sortBy,
+      });
+
       const [topicsRes, insightsRes, trendRes, analyzeRes] = await Promise.all([
-        fetch(`/api/topics?themeId=${encodeURIComponent(String(themeId))}&limit=20`),
+        fetch(`/api/topics?${topicsParams}`),
         fetch(`/api/insights?${params}`),
         fetch(`/api/insights/trend?themeId=${encodeURIComponent(String(themeId))}`),
         fetch(`/api/insights/analyze?themeId=${encodeURIComponent(String(themeId))}`),
@@ -90,12 +101,13 @@ export function useInsightData(themeId: string | number) {
       ]);
 
       const payload = {
-        topics: Array.isArray(topicsData) ? topicsData : [],
+        topics: Array.isArray(topicsData?.topics) ? topicsData.topics : (Array.isArray(topicsData) ? topicsData : []),
         tags: Array.isArray(insightsData?.tags) ? insightsData.tags : [],
         topTitles: Array.isArray(insightsData?.topTitles) ? insightsData.topTitles : [],
         stats: insightsData?.stats || null,
         trendReport: trendData?.latest || null,
         titleAnalysis: analyzeData?.latest || null,
+        totalTopics: topicsData?.total || 0,
       };
 
       setTopics(payload.topics);
@@ -104,13 +116,14 @@ export function useInsightData(themeId: string | number) {
       setStats(payload.stats);
       setTrendReport(payload.trendReport);
       setTitleAnalysis(payload.titleAnalysis);
+      setTotalTopics(payload.totalTopics);
       writeCache(cacheKey, payload);
     } catch (e) {
       console.error('Failed to load insight data:', e);
     } finally {
       setLoading(false);
     }
-  }, [themeId, days, sortBy, setTopics, setTags, setTopTitles, setStats, setTrendReport, setTitleAnalysis, setLoading]);
+  }, [themeId, days, sortBy, page, setTopics, setTags, setTopTitles, setStats, setTrendReport, setTitleAnalysis, setLoading, setTotalTopics]);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -124,14 +137,17 @@ export function useInsightData(themeId: string | number) {
 
   return {
     // Data
-    topics, tags, topTitles, stats, trendReport, titleAnalysis,
+    topics, tags, topTitles, stats, trendReport, titleAnalysis, totalTopics,
     // Filters
-    days, sortBy, setDays, setSortBy,
+    days, sortBy, page, setDays, setSortBy, setPage,
     // States
     loading, refreshing,
     // Actions
     refresh,
     setTrendReport,
     setTitleAnalysis,
+    // Pagination
+    pageSize: PAGE_SIZE,
+    totalPages: Math.ceil(totalTopics / PAGE_SIZE),
   };
 }

@@ -3,6 +3,8 @@ import { useCompletion } from '@ai-sdk/react';
 import {
   ArrowUpDown,
   Calendar,
+  ChevronLeft,
+  ChevronRight,
   Cloud,
   FileText,
   Hash,
@@ -39,15 +41,19 @@ export function InsightTab({ theme }: InsightTabProps) {
     stats,
     trendReport,
     titleAnalysis,
+    totalTopics,
     days,
     sortBy,
+    page,
     setDays,
     setSortBy,
+    setPage,
     loading,
     refreshing,
     refresh,
     setTrendReport,
     setTitleAnalysis,
+    totalPages,
   } = useInsightData(theme.id);
 
   const {
@@ -614,10 +620,33 @@ export function InsightTab({ theme }: InsightTabProps) {
 
       {/* Notes Grid */}
       <div className="bg-white border border-gray-200 rounded-lg p-3">
-        <div className="text-sm font-medium text-gray-900 mb-3">全部笔记 ({stats?.totalNotes || topics.length})</div>
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-sm font-medium text-gray-900">全部笔记 ({totalTopics || stats?.totalNotes || topics.length})</div>
+          {totalPages > 1 && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage(Math.max(0, page - 1))}
+                disabled={page === 0 || loading}
+                className="p-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="text-xs text-gray-600">
+                {page + 1} / {totalPages}
+              </span>
+              <button
+                onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
+                disabled={page >= totalPages - 1 || loading}
+                className="p-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+        </div>
         {showSkeleton && topics.length === 0 ? (
-          <div className="grid grid-cols-4 gap-3 animate-pulse">
-            {Array.from({ length: 8 }).map((_, idx) => (
+          <div className="grid grid-cols-5 gap-3 animate-pulse">
+            {Array.from({ length: 10 }).map((_, idx) => (
               <div key={idx} className="group">
                 <div className="relative mb-2 overflow-hidden rounded-lg bg-gray-100">
                   <div className="w-full h-32 bg-gray-200" />
@@ -631,8 +660,8 @@ export function InsightTab({ theme }: InsightTabProps) {
         ) : topics.length === 0 ? (
           <div className="text-xs text-gray-500 text-center py-6">暂无数据</div>
         ) : (
-          <div className="grid grid-cols-4 gap-3">
-            {topics.slice(0, 8).map((topic) => {
+          <div className="grid grid-cols-5 gap-3">
+            {topics.map((topic) => {
               const coverSrc = buildImageProxySrc(topic.cover_url, topic.url);
 
               return (
