@@ -42,10 +42,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { message, themeId, referenceImageUrl } = req.body;
+  const { message, themeId, referenceImageUrl, referenceImages, imageGenProvider } = req.body;
   if (!message) {
     return res.status(400).json({ error: "Message is required" });
   }
+
+  // 支持单个 URL 或多个 URL 数组
+  const refImages: string[] = referenceImages || (referenceImageUrl ? [referenceImageUrl] : []);
+  const hasReferenceImage = refImages.length > 0;
+  const provider = imageGenProvider || 'gemini'; // 默认使用 gemini
 
   // 设置 SSE 响应头
   res.setHeader("Content-Type", "text/event-stream");
@@ -64,7 +69,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const trace = await createTrace('agent-stream', {
     message,
     themeId,
-    hasReferenceImage: !!referenceImageUrl,
+    hasReferenceImage,
+    referenceImageCount: refImages.length,
   });
   const traceId = trace?.id;
 
@@ -74,7 +80,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   sendEvent({
     type: "agent_start",
     agent: "supervisor",
-    content: referenceImageUrl ? "🚀 开始处理请求 (带参考图)..." : "🚀 开始处理请求...",
+    content: hasReferenceImage
+      ? `🚀 开始处理请求 (${refImages.length}张参考图)...`
+      : "🚀 开始处理请求...",
     timestamp: Date.now(),
   });
 
@@ -85,12 +93,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       ? `[当前主题ID: ${themeId}] ${message}`
       : message;
 
-    // 初始状态，包含参考图
+    // 初始状态，包含参考图和图片生成模型
     const initialState: any = {
       messages: [new HumanMessage(contextMessage)],
+      imageGenProvider: provider,
     };
-    if (referenceImageUrl) {
-      initialState.referenceImageUrl = referenceImageUrl;
+    if (refImages.length > 0) {
+      initialState.referenceImages = refImages;
+      initialState.referenceImageUrl = refImages[0]; // 兼容旧代码
     }
 
     const stream = await app.stream(initialState, { recursionLimit: 100 });

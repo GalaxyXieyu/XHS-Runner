@@ -88,6 +88,7 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
   const [mode, setMode] = useState<Mode>("agent");
   const [expandedProcess, setExpandedProcess] = useState(false);  // 过程消息展开状态（默认折叠）
   const [imageTasks, setImageTasks] = useState<ImageTask[]>([]);  // 图片生成任务
+  const [imageGenProvider, setImageGenProvider] = useState<'gemini' | 'jimeng'>('gemini');  // 图片生成模型
   const [customConfig, setCustomConfig] = useState<CustomConfig>({
     goal: "collects",
     tone: "",
@@ -212,7 +213,7 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
       const response = await fetch("/api/agent/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMessage, themeId: theme.id }),
+        body: JSON.stringify({ message: userMessage, themeId: theme.id, imageGenProvider }),
       });
 
       const reader = response.body?.getReader();
@@ -394,6 +395,19 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
                   自定义
                   {mode === "custom" && <ChevronDown className="w-3.5 h-3.5" />}
                 </button>
+
+                {/* 图片生成模型选择 */}
+                <div className="ml-auto flex items-center gap-2">
+                  <span className="text-xs text-gray-500">生图模型:</span>
+                  <select
+                    value={imageGenProvider}
+                    onChange={(e) => setImageGenProvider(e.target.value as 'gemini' | 'jimeng')}
+                    className="px-3 py-1.5 text-sm border border-gray-200 rounded-full bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  >
+                    <option value="gemini">Gemini</option>
+                    <option value="jimeng">即梦</option>
+                  </select>
+                </div>
               </div>
 
               {/* 自定义参数面板 */}

@@ -382,3 +382,70 @@ export async function generateImage(input: ImageGenerateInput): Promise<ImageGen
     metadata: { model: 'nanobanana', ...result.metadata },
   };
 }
+
+// ============ 带参考图生成接口 ============
+
+export type ReferenceImageProvider = 'gemini' | 'jimeng';
+
+export interface ReferenceImageInput {
+  prompt: string;
+  referenceImageUrl: string;
+  provider?: ReferenceImageProvider; // 不传则从设置读取
+  aspectRatio?: string;
+}
+
+export interface ReferenceImageResult {
+  imageBuffer: Buffer;
+  provider: string;
+  metadata?: Record<string, any>;
+}
+
+/**
+ * 带参考图生成图片 - 统一接口
+ * 支持多种模型，可通过设置或参数切换
+ */
+export async function generateImageWithReference(input: ReferenceImageInput): Promise<ReferenceImageResult> {
+  // 优先使用参数指定的 provider，否则从设置读取
+  const provider = input.provider || (await getSetting('imageGenProvider')) || 'gemini';
+  console.log(`[generateImageWithReference] Using provider: ${provider}`);
+
+  switch (provider) {
+    case 'jimeng':
+      return generateWithJimeng(input);
+    case 'gemini':
+    default:
+      return generateWithGemini(input);
+  }
+}
+
+// Gemini 实现
+async function generateWithGemini(input: ReferenceImageInput): Promise<ReferenceImageResult> {
+  const { generateImageWithReference: geminiGenerate } = await import('../llm/geminiClient');
+  const result = await geminiGenerate({
+    prompt: input.prompt,
+    referenceImageUrl: input.referenceImageUrl,
+    aspectRatio: input.aspectRatio || '3:4',
+  });
+  return {
+    imageBuffer: Buffer.from(result.imageBase64, 'base64'),
+    provider: 'gemini',
+    metadata: { mimeType: result.mimeType },
+  };
+}
+
+// Jimeng 实现
+async function generateWithJimeng(input: ReferenceImageInput): Promise<ReferenceImageResult> {
+  const { accessKey, secretKey, superbedToken } = await getJimengConfig();
+  const result = await generateJimengImage({
+    prompt: input.prompt,
+    images: [input.referenceImageUrl],
+    accessKey,
+    secretKey,
+    superbedToken,
+  });
+  return {
+    imageBuffer: result.imageBuffer,
+    provider: 'jimeng',
+    metadata: result.metadata,
+  };
+}

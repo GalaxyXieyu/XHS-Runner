@@ -10,13 +10,62 @@ import { eq, and } from "drizzle-orm";
 import { getTagStats, getTopTitles, getLatestTrendReport } from "../services/xhs/analytics/insightService";
 import { enqueueTask } from "../services/xhs/llm/generationQueue";
 import { analyzeReferenceImage } from "../services/xhs/llm/geminiClient";
-import { generateImage as generateJimengImage } from "../services/xhs/integration/imageProvider";
+import { generateImageWithReference } from "../services/xhs/integration/imageProvider";
+import { storeAsset } from "../services/xhs/integration/assetStore";
+import * as fs from "fs";
+
+// 过滤掉孤立的 ToolMessage（前面没有对应 tool_calls 的）
+function filterOrphanedToolMessages(messages: BaseMessage[]): BaseMessage[] {
+  const result: BaseMessage[] = [];
+  const pendingToolCallIds = new Set<string>();
+
+  for (const msg of messages) {
+    if (msg instanceof AIMessage && msg.tool_calls?.length) {
+      for (const tc of msg.tool_calls) {
+        if (tc.id) pendingToolCallIds.add(tc.id);
+      }
+      result.push(msg);
+    } else if (msg instanceof ToolMessage) {
+      const toolCallId = (msg as any).tool_call_id;
+      if (toolCallId && pendingToolCallIds.has(toolCallId)) {
+        result.push(msg);
+        pendingToolCallIds.delete(toolCallId);
+      } else {
+        console.log(`[filterOrphanedToolMessages] Skipping orphaned ToolMessage: ${toolCallId}`);
+      }
+    } else {
+      result.push(msg);
+    }
+  }
+  return result;
+}
+
+// 安全截取消息，确保不会截断工具调用对
+function safeSliceMessages(messages: BaseMessage[], maxCount: number): BaseMessage[] {
+  // 先过滤孤立的 ToolMessage
+  const filtered = filterOrphanedToolMessages(messages);
+
+  if (filtered.length <= maxCount) return filtered;
+
+  // 从后往前找到安全的截取点
+  let startIndex = filtered.length - maxCount;
+
+  // 确保不会从 ToolMessage 开始
+  while (startIndex < filtered.length && filtered[startIndex] instanceof ToolMessage) {
+    startIndex--;
+  }
+
+  if (startIndex < 0) startIndex = 0;
+
+  // 截取后再次过滤，确保没有孤立的 ToolMessage
+  return filterOrphanedToolMessages(filtered.slice(startIndex));
+}
 
 // 获取 LLM 配置
 async function getLLMConfig(requireVision = false) {
   let query = supabase
     .from("llm_providers")
-    .select("base_url, api_key, model_name, supports_vision, supports_image_gen")
+    .select("base_url, api_key, model_name, max_tokens, supports_vision, supports_image_gen")
     .eq("is_enabled", 1);
 
   if (requireVision) {
@@ -28,12 +77,14 @@ async function getLLMConfig(requireVision = false) {
   const { data } = await query.maybeSingle();
 
   if (data?.base_url && data?.api_key && data?.model_name) {
-    return { baseUrl: data.base_url, apiKey: data.api_key, model: data.model_name };
+    return { baseUrl: data.base_url, apiKey: data.api_key, model: data.model_name, maxTokens: data.max_tokens || 8192, supportsVision: !!data.supports_vision };
   }
   return {
     baseUrl: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
     apiKey: process.env.OPENAI_API_KEY || "",
     model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+    maxTokens: 8192,
+    supportsVision: false,
   };
 }
 
@@ -198,6 +249,11 @@ const AgentState = Annotation.Root({
     value: (_, y) => y,
     default: () => null,
   }),
+  // 支持多个参考图
+  referenceImages: Annotation<string[]>({
+    value: (_, y) => y,
+    default: () => [],
+  }),
   styleAnalysis: Annotation<StyleAnalysis | null>({
     value: (_, y) => y,
     default: () => null,
@@ -219,6 +275,16 @@ const AgentState = Annotation.Root({
     value: (_, y) => y,
     default: () => false,
   }),
+  // 已生成的图片数量
+  generatedImageCount: Annotation<number>({
+    value: (x, y) => Math.max(x, y),  // 取最大值，避免重复计数
+    default: () => 0,
+  }),
+  // 已生成的图片路径（用于多模态审核）
+  generatedImagePaths: Annotation<string[]>({
+    value: (x, y) => [...x, ...y],  // 累加
+    default: () => [],
+  }),
   // 迭代控制
   iterationCount: Annotation<number>({
     value: (x, y) => y,
@@ -227,6 +293,11 @@ const AgentState = Annotation.Root({
   maxIterations: Annotation<number>({
     value: (_, y) => y,
     default: () => 3,  // 最多迭代3次
+  }),
+  // 图片生成模型选择
+  imageGenProvider: Annotation<string>({
+    value: (_, y) => y,
+    default: () => "gemini",
   }),
 });
 
@@ -253,27 +324,41 @@ const analyzeStyleTool = tool(
   }
 );
 
-// 带参考图生成图片工具 (使用火山引擎即梦)
+// 带参考图生成图片工具 (根据设置选择 jimeng 或 gemini)
 const generateWithReferenceTool = tool(
-  async ({ prompt, referenceImageUrl, sequence, role }) => {
+  async ({ prompt, referenceImageUrl, sequence, role, provider }) => {
     try {
       console.log(`[generateWithReference] prompt: ${prompt.slice(0, 50)}...`);
       console.log(`[generateWithReference] referenceImageUrl: ${referenceImageUrl.slice(0, 50)}...`);
-      console.log(`[generateWithReference] sequence: ${sequence}, role: ${role}`);
+      console.log(`[generateWithReference] sequence: ${sequence}, role: ${role}, provider: ${provider || 'auto'}`);
 
-      const result = await generateJimengImage({
+      // 使用统一的带参考图生成接口
+      const result = await generateImageWithReference({
         prompt,
-        model: "jimeng",
-        images: [referenceImageUrl], // 参考图作为风格参考
+        referenceImageUrl,
+        provider: provider as 'gemini' | 'jimeng' | undefined,
       });
 
-      console.log(`[generateWithReference] Success! imageSize: ${result.imageBuffer.length}`);
+      console.log(`[generateWithReference] Success! imageSize: ${result.imageBuffer.length}, provider: ${result.provider}`);
+
+      // 保存图片到文件系统
+      const filename = `agent-${Date.now()}-${sequence}-${role}.png`;
+      const asset = await storeAsset({
+        type: 'generated_image',
+        filename,
+        data: result.imageBuffer,
+        metadata: { sequence, role, provider: result.provider, prompt: prompt.slice(0, 200) },
+      });
+      console.log(`[generateWithReference] Saved to: ${asset.path}`);
+
       return JSON.stringify({
         success: true,
         sequence,
         role,
         imageSize: result.imageBuffer.length,
-        message: "图片生成成功 (火山引擎即梦)",
+        assetId: asset.id,
+        path: asset.path,
+        message: `图片生成成功 (${result.provider})`,
       });
     } catch (error) {
       console.error(`[generateWithReference] Error:`, error);
@@ -282,12 +367,13 @@ const generateWithReferenceTool = tool(
   },
   {
     name: "generate_with_reference",
-    description: "根据参考图风格生成小红书配图（使用火山引擎即梦）",
+    description: "根据参考图风格生成小红书配图（支持 Gemini 或火山引擎即梦）",
     schema: z.object({
       prompt: z.string().describe("中文生图提示词"),
       referenceImageUrl: z.string().describe("参考图 URL"),
       sequence: z.number().describe("图片序号 (0=封面)"),
       role: z.enum(["cover", "step", "detail", "result", "comparison"]).describe("图片角色"),
+      provider: z.string().optional().describe("图片生成模型 (gemini/jimeng)，由系统自动注入"),
     }),
   }
 );
@@ -339,6 +425,7 @@ export async function createMultiAgentSystem() {
     temperature: 0.7,
     timeout: 60000,  // 60秒超时
     maxRetries: 3,   // 最多重试3次
+    maxTokens: config.maxTokens, // 从数据库读取
   });
 
   // Supervisor 节点 - 决定下一步
@@ -391,7 +478,7 @@ REASON: [简短说明原因]`;
 
     const response = await model.invoke([
       new HumanMessage(systemPrompt),
-      ...state.messages.slice(-5),
+      ...safeSliceMessages(state.messages, 5),
     ]);
 
     console.log("[DEBUG] supervisorNode response:", typeof response.content === "string" ? response.content : "non-string content");
@@ -413,7 +500,7 @@ REASON: [简短说明原因]`;
 
     const response = await modelWithTools.invoke([
       new HumanMessage(systemPrompt),
-      ...state.messages.slice(-10),
+      ...safeSliceMessages(state.messages, 10),
     ]);
 
     console.log("[DEBUG] researchAgentNode response:", typeof response.content === "string" ? response.content.slice(0, 200) : "non-string content");
@@ -441,7 +528,7 @@ REASON: [简短说明原因]`;
 
     const response = await model.invoke([
       new HumanMessage(systemPrompt),
-      ...state.messages.slice(-15),
+      ...safeSliceMessages(state.messages, 15),
     ]);
 
     return {
@@ -457,7 +544,6 @@ REASON: [简短说明原因]`;
       ? model.bindTools(referenceImageTools)
       : model.bindTools(imageTools);
 
-    const styleDesc = state.styleAnalysis?.description || "";
     const plans = state.imagePlans;
     // 如果有优化后的提示词，使用它们
     const optimizedPrompts = state.reviewFeedback?.optimizedPrompts || [];
@@ -465,33 +551,25 @@ REASON: [简短说明原因]`;
     // 重要：明确告诉 agent 使用的参考图 URL
     const refImageUrl = state.referenceImageUrl || "";
 
+    // 构建带 prompt 的规划列表
+    const plansWithPrompts = plans.map((p, i) => {
+      const prompt = optimizedPrompts[i] || p.prompt || p.description;
+      return `- 序号${p.sequence} (${p.role}): prompt="${prompt}"`;
+    }).join("\n");
+
     const systemPrompt = state.referenceImageUrl
-      ? `你是小红书配图生成专家。根据图片规划和风格描述生成配图。
+      ? `你是小红书配图生成专家。严格按照规划的 prompt 生成配图。
 
-参考图风格: ${styleDesc}
-风格特征: ${JSON.stringify(state.styleAnalysis)}
-${optimizedPrompts.length > 0 ? `\n优化后的提示词参考:\n${optimizedPrompts.join("\n")}\n` : ""}
+【图片规划】（直接使用每张图的 prompt，不要修改）
+${plansWithPrompts}
 
-图片规划:
-${plans.map((p) => `- 序号${p.sequence}: ${p.role} - ${p.description}`).join("\n")}
+【生成规则】
+1. 按 sequence 顺序逐张调用 generate_with_reference 工具
+2. prompt 参数：直接使用上面规划中的 prompt 值，不要自己编写
+3. referenceImageUrl 参数：使用 "${refImageUrl.slice(0, 80)}..."
+4. sequence 和 role 参数：使用规划中的值
 
-生成规则：
-1. 按 sequence 顺序逐张生成
-2. 每张图的 prompt 必须使用【中文】描述，包含：
-   - 画面主体和场景描述（中文，详细具体）
-   - 小红书风格关键词：精致、高级感、氛围感、ins风、日系、韩系等
-   - 必须包含：竖版构图，3:4比例，小红书封面风格
-   - 风格参考: ${styleDesc}
-3. 禁止出现：logo、水印、文字、人脸、品牌名
-4. 图片尺寸：竖版 3:4 比例（适合小红书展示）
-
-提示词示例格式：
-"一杯精美的手冲咖啡，放在原木色桌面上，旁边有咖啡豆和滤杯，柔和的自然光线，日系清新风格，高级感，竖版构图，3:4比例，小红书封面风格"
-
-重要：调用 generate_with_reference 工具时，referenceImageUrl 参数必须使用以下值（这是用户上传的参考图）：
-${refImageUrl.slice(0, 100)}...
-
-请为每张图调用 generate_with_reference 工具，每次调用都使用上面的 referenceImageUrl，prompt 使用中文。`
+请立即为每张图调用 generate_with_reference 工具。`
       : `你是小红书封面图设计专家。根据之前创作的内容生成合适的封面图：
 
 要求：
@@ -501,7 +579,7 @@ ${refImageUrl.slice(0, 100)}...
 
     const response = await modelWithTools.invoke([
       new HumanMessage(systemPrompt),
-      ...state.messages.slice(-10),
+      ...safeSliceMessages(state.messages, 10),
     ]);
 
     return {
@@ -551,39 +629,65 @@ ${refImageUrl.slice(0, 100)}...
 
   // Image Planner Agent 节点
   const imagePlannerNode = async (state: typeof AgentState.State) => {
-    const styleDesc = state.styleAnalysis?.description || "高质量小红书风格";
+    const styleAnalysis = state.styleAnalysis;
+    const styleDesc = styleAnalysis?.description || "高质量小红书风格";
+    const colorPalette = styleAnalysis?.colorPalette?.join("、") || "柔和自然色调";
+    const mood = styleAnalysis?.mood || "精致高级";
+    const lighting = styleAnalysis?.lighting || "柔和自然光";
     // 如果是重新规划（有审核反馈），参考建议
     const reviewSuggestions = state.reviewFeedback?.suggestions?.join("\n") || "";
 
     const systemPrompt = `你是小红书图文配图规划专家。根据文案内容规划图片序列。
 
-风格参考: ${styleDesc}
+⚠️【核心原则：风格与内容分离】⚠️
+- 风格元素（色调、氛围、光线、构图风格）→ 参考下方风格分析
+- 画面内容（具体物品、场景、主题）→ 必须根据文案内容设计，绝对不要复制参考图的内容！
+
+【风格参考（只借鉴风格，不借鉴内容）】
+- 整体风格: ${styleDesc}
+- 主色调: ${colorPalette}
+- 氛围感: ${mood}
+- 光线: ${lighting}
 ${reviewSuggestions ? `\n上次审核建议:\n${reviewSuggestions}\n` : ""}
 
-规划原则：
-1. 封面图 (sequence=0): 最吸引眼球，展示核心价值或最终效果
-2. 内容图: 根据正文结构规划，可以是步骤图、细节图、对比图等
-3. 图片数量: 3-9张，根据内容复杂度决定
+【规划原则】
+1. 封面图 (sequence=0): 展示文案的核心主题或最终效果
+2. 内容图: 根据文案正文结构规划，展示文案中提到的具体内容
+3. 图片数量: 最多4张（1张封面 + 最多3张内容图）
 
-图片角色说明：
-- cover: 封面图，吸引点击
-- step: 步骤图，展示操作过程
-- detail: 细节图，放大展示关键细节
-- result: 成果图，展示最终效果
-- comparison: 对比图，前后对比
+【图片角色】
+- cover: 封面图，展示文案核心主题
+- step: 步骤图，展示文案中的操作过程
+- detail: 细节图，展示文案中的关键细节
+- result: 成果图，展示文案描述的最终效果
 
-请根据之前创作的内容，输出图片规划 JSON：
+【prompt 构成规则】
+1. 画面内容（根据文案设计，不要抄参考图）：描述文案相关的具体场景/物品
+2. 风格后缀（根据角色不同）：
+   - cover: ${colorPalette}色调，${mood}氛围，${lighting}，竖版构图，3:4比例，小红书封面风格，高清精致
+   - step/detail/result: ${colorPalette}色调，${mood}氛围，${lighting}，竖版构图，3:4比例，小红书配图风格，高清精致
+
+请输出 JSON 数组，每个对象包含 sequence、role、description、prompt：
 [
-  { "sequence": 0, "role": "cover", "description": "封面：展示最终成品效果" },
-  { "sequence": 1, "role": "step", "description": "步骤1：准备材料清单" },
-  ...
+  {
+    "sequence": 0,
+    "role": "cover",
+    "description": "封面：简短描述",
+    "prompt": "【文案相关的画面内容】，${colorPalette}色调，${mood}氛围，${lighting}，竖版构图，3:4比例，小红书封面风格，高清精致"
+  },
+  {
+    "sequence": 1,
+    "role": "step",
+    "description": "步骤图：简短描述",
+    "prompt": "【文案相关的画面内容】，${colorPalette}色调，${mood}氛围，${lighting}，竖版构图，3:4比例，小红书配图风格，高清精致"
+  }
 ]
 
 只输出 JSON 数组，不要其他内容。`;
 
     const response = await model.invoke([
       new HumanMessage(systemPrompt),
-      ...state.messages.slice(-15),
+      ...safeSliceMessages(state.messages, 15),
     ]);
 
     // 解析规划结果
@@ -597,11 +701,27 @@ ${reviewSuggestions ? `\n上次审核建议:\n${reviewSuggestions}\n` : ""}
     } catch {
       // 解析失败，使用默认规划
       plans = [
-        { sequence: 0, role: "cover", description: "封面图" },
-        { sequence: 1, role: "detail", description: "内容详情图1" },
-        { sequence: 2, role: "detail", description: "内容详情图2" },
+        { sequence: 0, role: "cover", description: "封面图", prompt: `精美封面，${styleDesc}风格，${colorPalette}色调，${mood}氛围，竖版构图，3:4比例，小红书封面风格` },
+        { sequence: 1, role: "detail", description: "内容详情图", prompt: `内容展示，${styleDesc}风格，${colorPalette}色调，${mood}氛围，竖版构图，3:4比例，小红书风格` },
       ];
     }
+
+    // 硬性限制最多 4 张图片
+    if (plans.length > 4) {
+      console.log(`[imagePlannerNode] Truncating plans from ${plans.length} to 4`);
+      plans = plans.slice(0, 4);
+    }
+
+    // 确保每个 plan 都有 prompt 字段，根据角色使用不同风格
+    plans = plans.map(p => {
+      const styleType = p.role === 'cover' ? '小红书封面风格' : '小红书配图风格';
+      return {
+        ...p,
+        prompt: p.prompt || `${p.description}，${styleDesc}风格，${colorPalette}色调，${mood}氛围，竖版构图，3:4比例，${styleType}，高清精致`
+      };
+    });
+
+    console.log(`[imagePlannerNode] Plans with prompts:`, plans.map(p => ({ seq: p.sequence, prompt: p.prompt?.slice(0, 50) })));
 
     return {
       messages: [response],
@@ -613,19 +733,57 @@ ${reviewSuggestions ? `\n上次审核建议:\n${reviewSuggestions}\n` : ""}
     };
   };
 
-  // Review Agent 节点
+  // Review Agent 节点 - 使用支持 vision 的模型进行多模态审核
   const reviewAgentNode = async (state: typeof AgentState.State) => {
-    const systemPrompt = `你是小红书内容审核专家。审核生成的内容和图片规划，提供优化建议。
+    // 获取支持 vision 的 LLM 配置
+    const visionConfig = await getLLMConfig(true);
+    const visionModel = new ChatOpenAI({
+      configuration: { baseURL: visionConfig.baseUrl },
+      apiKey: visionConfig.apiKey,
+      modelName: visionConfig.model,
+      temperature: 0.3,
+      timeout: 120000,
+      maxRetries: 2,
+      maxTokens: visionConfig.maxTokens,
+    });
+
+    // 读取生成的图片用于多模态审核
+    const imageContents: Array<{ type: "image_url"; image_url: { url: string } }> = [];
+    for (const imagePath of state.generatedImagePaths.slice(-4)) {  // 最多审核最近4张
+      try {
+        if (fs.existsSync(imagePath)) {
+          const imageBuffer = fs.readFileSync(imagePath);
+          const base64 = imageBuffer.toString("base64");
+          const mimeType = imagePath.endsWith(".png") ? "image/png" : "image/jpeg";
+          imageContents.push({
+            type: "image_url",
+            image_url: { url: `data:${mimeType};base64,${base64}` },
+          });
+          console.log(`[reviewAgentNode] Loaded image: ${imagePath} (${Math.round(imageBuffer.length / 1024)}KB)`);
+        }
+      } catch (e) {
+        console.error(`[reviewAgentNode] Failed to load image: ${imagePath}`, e);
+      }
+    }
+
+    const hasImages = imageContents.length > 0;
+    console.log(`[reviewAgentNode] Using vision model: ${visionConfig.model}, images: ${imageContents.length}`);
+
+    const systemPrompt = `你是小红书内容审核专家。审核生成的内容和图片，提供优化建议。
 
 当前状态：
 - 图片规划: ${JSON.stringify(state.imagePlans)}
 - 风格分析: ${JSON.stringify(state.styleAnalysis)}
+- 已生成图片: ${state.generatedImagePaths.length} 张
+${hasImages ? "\n【请仔细查看附带的生成图片】" : ""}
 
 审核维度：
-1. 图片规划是否合理（数量、角色分配、内容覆盖）
-2. 图片描述是否清晰具体
-3. 是否符合小红书爆款图文特征
-4. 风格是否统一
+1. 【最重要】图片内容是否与文案主题相关（不能照抄参考图内容）
+${hasImages ? "2. 【视觉检查】生成的图片质量、构图、色调是否符合小红书风格" : ""}
+3. 图片规划是否合理（数量、角色分配、内容覆盖）
+4. prompt 是否包含：文案相关内容 + 风格后缀（色调、氛围、光线、3:4比例）
+
+⚠️ 重点检查：图片画面内容必须与文案主题相关，不能是参考图的内容！
 
 请输出审核结果 JSON：
 {
@@ -638,9 +796,15 @@ ${reviewSuggestions ? `\n上次审核建议:\n${reviewSuggestions}\n` : ""}
 如果 approved 为 true，targetAgent 应为 null。
 如果需要优化，指定 targetAgent 和具体建议。`;
 
-    const response = await model.invoke([
-      new HumanMessage(systemPrompt),
-      ...state.messages.slice(-10),
+    // 构建多模态消息
+    const messageContent: Array<{ type: string; text?: string; image_url?: { url: string } }> = [
+      { type: "text", text: systemPrompt },
+      ...imageContents,
+    ];
+
+    const response = await visionModel.invoke([
+      new HumanMessage({ content: messageContent }),
+      ...safeSliceMessages(state.messages, 8),  // 减少文本消息数量，给图片留空间
     ]);
 
     // 解析审核结果
@@ -668,7 +832,82 @@ ${reviewSuggestions ? `\n上次审核建议:\n${reviewSuggestions}\n` : ""}
   const researchToolNode = new ToolNode(researchTools);
   const imageToolNode = new ToolNode(imageTools);
   const styleToolNode = new ToolNode(styleTools);
-  const referenceImageToolNode = new ToolNode(referenceImageTools);
+  const baseReferenceImageToolNode = new ToolNode(referenceImageTools);
+
+  // 自定义参考图工具节点，自动注入完整的参考图 URL 和 provider
+  const referenceImageToolNode = async (state: typeof AgentState.State) => {
+    // 获取 state 中的完整参考图（优先使用数组，兼容单个 URL）
+    const referenceImages = state.referenceImages.length > 0
+      ? state.referenceImages
+      : (state.referenceImageUrl ? [state.referenceImageUrl] : []);
+
+    const fullReferenceImageUrl = referenceImages[0] || "";
+    const imageProvider = state.imageGenProvider || "gemini";
+
+    console.log(`[referenceImageToolNode] Using ${referenceImages.length} reference images, provider: ${imageProvider}`);
+
+    // 修改消息中的工具调用参数，注入完整的 referenceImageUrl 和 provider
+    const modifiedState = {
+      ...state,
+      messages: state.messages.map((msg) => {
+        if (msg && "tool_calls" in msg && (msg as AIMessage).tool_calls?.length) {
+          const aiMsg = msg as AIMessage;
+          const modifiedToolCalls = aiMsg.tool_calls?.map((tc) => {
+            if (tc.name === "generate_with_reference" && tc.args) {
+              console.log(`[referenceImageToolNode] Injecting referenceImageUrl (${fullReferenceImageUrl.length} chars) and provider: ${imageProvider}`);
+              return {
+                ...tc,
+                args: {
+                  ...tc.args,
+                  referenceImageUrl: fullReferenceImageUrl,
+                  provider: imageProvider,
+                },
+              };
+            }
+            return tc;
+          });
+          return new AIMessage({
+            content: aiMsg.content,
+            tool_calls: modifiedToolCalls,
+          });
+        }
+        return msg;
+      }),
+    };
+
+    const result = await baseReferenceImageToolNode.invoke(modifiedState);
+
+    // 统计成功生成的图片数量和路径
+    let newSuccessCount = 0;
+    const newImagePaths: string[] = [];
+    if (result.messages) {
+      for (const msg of result.messages) {
+        const content = typeof msg.content === "string" ? msg.content : "";
+        if (content.includes('"success":true')) {
+          newSuccessCount++;
+          // 提取图片路径
+          const pathMatch = content.match(/"path":"([^"]+)"/);
+          if (pathMatch) {
+            newImagePaths.push(pathMatch[1]);
+          }
+        }
+      }
+    }
+
+    const totalGenerated = state.generatedImageCount + newSuccessCount;
+    const plannedCount = state.imagePlans.length;
+    const isComplete = totalGenerated >= plannedCount && plannedCount > 0;
+
+    console.log(`[DEBUG] referenceImageToolNode: generated ${newSuccessCount} new images, total: ${totalGenerated}/${plannedCount}, complete: ${isComplete}`);
+    console.log(`[DEBUG] referenceImageToolNode: new image paths:`, newImagePaths);
+
+    return {
+      ...result,
+      generatedImageCount: totalGenerated,
+      generatedImagePaths: newImagePaths,  // 累加到 state
+      imagesComplete: isComplete,
+    };
+  };
 
   // 路由函数
   const routeFromSupervisor = (state: typeof AgentState.State): string => {
@@ -682,6 +921,7 @@ ${reviewSuggestions ? `\n上次审核建议:\n${reviewSuggestions}\n` : ""}
       researchComplete: state.researchComplete,
       contentComplete: state.contentComplete,
       imagePlans: state.imagePlans.length,
+      generatedImageCount: state.generatedImageCount,
       imagesComplete: state.imagesComplete,
       reviewFeedback: state.reviewFeedback,
     });
@@ -770,6 +1010,8 @@ ${reviewSuggestions ? `\n上次审核建议:\n${reviewSuggestions}\n` : ""}
 
   const shouldContinueImage = (state: typeof AgentState.State): string => {
     const lastMessage = state.messages[state.messages.length - 1];
+
+    // 检查是否有工具调用
     if (lastMessage && "tool_calls" in lastMessage && (lastMessage as AIMessage).tool_calls?.length) {
       imageToolCallCount++;
       console.log(`[DEBUG] Image tool call count: ${imageToolCallCount}/${MAX_IMAGE_TOOL_CALLS}`);
@@ -779,6 +1021,12 @@ ${reviewSuggestions ? `\n上次审核建议:\n${reviewSuggestions}\n` : ""}
       }
       return state.referenceImageUrl ? "reference_image_tools" : "image_tools";
     }
+
+    // 检查是否已完成所有图片生成
+    const plannedCount = state.imagePlans.length;
+    const generatedCount = state.generatedImageCount;
+    console.log(`[DEBUG] shouldContinueImage: generated ${generatedCount}/${plannedCount}, imagesComplete: ${state.imagesComplete}`);
+
     return "supervisor";
   };
 

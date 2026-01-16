@@ -47,6 +47,7 @@ export async function getSettings() {
     'llmBaseUrl',
     'llmApiKey',
     'llmModel',
+    'imageGenProvider', // 图片生成服务: 'jimeng' | 'gemini'
     'volcengineAccessKey',
     'volcengineSecretKey',
     'superbedToken',
@@ -74,6 +75,7 @@ export async function getSettings() {
     llmBaseUrl: parsed.llmBaseUrl ?? '',
     llmApiKey: parsed.llmApiKey ?? '',
     llmModel: parsed.llmModel ?? '',
+    imageGenProvider: parsed.imageGenProvider ?? 'gemini', // 默认使用 gemini
     volcengineAccessKey: parsed.volcengineAccessKey ?? '',
     volcengineSecretKey: parsed.volcengineSecretKey ?? '',
     superbedToken: parsed.superbedToken ?? '',
