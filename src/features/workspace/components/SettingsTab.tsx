@@ -2,9 +2,23 @@ import { useState, useEffect } from 'react';
 import { Key, Database, Settings as SettingsIcon, QrCode, Smartphone, CheckCircle, Loader, Plus, Edit2, Trash2, FlaskConical, Activity } from 'lucide-react';
 import type { Theme } from '@/App';
 import { PromptPlayground } from '@/components/workspace/PromptPlayground';
+import type { AuthStatus } from '@/hooks/useAuthStatus';
+
+interface AuthProps {
+  status: AuthStatus;
+  isLoggedIn: boolean;
+  isChecking: boolean;
+  isLoggingIn: boolean;
+  error: string | null;
+  qrCodeUrl: string | null;
+  login: () => Promise<boolean>;
+  logout: () => Promise<void>;
+  refreshQRCode: () => Promise<boolean>;
+}
 
 interface SettingsTabProps {
   theme: Theme;
+  auth: AuthProps;
 }
 
 type SettingSection = 'hotNumber' | 'api' | 'rules' | 'system';
@@ -55,9 +69,8 @@ const defaultExtensionTypes = [
   { service_type: 'nanobanana', name: 'Nanobanana', description: '第三方数据分析服务' }
 ];
 
-export function SettingsTab({ theme: _theme }: SettingsTabProps) {
+export function SettingsTab({ theme: _theme, auth }: SettingsTabProps) {
   const [activeSection, setActiveSection] = useState<SettingSection>('hotNumber');
-  const [qrStatus, setQrStatus] = useState<'loading' | 'ready' | 'success'>('ready');
   const [selectedAPI, setSelectedAPI] = useState<string | null>(null);
   const [selectedLLM, setSelectedLLM] = useState<LLMConfig | null>(null);
   const [showLLMModal, setShowLLMModal] = useState(false);
@@ -231,55 +244,6 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
     { id: 'rules' as const, label: '规则训练库', sublabel: '自定义生成规则', icon: Database },
     { id: 'system' as const, label: '系统参数', sublabel: '自动化与数据', icon: SettingsIcon }
   ];
-
-  const handleScanQR = async () => {
-    setQrStatus('loading');
-    try {
-      if (window.auth) {
-        await window.auth.login();
-        setQrStatus('success');
-      } else {
-        // Fallback for web mode
-        const res = await fetch('/api/auth/login', { method: 'POST' });
-        if (res.ok) {
-          setQrStatus('success');
-        } else {
-          setQrStatus('ready');
-        }
-      }
-    } catch (e) {
-      console.error('Login failed:', e);
-      setQrStatus('ready');
-    }
-  };
-
-  const handleLogout = async () => {
-    try {
-      if (window.auth) {
-        await window.auth.logout();
-      }
-      setQrStatus('ready');
-    } catch (e) {
-      console.error('Logout failed:', e);
-    }
-  };
-
-  // Check login status on mount
-  useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        if (window.auth) {
-          const status = await window.auth.checkStatus();
-          if (status.loggedIn) {
-            setQrStatus('success');
-          }
-        }
-      } catch (e) {
-        console.error('Check status failed:', e);
-      }
-    };
-    checkAuth();
-  }, []);
 
   // CRUD handlers for LLM providers
   const handleSaveLLM = async () => {
@@ -463,7 +427,7 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
       {/* Main Content */}
       <div className="flex-1 overflow-y-auto p-4">
         {activeSection === 'hotNumber' && (
-          <div className="max-w-4xl">
+          <div>
             <div className="mb-4">
               <h2 className="text-sm font-medium text-gray-900">热号测控</h2>
               <p className="text-xs text-gray-500 mt-0.5">连接小红书账号</p>
@@ -472,16 +436,24 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
             {/* Status */}
             <div className="bg-white border border-gray-200 rounded p-4 mb-3">
               <div className="flex items-center gap-2 mb-3">
-                <div className="text-xs font-medium text-gray-900">正在协商登录状态</div>
-                {qrStatus === 'loading' && <Loader className="w-3.5 h-3.5 text-blue-500 animate-spin" />}
-                {qrStatus === 'ready' && <div className="text-xs text-gray-500">请稍候...</div>}
-                {qrStatus === 'success' && (
+                <div className="text-xs font-medium text-gray-900">登录状态</div>
+                {auth.isChecking && <Loader className="w-3.5 h-3.5 text-blue-500 animate-spin" />}
+                {auth.isChecking && <div className="text-xs text-gray-500">检测中...</div>}
+                {!auth.isChecking && auth.isLoggedIn && (
                   <div className="flex items-center gap-1 text-xs text-green-600">
                     <CheckCircle className="w-3 h-3" />
                     已连接
                   </div>
                 )}
+                {!auth.isChecking && !auth.isLoggedIn && !auth.isLoggingIn && (
+                  <div className="text-xs text-gray-500">未登录</div>
+                )}
+                {auth.isLoggingIn && <Loader className="w-3.5 h-3.5 text-blue-500 animate-spin" />}
+                {auth.isLoggingIn && <div className="text-xs text-gray-500">登录中...</div>}
               </div>
+              {auth.error && (
+                <div className="text-xs text-red-500">{auth.error}</div>
+              )}
             </div>
 
             {/* Action Items */}
@@ -490,10 +462,10 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
               <div className="bg-white border border-gray-200 rounded p-3 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className={`w-5 h-5 rounded-full flex items-center justify-center ${
-                    qrStatus === 'success' ? 'bg-red-100' : 'bg-gray-100'
+                    auth.isLoggedIn ? 'bg-red-100' : 'bg-gray-100'
                   }`}>
                     <Smartphone className={`w-3 h-3 ${
-                      qrStatus === 'success' ? 'text-red-500' : 'text-gray-500'
+                      auth.isLoggedIn ? 'text-red-500' : 'text-gray-500'
                     }`} />
                   </div>
                   <div>
@@ -501,17 +473,17 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
                     <div className="text-xs text-gray-500">确保已普通的小红书账号</div>
                   </div>
                 </div>
-                {qrStatus === 'success' && <CheckCircle className="w-4 h-4 text-green-500" />}
+                {auth.isLoggedIn && <CheckCircle className="w-4 h-4 text-green-500" />}
               </div>
 
               {/* Auto QR Code */}
               <div className="bg-white border border-gray-200 rounded p-3 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className={`w-5 h-5 rounded-full flex items-center justify-between ${
-                    qrStatus === 'loading' || qrStatus === 'success' ? 'bg-red-100' : 'bg-gray-100'
+                    auth.isLoggingIn || auth.isLoggedIn ? 'bg-red-100' : 'bg-gray-100'
                   }`}>
                     <QrCode className={`w-3 h-3 ${
-                      qrStatus === 'loading' || qrStatus === 'success' ? 'text-red-500' : 'text-gray-500'
+                      auth.isLoggingIn || auth.isLoggedIn ? 'text-red-500' : 'text-gray-500'
                     }`} />
                   </div>
                   <div>
@@ -519,18 +491,18 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
                     <div className="text-xs text-gray-500">通过扫码登录门，在弹出口扫码</div>
                   </div>
                 </div>
-                {qrStatus === 'loading' && <Loader className="w-4 h-4 text-blue-500 animate-spin" />}
-                {qrStatus === 'success' && <CheckCircle className="w-4 h-4 text-green-500" />}
+                {auth.isLoggingIn && <Loader className="w-4 h-4 text-blue-500 animate-spin" />}
+                {auth.isLoggedIn && <CheckCircle className="w-4 h-4 text-green-500" />}
               </div>
 
               {/* Save Credentials */}
               <div className="bg-white border border-gray-200 rounded p-3 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className={`w-5 h-5 rounded-full flex items-center justify-center ${
-                    qrStatus === 'success' ? 'bg-red-100' : 'bg-gray-100'
+                    auth.isLoggedIn ? 'bg-red-100' : 'bg-gray-100'
                   }`}>
                     <Database className={`w-3 h-3 ${
-                      qrStatus === 'success' ? 'text-red-500' : 'text-gray-500'
+                      auth.isLoggedIn ? 'text-red-500' : 'text-gray-500'
                     }`} />
                   </div>
                   <div>
@@ -538,14 +510,14 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
                     <div className="text-xs text-gray-500">登录凭据已自动保存前</div>
                   </div>
                 </div>
-                {qrStatus === 'success' && <CheckCircle className="w-4 h-4 text-green-500" />}
+                {auth.isLoggedIn && <CheckCircle className="w-4 h-4 text-green-500" />}
               </div>
             </div>
 
-            {qrStatus === 'ready' && (
+            {!auth.isLoggedIn && !auth.isLoggingIn && !auth.isChecking && (
               <div className="mt-4">
                 <button
-                  onClick={handleScanQR}
+                  onClick={() => auth.login()}
                   className="px-4 py-2 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
                 >
                   开始连接
@@ -553,10 +525,10 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
               </div>
             )}
 
-            {qrStatus === 'success' && (
+            {auth.isLoggedIn && (
               <div className="mt-4">
                 <button
-                  onClick={handleLogout}
+                  onClick={() => auth.logout()}
                   className="px-4 py-2 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50 transition-colors"
                 >
                   退出登录
@@ -567,7 +539,7 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
         )}
 
         {activeSection === 'api' && (
-          <div className="max-w-4xl">
+          <div>
             <div className="mb-4">
               <h2 className="text-sm font-medium text-gray-900">API 配置</h2>
               <p className="text-xs text-gray-500 mt-0.5">管理账号、API和系统配置</p>
@@ -809,7 +781,7 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
         )}
 
         {activeSection === 'rules' && (
-          <div className="max-w-6xl">
+          <div>
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h2 className="text-sm font-medium text-gray-900">规则训练库</h2>
@@ -1001,7 +973,7 @@ export function SettingsTab({ theme: _theme }: SettingsTabProps) {
         )}
 
         {activeSection === 'system' && (
-          <div className="max-w-4xl">
+          <div>
             <div className="mb-4">
               <h2 className="text-sm font-medium text-gray-900">系统参数</h2>
               <p className="text-xs text-gray-500 mt-0.5">自动化与数据</p>

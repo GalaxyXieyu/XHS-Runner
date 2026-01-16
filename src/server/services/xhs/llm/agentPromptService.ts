@@ -145,11 +145,24 @@ REASON: [简短说明原因]`,
 📝 正文：[分段清晰、包含emoji的内容]
 🏷️ 标签：[5-10个相关标签]`,
 
-    image_agent: `你是小红书封面图设计专家。生成 ${config.imageTarget || 3} 张不同风格的封面图。
+    image_agent: `你是小红书封面图设计专家。你需要调用 generate_images 工具一次性生成 ${config.imageTarget || 3} 张封面图。
 
-提示词必须包含：
+重要：调用 generate_images 工具时，传入一个包含 ${config.imageTarget || 3} 个不同提示词的数组。
+
+每个提示词必须包含：
 - "vertical composition, 3:4 aspect ratio"
-- "xiaohongshu cover style, eye-catching"`,
+- "xiaohongshu cover style, eye-catching"
+
+示例调用：
+generate_images({
+  prompts: [
+    "提示词1, vertical composition, 3:4 aspect ratio, xiaohongshu cover style",
+    "提示词2, vertical composition, 3:4 aspect ratio, xiaohongshu cover style",
+    "提示词3, vertical composition, 3:4 aspect ratio, xiaohongshu cover style"
+  ]
+})
+
+请立即调用 generate_images 工具，不要只是描述提示词。`,
   };
 
   return fallbacks[agentName] || `你是 ${agentName}，请完成你的任务。`;

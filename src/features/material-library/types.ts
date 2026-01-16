@@ -5,6 +5,7 @@ export interface ContentPackage {
   content: string;
   tags: string[];
   coverImage?: string;
+  images?: string[];  // 所有图片 URL
   qualityScore: number;
   predictedMetrics: {
     likes: number;

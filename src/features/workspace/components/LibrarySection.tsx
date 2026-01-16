@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from 'react';
-import { Archive, Loader, Search } from 'lucide-react';
+import { Archive, Loader, Search, Trash2, CheckCircle2, X } from 'lucide-react';
 import { CompactPackageCard } from '@/features/material-library/components/CompactPackageCard';
 import type { ContentPackage } from '@/features/material-library/types';
 import type { AutoTask } from '@/features/task-management/types';
@@ -19,6 +19,9 @@ interface LibrarySectionProps {
   setSelectedPackages: Dispatch<SetStateAction<string[]>>;
   allPackages: ContentPackage[];
   setEditingPackage: (pkg: ContentPackage | null) => void;
+  onDeletePackage?: (id: string) => void;
+  onBatchDelete?: (ids: string[]) => void;
+  onBatchPublish?: (ids: string[]) => void;
 }
 
 export function LibrarySection({
@@ -31,10 +34,49 @@ export function LibrarySection({
   setSelectedPackages,
   allPackages,
   setEditingPackage,
+  onDeletePackage,
+  onBatchDelete,
+  onBatchPublish,
 }: LibrarySectionProps) {
+  const selectedDraftCount = selectedPackages.filter(id =>
+    allPackages.find(p => p.id === id)?.status === 'draft'
+  ).length;
+
   return (
-    <div className="h-full flex flex-col">
-      <div className="bg-white border border-gray-200 rounded p-3 mb-3">
+    <div className="h-full flex flex-col p-4">
+      {/* 批量操作栏 */}
+      {selectedPackages.length > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 flex items-center gap-3">
+          <span className="text-sm text-red-700">已选择 {selectedPackages.length} 项</span>
+          <div className="flex gap-2 ml-auto">
+            {selectedDraftCount > 0 && (
+              <button
+                onClick={() => onBatchPublish?.(selectedPackages)}
+                className="px-3 py-1.5 text-xs bg-green-500 text-white rounded hover:bg-green-600 flex items-center gap-1"
+              >
+                <CheckCircle2 className="w-3 h-3" />
+                批量发布 ({selectedDraftCount})
+              </button>
+            )}
+            <button
+              onClick={() => onBatchDelete?.(selectedPackages)}
+              className="px-3 py-1.5 text-xs bg-red-500 text-white rounded hover:bg-red-600 flex items-center gap-1"
+            >
+              <Trash2 className="w-3 h-3" />
+              批量删除
+            </button>
+            <button
+              onClick={() => setSelectedPackages([])}
+              className="px-3 py-1.5 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300 flex items-center gap-1"
+            >
+              <X className="w-3 h-3" />
+              取消选择
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-white border border-gray-200 rounded-lg p-3 mb-4">
         <div className="flex items-center gap-3">
           <div className="relative flex-1 max-w-xs">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
@@ -73,7 +115,7 @@ export function LibrarySection({
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto">
-          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             {filteredPackages.map(pkg => (
               <CompactPackageCard
                 key={pkg.id}
@@ -89,6 +131,7 @@ export function LibrarySection({
                   const targetPackage = allPackages.find(p => p.id === id);
                   if (targetPackage) setEditingPackage(targetPackage);
                 }}
+                onDelete={onDeletePackage}
               />
             ))}
           </div>

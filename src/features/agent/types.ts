@@ -4,6 +4,9 @@ export interface AgentEvent {
   tool?: string;
   content: string;
   timestamp: number;
+  // 批量图片生成相关
+  taskIds?: number[];
+  prompts?: string[];
 }
 
 export interface ChatMessage {
@@ -11,4 +14,12 @@ export interface ChatMessage {
   content: string;
   agent?: string;
   events?: AgentEvent[];
+}
+
+export interface ImageTask {
+  id: number;
+  prompt: string;
+  status: 'queued' | 'generating' | 'done' | 'failed' | 'canceled';
+  assetId?: number;
+  errorMessage?: string;
 }

@@ -16,6 +16,9 @@ declare global {
       login: (options?: { timeout?: number }) => Promise<any>;
       logout: () => Promise<any>;
       checkStatus: () => Promise<any>;
+      getQRCode: () => Promise<any>;
+      pollLoginStatus: () => Promise<any>;
+      cancelQRCodeSession: () => Promise<void>;
     };
     settings?: {
       get: () => Promise<Record<string, any>>;

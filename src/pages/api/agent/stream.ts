@@ -7,7 +7,7 @@ import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { supabase } from "@/server/supabase";
 import { getTagStats, getTopTitles, getLatestTrendReport } from "@/server/services/xhs/analytics/insightService";
-import { enqueueGeneration } from "@/server/services/xhs/llm/generationQueue";
+import { enqueueBatch } from "@/server/services/xhs/llm/generationQueue";
 import { getAgentPrompt } from "@/server/services/xhs/llm/agentPromptService";
 import { createTrace, logGeneration, logSpan, flushLangfuse } from "@/server/services/langfuseService";
 import { createCreative } from "@/server/services/xhs/data/creativeService";
@@ -54,6 +54,9 @@ interface AgentEvent {
   tool?: string;
   content: string;
   timestamp: number;
+  // 批量图片生成相关
+  taskIds?: number[];
+  prompts?: string[];
 }
 
 // 获取 LLM 配置
@@ -164,21 +167,31 @@ const getTrendReportTool = tool(
 );
 
 const generateImageTool = (creativeIdRef: { current?: number }) => tool(
-  async ({ prompt, style = "realistic" }) => {
+  async ({ prompts, style = "realistic" }) => {
     const stylePrompts: Record<string, string> = {
       realistic: "realistic photo style, high quality",
       illustration: "illustration style, colorful, artistic",
       minimalist: "minimalist design, clean, simple",
     };
-    const finalPrompt = `${prompt}, ${stylePrompts[style] || stylePrompts.realistic}, suitable for xiaohongshu cover`;
-    const task = await enqueueGeneration({ prompt: finalPrompt, creativeId: creativeIdRef.current });
-    return JSON.stringify({ taskId: task.id, status: "queued", message: "图片生成任务已加入队列" });
+    const styleSuffix = stylePrompts[style] || stylePrompts.realistic;
+    const tasks = await enqueueBatch(
+      prompts.map(prompt => ({
+        prompt: `${prompt}, ${styleSuffix}, suitable for xiaohongshu cover`,
+        creativeId: creativeIdRef.current,
+      }))
+    );
+    return JSON.stringify({
+      taskIds: tasks.map(t => t.id),
+      prompts: prompts,
+      status: "queued",
+      message: `${tasks.length} 张图片已加入生成队列`,
+    });
   },
   {
-    name: "generate_image",
-    description: "根据提示词生成小红书封面图，返回任务ID",
+    name: "generate_images",
+    description: "批量生成小红书封面图，一次传入多个提示词，返回所有任务ID",
     schema: z.object({
-      prompt: z.string().describe("图片生成提示词"),
+      prompts: z.array(z.string()).min(1).max(5).describe("图片生成提示词数组，每个提示词生成一张图"),
       style: z.enum(["realistic", "illustration", "minimalist"]).optional().describe("图片风格"),
     }),
   }
@@ -302,7 +315,16 @@ async function createMultiAgentSystem(creativeIdRef: { current?: number }) {
   // 包装 image_tools 节点以追踪生成数量
   const imageToolNode = async (state: typeof AgentState.State) => {
     const result = await baseImageToolNode.invoke(state);
-    const generatedCount = result.messages?.length || 0;
+    // 从批量生成结果中解析实际生成的图片数量
+    let generatedCount = 0;
+    for (const msg of result.messages || []) {
+      if (msg instanceof ToolMessage && msg.name === "generate_images") {
+        try {
+          const parsed = JSON.parse(msg.content as string);
+          generatedCount += parsed.taskIds?.length || 0;
+        } catch {}
+      }
+    }
     return { ...result, imageCount: generatedCount };
   };
 
@@ -465,13 +487,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           for (const msg of output.messages) {
             if (msg.tool_calls?.length) {
               for (const tc of msg.tool_calls) {
-                sendEvent({
+                const event: AgentEvent = {
                   type: "tool_call",
                   agent: nodeName,
                   tool: tc.name,
                   content: `🔧 调用工具: ${tc.name}`,
                   timestamp: Date.now(),
-                });
+                };
+                // 如果是批量图片生成，附带 prompts
+                if (tc.name === "generate_images" && tc.args?.prompts) {
+                  event.prompts = tc.args.prompts;
+                }
+                sendEvent(event);
 
                 // 记录工具调用到 Langfuse
                 await logSpan({
@@ -484,16 +511,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             }
 
             if (msg.name && msg.content) {
-              sendEvent({
+              const event: AgentEvent = {
                 type: "tool_result",
                 agent: nodeName,
                 tool: msg.name,
                 content: `📊 ${msg.name} 返回结果`,
                 timestamp: Date.now(),
-              });
+              };
+              // 如果是批量图片生成结果，解析 taskIds
+              if (msg.name === "generate_images") {
+                try {
+                  const result = JSON.parse(msg.content);
+                  if (result.taskIds) {
+                    event.taskIds = result.taskIds;
+                    event.prompts = result.prompts;
+                  }
+                } catch {}
+              }
+              sendEvent(event);
             }
 
             if (msg.content && typeof msg.content === "string" && !msg.name) {
+              // 跳过包含内部路由信息的消息
+              if (nodeName === "supervisor" || msg.content.includes("NEXT:") || msg.content.includes("REASON:")) continue;
+
               sendEvent({
                 type: "message",
                 agent: nodeName,

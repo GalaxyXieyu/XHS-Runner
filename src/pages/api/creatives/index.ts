@@ -30,6 +30,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const creative = await svc.createCreative(req.body);
       return res.status(201).json(creative);
     }
+    if (req.method === 'DELETE') {
+      const { id } = req.body;
+      if (!id) {
+        return res.status(400).json({ error: 'Missing id' });
+      }
+      await svc.deleteCreative(Number(id));
+      return res.status(200).json({ success: true });
+    }
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (error: any) {
     res.status(500).json({ error: error.message });

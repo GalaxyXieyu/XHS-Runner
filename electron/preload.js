@@ -96,6 +96,9 @@ contextBridge.exposeInMainWorld('auth', {
   login: (options) => ipcRenderer.invoke('auth:login', options),
   logout: () => ipcRenderer.invoke('auth:logout'),
   checkStatus: () => ipcRenderer.invoke('auth:checkStatus'),
+  getQRCode: () => ipcRenderer.invoke('auth:getQRCode'),
+  pollLoginStatus: () => ipcRenderer.invoke('auth:pollLoginStatus'),
+  cancelQRCodeSession: () => ipcRenderer.invoke('auth:cancelQRCodeSession'),
 });
 
 // ============ 调度器 API ============

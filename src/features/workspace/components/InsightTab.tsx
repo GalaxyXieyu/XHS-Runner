@@ -18,6 +18,7 @@ import {
   Users,
 } from 'lucide-react';
 import { ThinkingBlock } from '@/components/ui/ThinkingBlock';
+import { NoteDetailModal, type NoteDetailData } from '@/components/NoteDetailModal';
 import { useInsightData, useLLMProviders } from '@/hooks';
 import type { SortBy } from '@/store';
 import type { Theme } from '@/App';
@@ -29,6 +30,7 @@ interface InsightTabProps {
 export function InsightTab({ theme }: InsightTabProps) {
   const [tagView, setTagView] = useState<'list' | 'cloud'>('list');
   const [showSettings, setShowSettings] = useState(false);
+  const [selectedNote, setSelectedNote] = useState<NoteDetailData | null>(null);
 
   const {
     topics,
@@ -132,6 +134,34 @@ export function InsightTab({ theme }: InsightTabProps) {
     if (referer) qs.set('referer', referer);
     return `/api/image?${qs.toString()}`;
   }, []);
+
+  // Convert topic to NoteDetailData for modal
+  const topicToNoteDetail = useCallback((topic: typeof topics[0]): NoteDetailData => {
+    const images: string[] = [];
+    // Add cover image
+    if (topic.cover_url) {
+      const coverSrc = buildImageProxySrc(topic.cover_url, topic.url);
+      if (coverSrc) images.push(coverSrc);
+    }
+
+    return {
+      id: String(topic.id),
+      title: topic.title || '',
+      desc: '',
+      images,
+      user: {
+        nickname: topic.author_name || '未知作者',
+        avatar: topic.author_avatar_url ? buildImageProxySrc(topic.author_avatar_url, topic.url) || '' : '',
+      },
+      interactInfo: {
+        likedCount: topic.like_count || 0,
+        collectedCount: topic.collect_count || 0,
+        commentCount: topic.comment_count || 0,
+      },
+      tags: topic.keyword ? [topic.keyword] : [],
+      time: topic.published_at ? new Date(topic.published_at).getTime() : undefined,
+    };
+  }, [buildImageProxySrc]);
 
   return (
     <div className="space-y-3">
@@ -534,11 +564,9 @@ export function InsightTab({ theme }: InsightTabProps) {
               const coverSrc = buildImageProxySrc(topic.cover_url, topic.url);
 
               return (
-                <a
+                <div
                   key={topic.id}
-                  href={topic.url || '#'}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  onClick={() => setSelectedNote(topicToNoteDetail(topic))}
                   className="flex gap-3 p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
                 >
                   <div className="w-20 h-20 rounded-lg flex-shrink-0 bg-gray-200 overflow-hidden relative">
@@ -577,7 +605,7 @@ export function InsightTab({ theme }: InsightTabProps) {
                       </span>
                     </div>
                   </div>
-                </a>
+                </div>
               );
             })}
           </div>
@@ -608,11 +636,9 @@ export function InsightTab({ theme }: InsightTabProps) {
               const coverSrc = buildImageProxySrc(topic.cover_url, topic.url);
 
               return (
-                <a
+                <div
                   key={topic.id}
-                  href={topic.url || '#'}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  onClick={() => setSelectedNote(topicToNoteDetail(topic))}
                   className="group cursor-pointer"
                 >
                   <div className="relative mb-2 overflow-hidden rounded-lg bg-gray-100 h-32">
@@ -641,12 +667,19 @@ export function InsightTab({ theme }: InsightTabProps) {
                   {topic.keyword && (
                     <span className="px-1.5 py-0.5 bg-gray-100 text-gray-600 text-xs rounded-md">#{topic.keyword}</span>
                   )}
-                </a>
+                </div>
               );
             })}
           </div>
         )}
       </div>
+
+      {/* Note Detail Modal */}
+      <NoteDetailModal
+        note={selectedNote}
+        open={!!selectedNote}
+        onClose={() => setSelectedNote(null)}
+      />
     </div>
   );
 }

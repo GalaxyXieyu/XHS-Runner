@@ -4,6 +4,8 @@ import { ThemeManagement } from './components/ThemeManagement';
 import { CreativeTab } from '@/features/workspace/components/CreativeTab';
 import { OperationsTab } from '@/features/workspace/components/OperationsTab';
 import { SettingsTab } from '@/features/workspace/components/SettingsTab';
+import { useAuthStatus } from '@/hooks/useAuthStatus';
+import { LoginRequiredDialog } from '@/components/LoginRequiredDialog';
 
 export interface Keyword {
   id: number;
@@ -46,16 +48,31 @@ function transformTheme(t: any): Theme {
   };
 }
 
+type ViewId = 'themes' | 'creative' | 'operations' | 'settings';
+
 export default function App() {
-  const [currentView, setCurrentView] = useState<'themes' | 'creative' | 'operations' | 'settings'>('themes');
+  const [currentView, setCurrentView] = useState<ViewId>('themes');
+  const [mountedViews, setMountedViews] = useState<Set<ViewId>>(() => new Set(['themes']));
   const [selectedTheme, setSelectedTheme] = useState<Theme | null>(null);
   const [themes, setThemes] = useState<Theme[]>([]);
   const [loading, setLoading] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
+  const auth = useAuthStatus();
+  const showLoginDialog = !auth.isChecking && !auth.isLoggedIn;
+
   useEffect(() => {
     loadThemes();
   }, []);
+
+  useEffect(() => {
+    setMountedViews((prev) => {
+      if (prev.has(currentView)) return prev;
+      const next = new Set(prev);
+      next.add(currentView);
+      return next;
+    });
+  }, [currentView]);
 
   const loadThemes = async () => {
     try {
@@ -80,6 +97,8 @@ export default function App() {
     { id: 'operations' as const, label: '运营中心', icon: BarChart3 },
     { id: 'settings' as const, label: '系统设置', icon: SettingsIcon }
   ];
+
+  const isViewMounted = (view: ViewId) => mountedViews.has(view) || currentView === view;
 
   return (
     <div className="flex h-screen bg-gray-50">
@@ -186,29 +205,54 @@ export default function App() {
 
         {/* Content Area */}
         <div className="h-[calc(100vh-3rem)]">
-          {currentView === 'themes' && (
-            <ThemeManagement
-              themes={themes}
-              setThemes={setThemes}
-              selectedTheme={selectedTheme}
-              setSelectedTheme={setSelectedTheme}
-              onRefresh={loadThemes}
-            />
+          {isViewMounted('themes') && (
+            <div className={currentView === 'themes' ? 'h-full' : 'hidden'}>
+              <ThemeManagement
+                themes={themes}
+                setThemes={setThemes}
+                selectedTheme={selectedTheme}
+                setSelectedTheme={setSelectedTheme}
+                onRefresh={loadThemes}
+              />
+            </div>
           )}
-          {currentView === 'creative' && selectedTheme && (
-            <CreativeTab
-              theme={selectedTheme}
-              themes={themes}
-              onSelectTheme={(id) => {
-                const next = themes.find((item) => String(item.id) === String(id));
-                if (next) {
-                  setSelectedTheme(next);
-                }
-              }}
-            />
+          {isViewMounted('creative') && selectedTheme && (
+            <div className={currentView === 'creative' ? 'h-full' : 'hidden'}>
+              <CreativeTab
+                theme={selectedTheme}
+                themes={themes}
+                onSelectTheme={(id) => {
+                  const next = themes.find((item) => String(item.id) === String(id));
+                  if (next) {
+                    setSelectedTheme(next);
+                  }
+                }}
+              />
+            </div>
           )}
-          {currentView === 'operations' && selectedTheme && <OperationsTab theme={selectedTheme} />}
-          {currentView === 'settings' && <SettingsTab theme={selectedTheme!} />}
+          {isViewMounted('operations') && selectedTheme && (
+            <div className={currentView === 'operations' ? 'h-full' : 'hidden'}>
+              <OperationsTab theme={selectedTheme} />
+            </div>
+          )}
+          {isViewMounted('settings') && (
+            <div className={currentView === 'settings' ? 'h-full' : 'hidden'}>
+              <SettingsTab
+                theme={selectedTheme!}
+                auth={{
+                  status: auth.status,
+                  isLoggedIn: auth.isLoggedIn,
+                  isChecking: auth.isChecking,
+                  isLoggingIn: auth.isLoggingIn,
+                  error: auth.error,
+                  qrCodeUrl: auth.qrCodeUrl,
+                  login: auth.login,
+                  logout: auth.logout,
+                  refreshQRCode: auth.refreshQRCode,
+                }}
+              />
+            </div>
+          )}
           
           {!selectedTheme && currentView !== 'themes' && currentView !== 'settings' && (
             <div className="flex items-center justify-center h-full">
@@ -226,6 +270,16 @@ export default function App() {
           )}
         </div>
       </main>
+
+      <LoginRequiredDialog
+        open={showLoginDialog}
+        status={auth.status}
+        error={auth.error}
+        qrCodeUrl={auth.qrCodeUrl}
+        onLogin={auth.login}
+        onRefreshQRCode={auth.refreshQRCode}
+        onCancel={auth.cancelLogin}
+      />
     </div>
   );
 }

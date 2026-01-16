@@ -13,23 +13,36 @@ import { LibrarySection } from '@/features/workspace/components/LibrarySection';
 import { TaskManagementSection } from '@/features/workspace/components/TaskManagementSection';
 
 function normalizeCreative(row: any): ContentPackage {
+  // 支持两种格式：直接的 creative 对象，或 { creative, assets } 结构
+  const creative = row.creative || row;
+  const assets = row.assets || [];
+  const coverImage = assets[0]?.id ? `/api/assets/${assets[0].id}` : (creative.cover_image || creative.coverImage);
+
+  // 解析 tags：支持数组或逗号分隔字符串
+  let tags: string[] = [];
+  if (Array.isArray(creative.tags)) {
+    tags = creative.tags;
+  } else if (typeof creative.tags === 'string' && creative.tags) {
+    tags = creative.tags.split(',').map((t: string) => t.trim()).filter(Boolean);
+  }
+
   return {
-    id: String(row.id),
-    titles: Array.isArray(row.titles) ? row.titles : [row.title || '未命名内容包'],
-    selectedTitleIndex: row.selected_title_index || 0,
-    content: row.content || row.body || '',
-    tags: Array.isArray(row.tags) ? row.tags : [],
-    coverImage: row.cover_image || row.coverImage,
-    qualityScore: row.quality_score || row.qualityScore || 0,
-    predictedMetrics: row.predicted_metrics || row.predictedMetrics || { likes: 0, collects: 0, comments: 0 },
-    actualMetrics: row.actual_metrics || row.actualMetrics,
-    rationale: row.rationale || '',
-    status: row.status || 'draft',
-    publishedAt: row.published_at || row.publishedAt,
-    createdAt: row.created_at?.split('T')[0] || row.createdAt || new Date().toLocaleString('zh-CN'),
-    imageModel: row.image_model || row.imageModel,
-    source: row.source || 'manual',
-    sourceName: row.source_name || row.sourceName || '手动创建',
+    id: String(creative.id),
+    titles: Array.isArray(creative.titles) ? creative.titles : [creative.title || '未命名内容包'],
+    selectedTitleIndex: creative.selected_title_index || 0,
+    content: creative.content || creative.body || '',
+    tags,
+    coverImage,
+    qualityScore: creative.quality_score || creative.qualityScore || 0,
+    predictedMetrics: creative.predicted_metrics || creative.predictedMetrics || { likes: 0, collects: 0, comments: 0 },
+    actualMetrics: creative.actual_metrics || creative.actualMetrics,
+    rationale: creative.rationale || '',
+    status: creative.status || 'draft',
+    publishedAt: creative.published_at || creative.publishedAt,
+    createdAt: creative.created_at?.split('T')[0] || creative.createdAt || new Date().toLocaleString('zh-CN'),
+    imageModel: creative.image_model || creative.imageModel,
+    source: creative.source || 'manual',
+    sourceName: creative.source_name || creative.sourceName || '手动创建',
   };
 }
 
@@ -97,7 +110,7 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
   const loadCreatives = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/creatives?themeId=${theme.id}`);
+      const res = await fetch(`/api/creatives?themeId=${theme.id}&withAssets=true`);
       const data = await res.json();
       const list = Array.isArray(data) ? data.map(normalizeCreative) : [];
       setAllPackages(list);
@@ -207,6 +220,63 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
       return matchesSource && matchesSearch;
     });
   }, [allPackages, libraryFilter]);
+
+  // 删除内容包
+  const handleDeletePackage = async (id: string) => {
+    if (!confirm('确定要删除这个内容包吗？')) return;
+    try {
+      const res = await fetch('/api/creatives', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: Number(id) }),
+      });
+      if (res.ok) {
+        setAllPackages(prev => prev.filter(p => p.id !== id));
+      }
+    } catch (error) {
+      console.error('Failed to delete package:', error);
+    }
+  };
+
+  // 批量删除
+  const handleBatchDelete = async (ids: string[]) => {
+    if (!confirm(`确定要删除选中的 ${ids.length} 个内容包吗？`)) return;
+    try {
+      await Promise.all(ids.map(id =>
+        fetch('/api/creatives', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: Number(id) }),
+        })
+      ));
+      setAllPackages(prev => prev.filter(p => !ids.includes(p.id)));
+      setSelectedPackages([]);
+    } catch (error) {
+      console.error('Failed to batch delete:', error);
+    }
+  };
+
+  // 批量发布
+  const handleBatchPublish = async (ids: string[]) => {
+    const draftIds = ids.filter(id => allPackages.find(p => p.id === id)?.status === 'draft');
+    if (draftIds.length === 0) return;
+    if (!confirm(`确定要发布选中的 ${draftIds.length} 个草稿吗？`)) return;
+    try {
+      await Promise.all(draftIds.map(id =>
+        fetch(`/api/creatives/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'published' }),
+        })
+      ));
+      setAllPackages(prev => prev.map(p =>
+        draftIds.includes(p.id) ? { ...p, status: 'published' as const } : p
+      ));
+      setSelectedPackages([]);
+    } catch (error) {
+      console.error('Failed to batch publish:', error);
+    }
+  };
 
   // 任务执行筛选
   const runningTasks = taskExecutions.filter(e => e.status === 'running');
@@ -460,6 +530,9 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
             setSelectedPackages={setSelectedPackages}
             allPackages={allPackages}
             setEditingPackage={setEditingPackage}
+            onDeletePackage={handleDeletePackage}
+            onBatchDelete={handleBatchDelete}
+            onBatchPublish={handleBatchPublish}
           />
         )}
 

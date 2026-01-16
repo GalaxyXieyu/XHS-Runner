@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Plus, Search, MoreVertical, Play, Pause, Archive, Trash2, Edit2, TrendingUp, ChevronDown, ChevronUp, Download, Loader2 } from 'lucide-react';
 import { Theme } from '../App';
 import { InsightTab } from '@/features/workspace/components/InsightTab';
+import { CACHE_VERSION } from '@/utils/cacheVersion';
 
 interface ThemeManagementProps {
   themes: Theme[];
@@ -10,6 +11,52 @@ interface ThemeManagementProps {
   setSelectedTheme: (theme: Theme | null) => void;
   onRefresh?: () => void;
 }
+
+const PROMPT_PROFILES_TTL_MS = 5 * 60 * 1000;
+let promptProfilesCache: { version: string; data: any[]; fetchedAt: number } | null = null;
+
+const readPromptProfilesCache = () => {
+  if (!promptProfilesCache) return null;
+  if (promptProfilesCache.version !== CACHE_VERSION) {
+    promptProfilesCache = null;
+    return null;
+  }
+  if (Date.now() - promptProfilesCache.fetchedAt > PROMPT_PROFILES_TTL_MS) {
+    promptProfilesCache = null;
+    return null;
+  }
+  return promptProfilesCache.data;
+};
+
+const writePromptProfilesCache = (data: any[]) => {
+  promptProfilesCache = { version: CACHE_VERSION, data, fetchedAt: Date.now() };
+};
+
+const createEmptyFormData = () => ({
+  name: '',
+  description: '',
+  keywords: '',
+  competitors: '',
+  status: 'active' as Theme['status'],
+  goal: '',
+  persona: '',
+  tone: '',
+  contentTypes: '',
+  forbiddenTags: '',
+  promptProfileId: '',
+  dailyOutputCount: '',
+  minQualityScore: '',
+  scheduleEnabled: false,
+  schedulePreset: 'interval' as 'interval' | 'daily' | 'weekly' | 'cron',
+  scheduleType: 'interval' as 'interval' | 'cron',
+  intervalMinutes: '30',
+  cronExpression: '*/30 * * * *',
+  scheduleTime: '09:00',
+  scheduleWeekday: '1',
+  captureLimit: '50',
+  schedulePriority: '5',
+  scheduleJobId: '',
+});
 
 async function apiCall(method: string, url: string, body?: any) {
   if (window.themes) {
@@ -24,6 +71,39 @@ async function apiCall(method: string, url: string, body?: any) {
     body: body ? JSON.stringify(body) : undefined,
   });
   return res.json();
+}
+
+async function jobCall(method: string, payload?: any) {
+  if (window.jobs) {
+    if (method === 'create') return window.jobs.create(payload);
+    if (method === 'update') return window.jobs.update(payload);
+    if (method === 'byTheme') return window.jobs.byTheme(payload);
+  }
+  if (method === 'create') {
+    const res = await fetch('/api/jobs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error((await res.json()).error || '创建定时任务失败');
+    return res.json();
+  }
+  if (method === 'update') {
+    const { id, ...updates } = payload || {};
+    const res = await fetch(`/api/jobs/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+    if (!res.ok) throw new Error((await res.json()).error || '更新定时任务失败');
+    return res.json();
+  }
+  if (method === 'byTheme') {
+    const res = await fetch(`/api/jobs/by-theme/${payload.themeId}`);
+    if (!res.ok) throw new Error((await res.json()).error || '获取定时任务失败');
+    return res.json();
+  }
+  return null;
 }
 
 export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedTheme, onRefresh }: ThemeManagementProps) {
@@ -41,28 +121,22 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
   } | null>(null);
   const [captureResult, setCaptureResult] = useState<{ themeId: string; total: number; inserted: number } | null>(null);
   const [promptProfiles, setPromptProfiles] = useState<any[]>([]);
-  const [formData, setFormData] = useState({
-    name: '',
-    description: '',
-    keywords: '',
-    competitors: '',
-    status: 'active' as Theme['status'],
-    goal: '',
-    persona: '',
-    tone: '',
-    contentTypes: '',
-    forbiddenTags: '',
-    promptProfileId: '',
-    dailyOutputCount: '',
-    minQualityScore: ''
-  });
+  const [formData, setFormData] = useState(createEmptyFormData);
 
   useEffect(() => {
     const loadProfiles = async () => {
       try {
+        const cachedProfiles = readPromptProfilesCache();
+        if (cachedProfiles) {
+          setPromptProfiles(cachedProfiles);
+          return;
+        }
+
         const res = await fetch('/api/prompt-profiles');
         const data = await res.json();
-        setPromptProfiles(Array.isArray(data) ? data : []);
+        const profiles = Array.isArray(data) ? data : [];
+        setPromptProfiles(profiles);
+        writePromptProfilesCache(profiles);
       } catch (error) {
         console.error('Failed to load prompt profiles:', error);
         setPromptProfiles([]);
@@ -70,6 +144,155 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
     };
     loadProfiles();
   }, []);
+
+  const toNumber = (value: string, fallback?: number) => {
+    if (!value) return fallback;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+
+  const clampNumber = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+  const parseTime = (timeValue: string) => {
+    const [h, m] = (timeValue || '').split(':');
+    const hour = clampNumber(Number(h || 9), 0, 23);
+    const minute = clampNumber(Number(m || 0), 0, 59);
+    return { hour, minute };
+  };
+
+  const buildCronExpression = () => {
+    const { hour, minute } = parseTime(formData.scheduleTime);
+    const minuteStr = String(minute).padStart(2, '0');
+    const hourStr = String(hour).padStart(2, '0');
+    if (formData.schedulePreset === 'daily') {
+      return `${minuteStr} ${hourStr} * * *`;
+    }
+    if (formData.schedulePreset === 'weekly') {
+      const weekday = clampNumber(toNumber(formData.scheduleWeekday, 1) ?? 1, 0, 6);
+      return `${minuteStr} ${hourStr} * * ${weekday}`;
+    }
+    return formData.cronExpression.trim() || '*/30 * * * *';
+  };
+
+  const resetScheduleFields = () => {
+    setFormData((prev) => ({
+      ...prev,
+      scheduleEnabled: false,
+      schedulePreset: 'interval',
+      scheduleType: 'interval',
+      intervalMinutes: '30',
+      cronExpression: '*/30 * * * *',
+      scheduleTime: '09:00',
+      scheduleWeekday: '1',
+      captureLimit: '50',
+      schedulePriority: '5',
+      scheduleJobId: '',
+    }));
+  };
+
+  const parseCronPreset = (expression: string | null) => {
+    if (!expression) return { preset: 'cron' as const, time: '09:00', weekday: '1' };
+    const parts = expression.trim().split(/\s+/);
+    if (parts.length < 5) return { preset: 'cron' as const, time: '09:00', weekday: '1' };
+    const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
+    if (dayOfMonth !== '*' || month !== '*') {
+      return { preset: 'cron' as const, time: '09:00', weekday: '1' };
+    }
+    if (!/^\d{1,2}$/.test(minute) || !/^\d{1,2}$/.test(hour)) {
+      return { preset: 'cron' as const, time: '09:00', weekday: '1' };
+    }
+    const time = `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`;
+    if (dayOfWeek === '*') {
+      return { preset: 'daily' as const, time, weekday: '1' };
+    }
+    if (/^[0-6]$/.test(dayOfWeek)) {
+      return { preset: 'weekly' as const, time, weekday: dayOfWeek };
+    }
+    return { preset: 'cron' as const, time, weekday: '1' };
+  };
+
+  const applyScheduleFromJob = (job: any) => {
+    const params = (() => {
+      if (!job?.params_json) return {};
+      try {
+        return JSON.parse(job.params_json);
+      } catch (error) {
+        console.error('解析定时任务参数失败:', error);
+        return {};
+      }
+    })();
+
+    const isCron = job?.schedule_type === 'cron';
+    const cronPreset = parseCronPreset(job?.cron_expression || '');
+    setFormData((prev) => ({
+      ...prev,
+      scheduleEnabled: job?.is_enabled === 1,
+      schedulePreset: isCron ? cronPreset.preset : 'interval',
+      scheduleType: isCron ? 'cron' : 'interval',
+      intervalMinutes: job?.interval_minutes ? String(job.interval_minutes) : prev.intervalMinutes,
+      cronExpression: job?.cron_expression || prev.cronExpression,
+      scheduleTime: cronPreset.time,
+      scheduleWeekday: cronPreset.weekday,
+      captureLimit: params.limit ? String(params.limit) : prev.captureLimit,
+      schedulePriority: job?.priority ? String(job.priority) : prev.schedulePriority,
+      scheduleJobId: job?.id ? String(job.id) : prev.scheduleJobId,
+    }));
+  };
+
+  const loadScheduleForTheme = async (theme: Theme) => {
+    const themeId = Number(theme.id);
+    if (!Number.isFinite(themeId)) {
+      resetScheduleFields();
+      return;
+    }
+    try {
+      const job = await jobCall('byTheme', { themeId });
+      if (job && !job.error) {
+        applyScheduleFromJob(job);
+      } else {
+        resetScheduleFields();
+      }
+    } catch (error) {
+      console.error('加载定时任务失败:', error);
+      resetScheduleFields();
+    }
+  };
+
+  const saveScheduleForTheme = async (themeId: number, themeName: string) => {
+    const intervalMinutes = toNumber(formData.intervalMinutes, 30) ?? 30;
+    const limit = toNumber(formData.captureLimit, 50) ?? 50;
+    const priority = toNumber(formData.schedulePriority, 5) ?? 5;
+    const cronExpression = buildCronExpression();
+
+    const payload = {
+      name: `${themeName} 定时抓取`,
+      job_type: 'capture_theme' as const,
+      theme_id: themeId,
+      schedule_type: formData.schedulePreset === 'interval' ? 'interval' : 'cron',
+      interval_minutes: formData.schedulePreset === 'interval' ? intervalMinutes : null,
+      cron_expression: formData.schedulePreset === 'interval' ? null : cronExpression,
+      params: { limit },
+      is_enabled: formData.scheduleEnabled,
+      priority,
+    };
+
+    if (formData.scheduleJobId) {
+      await jobCall('update', { id: Number(formData.scheduleJobId), ...payload });
+    } else if (formData.scheduleEnabled) {
+      const created = await jobCall('create', payload);
+      if (created?.id) {
+        setFormData((prev) => ({ ...prev, scheduleJobId: String(created.id) }));
+      }
+    }
+
+    if (formData.scheduleEnabled) {
+      try {
+        await (window as any).scheduler?.start?.();
+      } catch (error) {
+        console.error('启动调度器失败:', error);
+      }
+    }
+  };
 
   const handleCapture = async (theme: Theme) => {
     if (theme.keywords.length === 0) {
@@ -120,11 +343,6 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
 
   const handleCreateTheme = async (e: React.FormEvent) => {
     e.preventDefault();
-    const toNumber = (value: string) => {
-      if (!value) return undefined;
-      const parsed = Number(value);
-      return Number.isFinite(parsed) ? parsed : undefined;
-    };
     const config = {
       goal: formData.goal || undefined,
       persona: formData.persona || undefined,
@@ -145,31 +363,26 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
     };
 
     try {
+      let savedTheme: any = null;
       if (editingTheme) {
-        await apiCall('PUT', `/api/themes/${editingTheme.id}`, { id: Number(editingTheme.id), ...payload });
+        savedTheme = await apiCall('PUT', `/api/themes/${editingTheme.id}`, { id: Number(editingTheme.id), ...payload });
       } else {
-        await apiCall('POST', '/api/themes', payload);
+        savedTheme = await apiCall('POST', '/api/themes', payload);
+      }
+      const themeId = Number(savedTheme?.id || editingTheme?.id);
+      if (Number.isFinite(themeId)) {
+        try {
+          await saveScheduleForTheme(themeId, savedTheme?.name || formData.name);
+        } catch (error) {
+          console.error('Failed to save schedule:', error);
+        }
       }
       onRefresh?.();
     } catch (err) {
       console.error('Failed to save theme:', err);
     }
 
-    setFormData({
-      name: '',
-      description: '',
-      keywords: '',
-      competitors: '',
-      status: 'active',
-      goal: '',
-      persona: '',
-      tone: '',
-      contentTypes: '',
-      forbiddenTags: '',
-      promptProfileId: '',
-      dailyOutputCount: '',
-      minQualityScore: ''
-    });
+    setFormData(createEmptyFormData());
     setShowCreateModal(false);
     setEditingTheme(null);
   };
@@ -199,7 +412,9 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
 
   const handleEditTheme = (theme: Theme) => {
     setEditingTheme(theme);
+    const defaults = createEmptyFormData();
     setFormData({
+      ...defaults,
       name: theme.name,
       description: theme.description,
       keywords: theme.keywords.map(k => k.value).join(', '),
@@ -215,6 +430,7 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
       minQualityScore: theme.config?.minQualityScore ? String(theme.config.minQualityScore) : ''
     });
     setShowCreateModal(true);
+    loadScheduleForTheme(theme);
   };
 
   const filteredThemes = themes.filter(theme =>
@@ -284,21 +500,7 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
           <button
             onClick={() => {
               setEditingTheme(null);
-              setFormData({
-                name: '',
-                description: '',
-                keywords: '',
-                competitors: '',
-                status: 'active',
-                goal: '',
-                persona: '',
-                tone: '',
-                contentTypes: '',
-                forbiddenTags: '',
-                promptProfileId: '',
-                dailyOutputCount: '',
-                minQualityScore: ''
-              });
+              setFormData(createEmptyFormData());
               setShowCreateModal(true);
             }}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500 text-white rounded text-xs hover:bg-red-600 transition-colors"
@@ -511,7 +713,7 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
       {/* Create/Edit Theme Modal */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4">
-          <div className="bg-white rounded-lg p-4 max-w-md w-full">
+          <div className="bg-white rounded-lg p-4 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             <div className="text-sm font-medium text-gray-900 mb-3">
               {editingTheme ? '编辑主题' : '创建新主题'}
             </div>
@@ -664,6 +866,135 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
                       />
                     </div>
                   </div>
+                </div>
+              </div>
+
+              <div className="border-t border-gray-100 pt-3">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-xs font-medium text-gray-800">定时抓取配置</div>
+                  <button
+                    type="button"
+                    onClick={() => setFormData((prev) => ({ ...prev, scheduleEnabled: !prev.scheduleEnabled }))}
+                    className={`relative w-10 h-5 rounded-full transition-colors ${
+                      formData.scheduleEnabled ? 'bg-red-500' : 'bg-gray-300'
+                    }`}
+                  >
+                    <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                      formData.scheduleEnabled ? 'left-5' : 'left-0.5'
+                    }`} />
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  <div>
+                    <label className="block text-xs text-gray-700 mb-1">快捷设置</label>
+                    <select
+                      value={formData.schedulePreset}
+                      onChange={(e) => {
+                        const preset = e.target.value as 'interval' | 'daily' | 'weekly' | 'cron';
+                        setFormData((prev) => ({
+                          ...prev,
+                          schedulePreset: preset,
+                          scheduleType: preset === 'interval' ? 'interval' : 'cron',
+                        }));
+                      }}
+                      className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
+                    >
+                      <option value="interval">固定间隔</option>
+                      <option value="daily">每天</option>
+                      <option value="weekly">每周</option>
+                      <option value="cron">自定义 Cron</option>
+                    </select>
+                  </div>
+
+                  {formData.schedulePreset === 'interval' && (
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs text-gray-700">执行间隔</label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={formData.intervalMinutes}
+                        onChange={(e) => setFormData({ ...formData, intervalMinutes: e.target.value })}
+                        className="w-24 px-2 py-1.5 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
+                      />
+                      <span className="text-xs text-gray-500">分钟</span>
+                    </div>
+                  )}
+
+                  {(formData.schedulePreset === 'daily' || formData.schedulePreset === 'weekly') && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label className="text-xs text-gray-700">执行时间</label>
+                      <input
+                        type="time"
+                        value={formData.scheduleTime}
+                        onChange={(e) => setFormData({ ...formData, scheduleTime: e.target.value })}
+                        className="px-2 py-1.5 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
+                      />
+                      {formData.schedulePreset === 'weekly' && (
+                        <>
+                          <label className="text-xs text-gray-700">执行日</label>
+                          <select
+                            value={formData.scheduleWeekday}
+                            onChange={(e) => setFormData({ ...formData, scheduleWeekday: e.target.value })}
+                            className="px-2 py-1.5 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
+                          >
+                            <option value="1">周一</option>
+                            <option value="2">周二</option>
+                            <option value="3">周三</option>
+                            <option value="4">周四</option>
+                            <option value="5">周五</option>
+                            <option value="6">周六</option>
+                            <option value="0">周日</option>
+                          </select>
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {formData.schedulePreset === 'cron' && (
+                    <div>
+                      <label className="block text-xs text-gray-700 mb-1">Cron 表达式</label>
+                      <input
+                        type="text"
+                        value={formData.cronExpression}
+                        onChange={(e) => setFormData({ ...formData, cronExpression: e.target.value })}
+                        placeholder="*/30 * * * *"
+                        className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
+                      />
+                      <p className="text-[10px] text-gray-400 mt-1">格式: 分 时 日 月 周</p>
+                    </div>
+                  )}
+
+                  {formData.schedulePreset !== 'interval' && (
+                    <div className="text-[10px] text-gray-400">
+                      当前表达式：{buildCronExpression()}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs text-gray-700 mb-1">抓取数量</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={100}
+                        value={formData.captureLimit}
+                        onChange={(e) => setFormData({ ...formData, captureLimit: e.target.value })}
+                        className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-700 mb-1">优先级</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={10}
+                        value={formData.schedulePriority}
+                        onChange={(e) => setFormData({ ...formData, schedulePriority: e.target.value })}
+                        className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-gray-400">启用后保存会自动启动调度器</p>
                 </div>
               </div>
 

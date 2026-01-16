@@ -100,6 +100,13 @@ export default function CaptureScheduleModal({ themeId, themeName, isOpen, onClo
       } else {
         await (window as any).jobs?.create(payload);
       }
+      if (isEnabled) {
+        try {
+          await (window as any).scheduler?.start?.();
+        } catch (e) {
+          console.error('启动调度器失败:', e);
+        }
+      }
       onSave();
       onClose();
     } catch (e) {

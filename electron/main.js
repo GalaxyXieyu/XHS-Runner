@@ -28,7 +28,7 @@ const { getInsights, refreshInsights } = require('./server/services/xhs/insightS
 const { enqueueInteraction, listInteractions } = require('./server/services/xhs/interactionService');
 const { enqueuePublish, listPublishes } = require('./server/services/xhs/publishService');
 const { createTheme, listThemes, removeTheme, setThemeStatus, updateTheme } = require('./server/services/xhs/themeService');
-const { login, logout, checkStatus } = require('./server/services/xhs/localService');
+const { login, logout, checkStatus, getQRCode, pollLoginStatus, cancelQRCodeSession } = require('./server/services/xhs/localService');
 const {
   listLlmProviders,
   createLlmProvider,
@@ -299,6 +299,18 @@ ipcMain.handle('auth:logout', () => {
 
 ipcMain.handle('auth:checkStatus', () => {
   return checkStatus();
+});
+
+ipcMain.handle('auth:getQRCode', () => {
+  return getQRCode();
+});
+
+ipcMain.handle('auth:pollLoginStatus', () => {
+  return pollLoginStatus();
+});
+
+ipcMain.handle('auth:cancelQRCodeSession', () => {
+  return cancelQRCodeSession();
 });
 
 // ============ 调度器 IPC Handlers ============

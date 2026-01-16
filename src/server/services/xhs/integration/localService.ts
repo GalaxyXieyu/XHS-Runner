@@ -84,3 +84,15 @@ export async function checkStatus(options: { browserPath?: string } = {}) {
 export async function logout() {
   return authService.logout();
 }
+
+export async function getQRCode(options: { browserPath?: string } = {}) {
+  return authService.getQRCode(resolveBrowserPath(options));
+}
+
+export async function pollLoginStatus() {
+  return authService.pollLoginStatus();
+}
+
+export async function cancelQRCodeSession() {
+  return authService.cancelQRCodeSession();
+}
