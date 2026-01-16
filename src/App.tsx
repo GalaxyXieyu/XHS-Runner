@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { FolderKanban, Sparkles, BarChart3, Settings as SettingsIcon, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { FolderKanban, Sparkles, BarChart3, Settings as SettingsIcon, PanelLeftClose, PanelLeftOpen, ListChecks } from 'lucide-react';
 import { ThemeManagement } from './components/ThemeManagement';
 import { CreativeTab } from '@/features/workspace/components/CreativeTab';
 import { OperationsTab } from '@/features/workspace/components/OperationsTab';
 import { SettingsTab } from '@/features/workspace/components/SettingsTab';
+import { TaskCenterPage } from '@/features/task-center/TaskCenterPage';
 import { useAuthStatus } from '@/hooks/useAuthStatus';
 import { LoginRequiredDialog } from '@/components/LoginRequiredDialog';
 
@@ -48,7 +49,7 @@ function transformTheme(t: any): Theme {
   };
 }
 
-type ViewId = 'themes' | 'creative' | 'operations' | 'settings';
+type ViewId = 'themes' | 'creative' | 'operations' | 'settings' | 'taskCenter';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<ViewId>('themes');
@@ -95,10 +96,17 @@ export default function App() {
     { id: 'themes' as const, label: '主题管理', icon: FolderKanban },
     { id: 'creative' as const, label: '内容创作', icon: Sparkles },
     { id: 'operations' as const, label: '运营中心', icon: BarChart3 },
+    { id: 'taskCenter' as const, label: '任务中心', icon: ListChecks },
     { id: 'settings' as const, label: '系统设置', icon: SettingsIcon }
   ];
 
   const isViewMounted = (view: ViewId) => mountedViews.has(view) || currentView === view;
+
+  const handleJumpToTheme = (themeId: string) => {
+    const target = themes.find((theme) => theme.id === themeId);
+    if (target) setSelectedTheme(target);
+    setCurrentView('themes');
+  };
 
   return (
     <div className="flex h-screen bg-gray-50">
@@ -187,14 +195,14 @@ export default function App() {
             <h1 className="text-sm font-medium text-gray-900">
               {navItems.find(item => item.id === currentView)?.label}
             </h1>
-            {selectedTheme && currentView !== 'themes' && currentView !== 'settings' && (
+            {selectedTheme && currentView !== 'themes' && currentView !== 'settings' && currentView !== 'taskCenter' && (
               <>
                 <span className="text-gray-400">·</span>
                 <span className="text-xs text-gray-600">{selectedTheme.name}</span>
               </>
             )}
           </div>
-          {selectedTheme && currentView !== 'themes' && currentView !== 'settings' && (
+          {selectedTheme && currentView !== 'themes' && currentView !== 'settings' && currentView !== 'taskCenter' && (
             <div className="flex items-center gap-2 text-xs text-gray-500">
               <span>{selectedTheme.keywords.length} 个关键词</span>
               <span>·</span>
@@ -253,8 +261,15 @@ export default function App() {
               />
             </div>
           )}
+          {isViewMounted('taskCenter') && (
+            <div className={currentView === 'taskCenter' ? 'h-full' : 'hidden'}>
+              <div className="p-4 h-full bg-gray-50">
+                <TaskCenterPage themes={themes} onJumpToTheme={handleJumpToTheme} />
+              </div>
+            </div>
+          )}
           
-          {!selectedTheme && currentView !== 'themes' && currentView !== 'settings' && (
+          {!selectedTheme && currentView !== 'themes' && currentView !== 'settings' && currentView !== 'taskCenter' && (
             <div className="flex items-center justify-center h-full">
               <div className="text-center">
                 <FolderKanban className="w-12 h-12 text-gray-300 mx-auto mb-2" />
