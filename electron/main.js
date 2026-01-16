@@ -483,6 +483,19 @@ app
 
     registerIpcHandlers();
     logger.info('app_ready', { config: getConfig() });
+
+    // 自动启动调度器
+    try {
+      scheduler = new Scheduler();
+      scheduler.start().then(() => {
+        logger.info('scheduler_started');
+      }).catch((err) => {
+        logger.error('scheduler_start_failed', { error: err.message });
+      });
+    } catch (err) {
+      logger.error('scheduler_init_failed', { error: err.message });
+    }
+
     createWindow();
 
     app.on('activate', () => {

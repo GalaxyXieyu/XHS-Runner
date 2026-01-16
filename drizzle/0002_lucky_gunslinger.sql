@@ -1,0 +1,1 @@
+ALTER TABLE "job_executions" ADD COLUMN "trigger_type" text DEFAULT 'scheduled' NOT NULL;

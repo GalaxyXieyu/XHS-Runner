@@ -26,6 +26,16 @@ async function doInit() {
   const userDataPath = process.env.XHS_USER_DATA_PATH || path.join(os.homedir(), '.xhs-runner');
   setUserDataPath(userDataPath);
 
+  // 自动启动调度器
+  try {
+    const { getScheduler } = await import('../services/scheduler/scheduler');
+    const scheduler = getScheduler();
+    await scheduler.start();
+    console.log('[init] Scheduler started');
+  } catch (err) {
+    console.error('[init] Failed to start scheduler:', err);
+  }
+
   initialized = true;
 }
 

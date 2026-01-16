@@ -644,7 +644,12 @@ export function InsightTab({ theme }: InsightTabProps) {
             </div>
           )}
         </div>
-        {showSkeleton && topics.length === 0 ? (
+        {loading && topics.length > 0 ? (
+          <div className="flex items-center justify-center py-16">
+            <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+            <span className="ml-2 text-sm text-gray-500">加载中...</span>
+          </div>
+        ) : showSkeleton && topics.length === 0 ? (
           <div className="grid grid-cols-5 gap-3 animate-pulse">
             {Array.from({ length: 10 }).map((_, idx) => (
               <div key={idx} className="group">

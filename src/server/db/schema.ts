@@ -264,6 +264,7 @@ export const jobExecutions = pgTable('job_executions', {
   id: serial('id').primaryKey(),
   jobId: integer('job_id').notNull().references(() => scheduledJobs.id, { onDelete: 'cascade' }),
   status: text('status').notNull().default('queued'),
+  triggerType: text('trigger_type').notNull().default('scheduled'),
   retryCount: integer('retry_count').notNull().default(0),
   startedAt: timestamp('started_at', { withTimezone: true }),
   finishedAt: timestamp('finished_at', { withTimezone: true }),
