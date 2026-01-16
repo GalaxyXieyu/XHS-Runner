@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Activity, Calendar, Clock, Play, Pause, RefreshCw } from 'lucide-react';
+import { Activity, Calendar, Clock, Play, Pause, RefreshCw, Settings } from 'lucide-react';
 
 type CaptureJob = {
   id: number;
@@ -82,6 +82,19 @@ export function TaskCenterPage({ themes, onJumpToTheme }: TaskCenterPageProps) {
   const [taskStatusFilter, setTaskStatusFilter] = useState<'all' | 'queued' | 'running' | 'done' | 'failed'>('all');
   const [executionStatusFilter, setExecutionStatusFilter] = useState<'all' | 'pending' | 'running' | 'success' | 'failed' | 'canceled' | 'timeout'>('all');
   const [timeRange, setTimeRange] = useState<'7d' | '30d' | 'all'>('7d');
+  const [editingJobId, setEditingJobId] = useState<number | null>(null);
+
+  const intervalOptions = [
+    { value: 2, label: '每2分钟' },
+    { value: 5, label: '每5分钟' },
+    { value: 10, label: '每10分钟' },
+    { value: 30, label: '每30分钟' },
+    { value: 60, label: '每1小时' },
+    { value: 120, label: '每2小时' },
+    { value: 360, label: '每6小时' },
+    { value: 720, label: '每12小时' },
+    { value: 1440, label: '每天' },
+  ];
 
   const themeMap = useMemo(() => {
     const map = new Map<number, string>();
@@ -184,6 +197,24 @@ export function TaskCenterPage({ themes, onJumpToTheme }: TaskCenterPageProps) {
     }
   };
 
+  const handleUpdateInterval = async (job: CaptureJob, newInterval: number) => {
+    try {
+      if ((window as any).jobs?.update) {
+        await (window as any).jobs.update({ id: job.id, interval_minutes: newInterval });
+      } else {
+        await fetch(`/api/jobs/${job.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ interval_minutes: newInterval }),
+        });
+      }
+      setEditingJobId(null);
+      await loadCaptureJobs();
+    } catch (error) {
+      console.error('Failed to update interval:', error);
+    }
+  };
+
   return (
     <div className="h-full flex flex-col bg-white border border-gray-200 rounded overflow-hidden">
       <div className="border-b border-gray-200 p-3">
@@ -281,8 +312,29 @@ export function TaskCenterPage({ themes, onJumpToTheme }: TaskCenterPageProps) {
                     <div className="flex items-start justify-between mb-2">
                       <div>
                         <div className="text-sm font-medium text-gray-900">{job.name}</div>
-                        <div className="text-xs text-gray-500">
-                          {themeName ? `主题：${themeName}` : '主题：-'} · {getScheduleText(job)}
+                        <div className="text-xs text-gray-500 flex items-center gap-1">
+                          {themeName ? `主题：${themeName}` : '主题：-'} ·
+                          {editingJobId === job.id ? (
+                            <select
+                              autoFocus
+                              value={job.interval_minutes || 60}
+                              onChange={(e) => handleUpdateInterval(job, Number(e.target.value))}
+                              onBlur={() => setEditingJobId(null)}
+                              className="px-1 py-0.5 text-xs border border-blue-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                            >
+                              {intervalOptions.map((opt) => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <button
+                              onClick={() => setEditingJobId(job.id)}
+                              className="text-blue-600 hover:text-blue-700 hover:underline"
+                              title="点击修改周期"
+                            >
+                              {getScheduleText(job)}
+                            </button>
+                          )}
                         </div>
                       </div>
                       <span className={`px-2 py-0.5 text-xs rounded ${enabled ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>

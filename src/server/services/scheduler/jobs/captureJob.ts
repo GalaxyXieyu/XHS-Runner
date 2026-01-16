@@ -12,7 +12,7 @@ export async function handleCaptureJob(
 
   try {
     // 动态导入抓取服务
-    const { runCapture } = await import('../../xhs/capture/capture');
+    const { runCapture, RateLimitError } = await import('../../xhs/capture/capture');
 
     if (job.job_type === 'capture_keyword' && job.keyword_id) {
       // 按关键词抓取
@@ -46,9 +46,29 @@ export async function handleCaptureJob(
           throw new Error('任务已取消');
         }
 
-        const result = await runCapture(kw.id, limit);
-        totalCount += result.total;
-        insertedCount += result.inserted;
+        try {
+          const result = await runCapture(kw.id, limit);
+          totalCount += result.total;
+          insertedCount += result.inserted;
+        } catch (e: any) {
+          // 检测到限流，暂停调度器并停止当前任务
+          if (e instanceof RateLimitError || e.name === 'RateLimitError') {
+            console.error('[captureJob] Rate limit detected, pausing scheduler for 30 minutes...');
+            const { getScheduler } = await import('../scheduler');
+            getScheduler().pause();
+            // 30分钟后自动恢复
+            setTimeout(() => {
+              console.log('[captureJob] Resuming scheduler after rate limit cooldown');
+              getScheduler().resume();
+            }, 30 * 60 * 1000);
+            return {
+              success: false,
+              error: '小红书安全限制，调度器已暂停30分钟',
+              duration_ms: 0,
+            };
+          }
+          throw e;
+        }
 
         // 关键词之间添加延迟
         await new Promise(r => setTimeout(r, 1000));
@@ -64,6 +84,21 @@ export async function handleCaptureJob(
 
     return { success: false, error: '无效的任务配置', duration_ms: 0 };
   } catch (error: any) {
+    // 顶层也检测限流错误
+    if (error.name === 'RateLimitError') {
+      console.error('[captureJob] Rate limit detected at top level, pausing scheduler...');
+      const { getScheduler } = await import('../scheduler');
+      getScheduler().pause();
+      setTimeout(() => {
+        console.log('[captureJob] Resuming scheduler after rate limit cooldown');
+        getScheduler().resume();
+      }, 30 * 60 * 1000);
+      return {
+        success: false,
+        error: '小红书安全限制，调度器已暂停30分钟',
+        duration_ms: 0,
+      };
+    }
     return {
       success: false,
       error: error.message || String(error),

@@ -2,6 +2,21 @@ import { getDatabase } from '../../../db';
 import { getSetting, getSettings, setSetting } from '../../../settings';
 import { fetchTopNotes, fetchNoteDetail } from './xhsClient';
 
+// 检测小红书安全限制
+const RATE_LIMIT_KEYWORDS = ['安全限制', '访问频次异常', '请勿频繁操作', '300013'];
+
+function isRateLimited(text: string | null | undefined): boolean {
+  if (!text) return false;
+  return RATE_LIMIT_KEYWORDS.some(keyword => text.includes(keyword));
+}
+
+export class RateLimitError extends Error {
+  constructor(message = '小红书安全限制：访问频次异常，已自动停止抓取') {
+    super(message);
+    this.name = 'RateLimitError';
+  }
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -312,7 +327,8 @@ export async function runCapture(keywordId: number, limit = 50) {
       }
 
       if (i > 0) {
-        const delay = 2000 + Math.random() * 2000;
+        // 增加请求间隔，避免触发限流 (5-8秒随机延迟)
+        const delay = 5000 + Math.random() * 3000;
         await sleep(delay);
       }
 
@@ -324,11 +340,18 @@ export async function runCapture(keywordId: number, limit = 50) {
             console.log(`[capture] Fetching detail for ${note.id} (attempt ${attempt})...`);
             const detail = await fetchNoteDetail(note.id, { xsecToken });
             if (detail?.desc) {
+              // 检测安全限制
+              if (isRateLimited(detail.desc)) {
+                console.error(`[capture] Rate limit detected! Stopping capture immediately.`);
+                throw new RateLimitError();
+              }
               enrichedNote = { ...note, desc: detail.desc };
               console.log(`[capture] Got desc for ${note.id}: ${detail.desc.slice(0, 50)}...`);
               break;
             }
           } catch (e: any) {
+            // 如果是限流错误，直接向上抛出
+            if (e instanceof RateLimitError) throw e;
             console.warn(`[capture] Attempt ${attempt} failed for ${note.id}:`, e.message);
             if (attempt < 2) await sleep(2000);
           }
