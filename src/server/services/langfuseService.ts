@@ -1,5 +1,5 @@
 import Langfuse from 'langfuse';
-import { supabase } from '../supabase';
+import { queryOne } from "../pg";
 
 let langfuseInstance: Langfuse | null = null;
 let configCache: LangfuseConfig | null = null;
@@ -13,15 +13,37 @@ interface LangfuseConfig {
 
 /**
  * 从数据库获取 Langfuse 配置
+ * 优先级：环境变量 > 数据库配置
  */
 async function getLangfuseConfig(): Promise<LangfuseConfig | null> {
+  // 1. 先检查环境变量（用户明确配置的环境变量优先）
+  const envSecretKey = process.env.LANGFUSE_SECRET_KEY?.trim();
+  const envPublicKey = process.env.LANGFUSE_PUBLIC_KEY?.trim();
+  const envBaseUrl = process.env.LANGFUSE_BASE_URL?.trim();
+
+  if (envSecretKey && envPublicKey) {
+    return {
+      secretKey: envSecretKey,
+      publicKey: envPublicKey,
+      baseUrl: envBaseUrl || 'https://cloud.langfuse.com',
+      enabled: true,
+    };
+  }
+
+  // 2. 使用缓存
   if (configCache) return configCache;
 
-  const { data } = await supabase
-    .from('extension_services')
-    .select('api_key, endpoint, config_json, is_enabled')
-    .eq('service_type', 'langfuse')
-    .maybeSingle();
+  // 3. 从数据库获取
+  const data = await queryOne<{
+    api_key: string;
+    endpoint: string;
+    config_json: string;
+    is_enabled: number;
+  }>(
+    `SELECT api_key, endpoint, config_json, is_enabled
+     FROM extension_services
+     WHERE service_type = 'langfuse'`
+  );
 
   if (!data) return null;
 
@@ -30,10 +52,10 @@ async function getLangfuseConfig(): Promise<LangfuseConfig | null> {
     : (data.config_json as Record<string, any> || {});
 
   configCache = {
-    secretKey: data.api_key || process.env.LANGFUSE_SECRET_KEY || '',
-    publicKey: config.public_key || process.env.LANGFUSE_PUBLIC_KEY || '',
-    baseUrl: data.endpoint || process.env.LANGFUSE_BASE_URL || 'https://cloud.langfuse.com',
-    enabled: data.is_enabled === 1 || data.is_enabled === true,
+    secretKey: data.api_key || '',
+    publicKey: config.public_key || '',
+    baseUrl: data.endpoint || 'https://cloud.langfuse.com',
+    enabled: data.is_enabled === 1,
   };
 
   return configCache;

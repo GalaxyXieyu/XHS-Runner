@@ -78,9 +78,123 @@
 | `llm_providers` | LLM 服务商配置 |
 | `prompt_profiles` | Prompt 模板 |
 | `image_style_templates` | 图片风格模板 |
+| `agent_prompts` | Multi-Agent 系统 Prompt（Langfuse 同步） |
 
 ### 其他表
 `accounts`, `competitors`, `publish_records`, `metrics`, `interaction_tasks`, `form_assist_records`, `trend_reports`, `creative_assets`, `rate_limit_state`
+
+## Multi-Agent Prompt 管理
+
+### 架构设计
+
+**数据源优先级**：Langfuse > 数据库缓存 > 代码默认值
+
+```
+┌─────────────┐     同步      ┌─────────────┐
+│  Langfuse   │ ───────────→ │   数据库    │
+│ (主数据源)   │ ←─────────── │  (缓存)     │
+└─────────────┘    上传       └─────────────┘
+       ↑                            ↓
+       │                      ┌─────────────┐
+       └──────────────────────│ Agent 系统  │
+                              └─────────────┘
+```
+
+### Langfuse Prompt 命名规范
+
+在 Langfuse 中创建 prompt 时，使用 `xhs-agent-{agent_name}` 格式：
+
+| Agent | Langfuse Prompt Name |
+|-------|---------------------|
+| supervisor | `xhs-agent-supervisor` |
+| research_agent | `xhs-agent-research_agent` |
+| writer_agent | `xhs-agent-writer_agent` |
+| style_analyzer_agent | `xhs-agent-style_analyzer_agent` |
+| image_planner_agent | `xhs-agent-image_planner_agent` |
+| image_agent | `xhs-agent-image_agent` |
+| review_agent | `xhs-agent-review_agent` |
+
+### 工作流程
+
+1. **运行时**：从 Langfuse 拉取最新 prompt → 同步到数据库 → 使用
+2. **Langfuse 不可用时**：使用数据库缓存
+3. **代码修改 prompt 后**：调用 `uploadPromptToLangfuse()` 同步到 Langfuse
+
+### 代码中修改 Prompt
+
+如果在代码中修改了 prompt，**必须同步到 Langfuse**：
+
+```typescript
+import { uploadPromptToLangfuse } from "@/server/services/promptManager";
+
+// 修改后上传到 Langfuse
+await uploadPromptToLangfuse("writer_agent", newPrompt, true); // true = production
+```
+
+### 相关文件
+
+- `src/server/services/promptManager.ts` - Prompt 管理服务
+- `src/server/agents/multiAgentSystem.ts` - Multi-Agent 系统
+- 数据库表：`agent_prompts`
+
+### Agent Prompt 调试心法
+
+#### 修改流程
+
+```
+观察异常行为 → 追踪代码流程 → 定位根因 → 验证假设 → 精确修改
+```
+
+#### 核心原则
+
+**① 状态-决策对应原则**
+- Prompt 中的决策规则必须与代码中的 `state.xxx` 变量一一对应
+- 例如：`imagesComplete = true` → prompt 必须明确说 "图片已完成 → review_agent"
+
+**② 优先级明确原则**
+```yaml
+# 错误示例（模糊）
+决策规则：按工作流程顺序执行
+
+# 正确示例（明确优先级）
+决策规则（按优先级）：
+1. 迭代次数 >= 最大次数 → END
+2. 审核通过 → END
+3. 图片已完成 + 未审核 → review_agent
+4. 图片未完成 + 已规划 → image_agent
+```
+
+**③ 状态组合覆盖原则**
+- 列出所有可能的状态组合，每个组合都有明确的下一步
+- 避免"漏网之鱼"导致循环或死锁
+
+#### 修改触发条件
+
+| 现象 | 可能原因 | 修改方向 |
+|------|---------|---------|
+| 循环执行 | 缺少终止条件 | 添加 "xxx完成 → 下一阶段" |
+| 跳过步骤 | 优先级错误 | 调整决策规则顺序 |
+| 死锁 | 状态组合未覆盖 | 补充缺失的决策分支 |
+| 重复调用 | 完成状态未检查 | 添加 "已完成 → 跳过" |
+
+#### 修改方式
+
+通过 Supabase MCP 直接修改数据库中的 prompt：
+
+```sql
+UPDATE agent_prompts
+SET system_prompt = '新的 prompt 内容',
+    version = version + 1,
+    updated_at = NOW()
+WHERE agent_name = 'supervisor';
+```
+
+#### 最佳实践
+
+1. **Prompt 和代码双重保障** - 代码检查状态 + prompt 明确指令
+2. **日志驱动调试** - 通过日志定位 prompt 实际输出了什么
+3. **最小化修改** - 只改必要的决策规则，不重写整个 prompt
+4. **版本追踪** - 每次修改 `version + 1`，便于回滚
 
 ## 数据库操作 (推荐使用 Supabase MCP)
 

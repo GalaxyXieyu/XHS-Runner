@@ -22,12 +22,10 @@ const REGION = 'cn-north-1';
 const SERVICE = 'cv';
 const VERSION = '2022-08-31';
 
+// Jimeng 图片生成串行队列（避免并发限流）
 class JimengApiLock {
   private queue: Array<() => Promise<any>> = [];
   private isProcessing = false;
-  private lastCallTime = 0;
-  private minInterval = 1000;
-  private cooldownUntil = 0;
 
   async enqueue<T>(execute: () => Promise<T>): Promise<T> {
     return new Promise((resolve, reject) => {
@@ -43,10 +41,6 @@ class JimengApiLock {
     });
   }
 
-  setCooldown(seconds: number) {
-    this.cooldownUntil = Date.now() + seconds * 1000;
-  }
-
   private async processQueue() {
     if (this.isProcessing || this.queue.length === 0) {
       return;
@@ -56,24 +50,9 @@ class JimengApiLock {
     while (this.queue.length > 0) {
       const task = this.queue.shift();
       if (!task) break;
-
-      if (Date.now() < this.cooldownUntil) {
-        await this.sleep(this.cooldownUntil - Date.now());
-      }
-
-      const elapsed = Date.now() - this.lastCallTime;
-      if (elapsed < this.minInterval) {
-        await this.sleep(this.minInterval - elapsed);
-      }
-
-      this.lastCallTime = Date.now();
       await task();
     }
     this.isProcessing = false;
-  }
-
-  private sleep(ms: number) {
-    return new Promise(resolve => setTimeout(resolve, ms));
   }
 }
 
@@ -177,15 +156,13 @@ async function uploadBase64ToSuperbed(base64: string, filename: string, token?: 
   // 如果图片太大，尝试压缩
   const MAX_SIZE = 500 * 1024; // 500KB
   if (buffer.length > MAX_SIZE) {
-    console.log(`[uploadBase64ToSuperbed] Image too large (${Math.round(buffer.length / 1024)}KB), compressing...`);
     try {
       const { Jimp } = await import('jimp');
       const image = await Jimp.read(buffer);
       if (image.width > 1024) {
         image.resize({ w: 1024 });
       }
-      buffer = await image.getBuffer('image/jpeg');
-      console.log(`[uploadBase64ToSuperbed] Compressed to ${Math.round(buffer.length / 1024)}KB`);
+      buffer = Buffer.from(await image.getBuffer('image/jpeg'));
     } catch (e) {
       console.error('[uploadBase64ToSuperbed] Compression failed:', e);
     }
@@ -195,13 +172,11 @@ async function uploadBase64ToSuperbed(base64: string, filename: string, token?: 
   const formData = new FormData();
   formData.append('file', blob, filename.replace('.png', '.jpg'));
 
-  console.log(`[uploadBase64ToSuperbed] Uploading ${Math.round(buffer.length / 1024)}KB to Superbed...`);
   const response = await fetch(`https://api.superbed.cn/upload?token=${resolvedToken}`, {
     method: 'POST',
     body: formData,
   });
   const result = await response.json();
-  console.log(`[uploadBase64ToSuperbed] Response:`, result);
   if (result.err !== 0 || !result.url) {
     throw new Error(`superbed上传失败：${result.msg || '未知错误'}`);
   }
@@ -282,10 +257,6 @@ async function generateJimengImage(params: {
         }
         const result: any = await postJson(apiUrl, requestBody, headers, 60000);
         if (result.code !== 10000) {
-          if (result.code === 50430) {
-            jimengApiLock.setCooldown(60);
-            throw new Error(`CONCURRENT_LIMIT:${result.message || 'API并发限制'}`);
-          }
           throw new Error(`即梦API调用失败: code=${result.code}, msg=${result.message || 'Unknown'}`);
         }
         const base64 = result.data?.binary_data_base64?.[0];
@@ -299,9 +270,6 @@ async function generateJimengImage(params: {
         };
       } catch (error: any) {
         const message = error.message || String(error);
-        if (message.includes('CONCURRENT_LIMIT') || message.includes('429')) {
-          jimengApiLock.setCooldown(60);
-        }
         lastError = error instanceof Error ? error : new Error(message);
         const retryable = /CONCURRENT_LIMIT|429|timeout|ECONNRESET|ETIMEDOUT|500|503|504/i.test(message);
         if (!retryable || attempt === 2) {
@@ -407,7 +375,6 @@ export interface ReferenceImageResult {
 export async function generateImageWithReference(input: ReferenceImageInput): Promise<ReferenceImageResult> {
   // 优先使用参数指定的 provider，否则从设置读取
   const provider = input.provider || (await getSetting('imageGenProvider')) || 'gemini';
-  console.log(`[generateImageWithReference] Using provider: ${provider}`);
 
   switch (provider) {
     case 'jimeng':

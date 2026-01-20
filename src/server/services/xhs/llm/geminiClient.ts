@@ -5,11 +5,42 @@
 
 import { db, schema } from '../../../db';
 import { eq, and } from 'drizzle-orm';
-import { Jimp } from 'jimp';
 
-// 图片压缩配置
-const MAX_IMAGE_SIZE = 150 * 1024; // 150KB
-const TARGET_WIDTH = 800; // 目标宽度
+// Gemini 图片生成串行队列（避免并发限流）
+class GeminiImageLock {
+  private queue: Array<() => Promise<any>> = [];
+  private isProcessing = false;
+
+  async enqueue<T>(execute: () => Promise<T>): Promise<T> {
+    return new Promise((resolve, reject) => {
+      this.queue.push(async () => {
+        try {
+          const result = await execute();
+          resolve(result);
+        } catch (error) {
+          reject(error);
+        }
+      });
+      this.processQueue();
+    });
+  }
+
+  private async processQueue() {
+    if (this.isProcessing || this.queue.length === 0) {
+      return;
+    }
+
+    this.isProcessing = true;
+    while (this.queue.length > 0) {
+      const task = this.queue.shift();
+      if (!task) break;
+      await task();
+    }
+    this.isProcessing = false;
+  }
+}
+
+const geminiImageLock = new GeminiImageLock();
 
 interface GeminiResponse {
   candidates?: Array<{
@@ -64,45 +95,6 @@ async function getImageGenModel() {
 }
 
 /**
- * 压缩图片到目标大小
- */
-async function compressImage(base64Data: string, mimeType: string): Promise<string> {
-  try {
-    const buffer = Buffer.from(base64Data, 'base64');
-    const originalSize = buffer.length;
-
-    // 如果已经小于目标大小，直接返回
-    if (originalSize <= MAX_IMAGE_SIZE) {
-      console.log(`[compressImage] Image already small: ${Math.round(originalSize / 1024)}KB`);
-      return base64Data;
-    }
-
-    const image = await Jimp.read(buffer);
-
-    // 缩小尺寸 (jimp v1.x API)
-    if (image.width > TARGET_WIDTH) {
-      image.resize({ w: TARGET_WIDTH });
-    }
-
-    // jimp v1.x: 直接获取 JPEG buffer
-    const compressedBuffer = await image.getBuffer("image/jpeg");
-
-    // 如果压缩后反而变大，返回原图
-    if (compressedBuffer.length >= originalSize) {
-      console.log(`[compressImage] Compression ineffective: ${Math.round(originalSize / 1024)}KB -> ${Math.round(compressedBuffer.length / 1024)}KB, using original`);
-      return base64Data;
-    }
-
-    const compressedBase64 = compressedBuffer.toString('base64');
-    console.log(`[compressImage] Compressed: ${Math.round(originalSize / 1024)}KB -> ${Math.round(compressedBuffer.length / 1024)}KB`);
-    return compressedBase64;
-  } catch (e) {
-    console.error('[compressImage] Error:', e);
-    return base64Data; // 压缩失败时返回原图
-  }
-}
-
-/**
  * 将图片 URL 或 base64 转换为 Gemini inlineData 格式
  */
 async function convertToInlineData(imageInput: string): Promise<{ inlineData: { mimeType: string; data: string } }> {
@@ -110,23 +102,21 @@ async function convertToInlineData(imageInput: string): Promise<{ inlineData: { 
   if (imageInput.startsWith('data:')) {
     const match = imageInput.match(/^data:([^;]+);base64,(.+)$/);
     if (match) {
-      const compressed = await compressImage(match[2], match[1]);
-      return { inlineData: { mimeType: 'image/jpeg', data: compressed } };
+      return { inlineData: { mimeType: match[1], data: match[2] } };
     }
   }
 
   // 如果是 URL，需要下载并转换
   if (imageInput.startsWith('http')) {
     const response = await fetch(imageInput);
+    const contentType = response.headers.get('content-type') || 'image/jpeg';
     const buffer = await response.arrayBuffer();
     const base64 = Buffer.from(buffer).toString('base64');
-    const compressed = await compressImage(base64, 'image/jpeg');
-    return { inlineData: { mimeType: 'image/jpeg', data: compressed } };
+    return { inlineData: { mimeType: contentType, data: base64 } };
   }
 
   // 假设是纯 base64
-  const compressed = await compressImage(imageInput, 'image/jpeg');
-  return { inlineData: { mimeType: 'image/jpeg', data: compressed } };
+  return { inlineData: { mimeType: 'image/jpeg', data: imageInput } };
 }
 
 /**
@@ -186,9 +176,6 @@ export async function analyzeReferenceImage(imageUrl: string): Promise<{
   };
 
   const apiUrl = `${baseUrl}/v1beta/models/${modelName}:generateContent`;
-  console.log('[analyzeReferenceImage] API URL:', apiUrl);
-  console.log('[analyzeReferenceImage] Model:', modelName);
-  console.log('[analyzeReferenceImage] Image data size:', imageData.inlineData.data.length);
 
   const response = await fetch(apiUrl, {
     method: 'POST',
@@ -199,23 +186,18 @@ export async function analyzeReferenceImage(imageUrl: string): Promise<{
     body: JSON.stringify(requestBody),
   });
 
-  console.log('[analyzeReferenceImage] Response status:', response.status);
-
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(`Gemini Vision API 请求失败: ${response.status} - ${errorText}`);
   }
 
   const data: GeminiResponse = await response.json();
-  console.log('[analyzeReferenceImage] Response data:', JSON.stringify(data).slice(0, 500));
 
   const textContent = data.candidates?.[0]?.content?.parts?.find(p => p.text)?.text;
 
   if (!textContent) {
     throw new Error('Gemini Vision API 未返回分析结果');
   }
-
-  console.log('[analyzeReferenceImage] Raw text:', textContent.slice(0, 300));
 
   // 提取 JSON - 尝试多种方式
   let jsonStr: string | null = null;
@@ -248,7 +230,7 @@ export async function analyzeReferenceImage(imageUrl: string): Promise<{
 }
 
 /**
- * 带参考图生成图片
+ * 带参考图生成图片（带重试逻辑 + 串行队列）
  */
 export async function generateImageWithReference(params: {
   prompt: string;
@@ -258,77 +240,108 @@ export async function generateImageWithReference(params: {
   imageBase64: string;
   mimeType: string;
 }> {
-  const model = await getImageGenModel();
-  // yunwu.ai 直接使用，不带 /v1 后缀
-  const baseUrl = (model.baseUrl || 'https://yunwu.ai').replace(/\/v1$/, '');
-  const modelName = 'gemini-3-pro-image-preview'; // 与参考实现一致
+  // 使用队列串行执行，避免并发限流
+  return geminiImageLock.enqueue(async () => {
+    const model = await getImageGenModel();
+    const baseUrl = (model.baseUrl || 'https://yunwu.ai').replace(/\/v1$/, '');
+    const modelName = model.modelName || 'gemini-2.0-flash-exp-image-generation';
 
-  const referenceData = await convertToInlineData(params.referenceImageUrl);
+    const referenceData = await convertToInlineData(params.referenceImageUrl);
 
-  // 使用与参考实现一致的请求格式
-  const requestBody = {
-    contents: [{
-      parts: [
-        { text: params.prompt },
-        referenceData
-      ]
-    }],
-    generationConfig: {
-      responseModalities: ["IMAGE"],
-      imageConfig: {
-        aspectRatio: params.aspectRatio || "3:4"  // 小红书竖版
+    const requestBody = {
+      contents: [{
+        parts: [
+          { text: params.prompt },
+          referenceData
+        ]
+      }],
+      generationConfig: {
+        responseModalities: ["IMAGE", "TEXT"],
+        imageConfig: {
+          aspectRatio: params.aspectRatio || "3:4"
+        }
+      }
+    };
+
+    const apiUrl = `${baseUrl}/v1beta/models/${modelName}:generateContent`;
+
+    // 重试逻辑：最多重试 3 次
+    const maxRetries = 3;
+    let lastError: Error | null = null;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        // 重试前等待（避免限流）
+        if (attempt > 1) {
+          const delay = 3000 * attempt;
+          await new Promise(r => setTimeout(r, delay));
+        }
+
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': model.apiKey || '',
+          },
+          body: JSON.stringify(requestBody),
+          signal: AbortSignal.timeout(300000),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          // 429 限流时重试
+          if (response.status === 429 && attempt < maxRetries) {
+            lastError = new Error(`Rate limited: ${response.status}`);
+            continue;
+          }
+          throw new Error(`Gemini 图片生成失败: ${response.status} - ${errorText}`);
+        }
+
+        const data: GeminiResponse = await response.json();
+        const responseStr = JSON.stringify(data).slice(0, 500);
+
+        const imagePart = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+
+        if (imagePart?.inlineData) {
+          return {
+            imageBase64: imagePart.inlineData.data,
+            mimeType: imagePart.inlineData.mimeType,
+          };
+        }
+
+        // 检查是否只有 thoughtSignature（模型在思考但没生成图片）
+        const hasThoughtSignature = responseStr.includes('thoughtSignature');
+        if (hasThoughtSignature && attempt < maxRetries) {
+        lastError = new Error('模型返回思考过程但未生成图片');
+        continue;
+      }
+
+      // 尝试从文本中提取 URL
+      const textPart = data.candidates?.[0]?.content?.parts?.find(p => p.text);
+      if (textPart?.text) {
+        const urlMatch = textPart.text.match(/(https?:\/\/[^\s\)]+\.(?:png|jpg|jpeg|gif|webp))/i);
+        if (urlMatch) {
+          const imgResponse = await fetch(urlMatch[1]);
+          const buffer = await imgResponse.arrayBuffer();
+          return {
+            imageBase64: Buffer.from(buffer).toString('base64'),
+            mimeType: imgResponse.headers.get('content-type') || 'image/png',
+          };
+        }
+      }
+
+      lastError = new Error('Gemini 未返回图片数据');
+      if (attempt < maxRetries) {
+        continue;
+      }
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (attempt < maxRetries) {
+        continue;
       }
     }
-  };
+  }
 
-  const apiUrl = `${baseUrl}/v1beta/models/${modelName}:generateContent`;
-  console.log('[generateImageWithReference] API URL:', apiUrl);
-  console.log('[generateImageWithReference] Model:', modelName);
-  console.log('[generateImageWithReference] Prompt:', params.prompt.slice(0, 100) + '...');
-
-  const response = await fetch(apiUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-goog-api-key': model.apiKey || '',
-    },
-    body: JSON.stringify(requestBody),
-    signal: AbortSignal.timeout(300000), // 5分钟超时
+  throw lastError || new Error('Gemini 图片生成失败');
   });
-
-  console.log('[generateImageWithReference] Response status:', response.status);
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('[generateImageWithReference] Error:', errorText);
-    throw new Error(`Gemini 图片生成失败: ${response.status} - ${errorText}`);
-  }
-
-  const data: GeminiResponse = await response.json();
-  console.log('[generateImageWithReference] Response:', JSON.stringify(data).slice(0, 500));
-
-  const imagePart = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-
-  if (!imagePart?.inlineData) {
-    // 尝试从文本中提取 URL
-    const textPart = data.candidates?.[0]?.content?.parts?.find(p => p.text);
-    if (textPart?.text) {
-      const urlMatch = textPart.text.match(/(https?:\/\/[^\s\)]+\.(?:png|jpg|jpeg|gif|webp))/i);
-      if (urlMatch) {
-        // 下载图片并转换为 base64
-        const imgResponse = await fetch(urlMatch[1]);
-        const buffer = await imgResponse.arrayBuffer();
-        return {
-          imageBase64: Buffer.from(buffer).toString('base64'),
-          mimeType: imgResponse.headers.get('content-type') || 'image/png',
-        };
-      }
-    }
-    throw new Error('Gemini 未返回图片数据');
-  }
-
-  return {
-    imageBase64: imagePart.inlineData.data,
-    mimeType: imagePart.inlineData.mimeType,
-  };
 }

@@ -66,3 +66,122 @@
 - `docs/IPC.md`
 - `docs/Packaging.md`
 - `docs/mcp/LocalModeSmoke.md`
+
+---
+
+## Agent 系统架构
+
+### 核心组件
+
+```
+                    ┌──────────────────────────────────────────────────────────────┐
+                    │                         迭代循环                              │
+                    │                                                              │
+                    ▼                                                              │
+          ┌─────────────────┐                                                      │
+          │   supervisor    │◄─────────────────────────────────────────────────────┤
+          │   (状态协调)     │                                                      │
+          └────────┬────────┘                                                      │
+                   │ 路由决策                                                       │
+     ┌─────────────┼─────────────┬─────────────┬─────────────┐                     │
+     ▼             ▼             ▼             ▼             ▼                     │
+┌─────────┐ ┌──────────┐ ┌─────────┐ ┌───────────┐ ┌─────────┐                    │
+│  style  │ │ research │ │ writer  │ │  image    │ │  image  │                    │
+│ analyzer│ │  agent   │ │  agent  │ │  planner  │ │  agent  │                    │
+└────┬────┘ └────┬─────┘ └────┬────┘ └─────┬─────┘ └────┬────┘                    │
+     │           │            │            │            │                          │
+     │ Gemini    │ Tools      │            │            │                          │
+     │ Vision    │ 调用       │            │            │                          │
+     │           │            │            │            │                          │
+     └───────────┴────────────┴────────────┴────────────┘                          │
+                              │                                                    │
+                              ▼                                                    │
+                    ┌─────────────────┐                                            │
+                    │  review_agent   │                                            │
+                    │  (多模态审核)    │                                            │
+                    └────────┬────────┘                                            │
+                             │                                                     │
+            ┌────────────────┼────────────────┐                                    │
+            ▼                ▼                ▼                                    │
+       ✅ 通过          ⚠️ 重新规划       ⚠️ 重新生成                               │
+            │                │                │                                    │
+            ▼                └────────────────┴────────────────────────────────────┘
+         [END]                        (最多 3 次迭代)
+```
+
+
+### Agent 状态机 (AgentState)
+
+```typescript
+const AgentState = Annotation.Root({
+  messages: BaseMessage[],           // 对话消息历史
+  currentAgent: AgentType,           // 当前执行 Agent
+  researchComplete: boolean,         // 研究是否完成
+  contentComplete: boolean,          // 内容创作是否完成
+  referenceImageUrl: string | null,  // 参考图 URL
+  referenceImages: string[],         // 多参考图数组
+  styleAnalysis: StyleAnalysis,      // 风格分析结果
+  imagePlans: ImagePlan[],           // 图片规划列表
+  creativeId: number,                // 创意 ID
+  reviewFeedback: ReviewFeedback,    // 审核反馈
+  imagesComplete: boolean,           // 图片生成是否完成
+  iterationCount: number,            // 迭代次数
+  maxIterations: number,             // 最大迭代次数 (默认3)
+});
+```
+
+### 路由决策逻辑
+
+`routeFromSupervisor` 函数按以下优先级路由：
+
+1. 有参考图 && 未分析风格 → **style_analyzer_agent**
+2. 未完成研究 → **research_agent**
+3. 未创作内容 → **writer_agent**
+4. 无图片规划 → **image_planner_agent**
+5. 未完成图片生成 → **image_agent**
+6. 未审核 → **review_agent**
+7. 审核未通过 && 未达迭代上限 → 重新调用对应 Agent
+8. 审核通过或达到迭代上限 → **END**
+
+### 工具集 (Research Tools)
+
+| 工具 | 功能 | 数据来源 |
+|-----|------|---------|
+| `searchNotes` | 搜索小红书笔记 | 内部采集服务 |
+| `analyzeTopTags` | 分析热门标签 | insightService |
+| `getTrendReport` | 获取趋势报告 | analytics 模块 |
+| `getTopTitles` | 获取爆款标题 | 数据库查询 |
+
+### 图片生成架构
+
+```
+generateImage (统一接口)
+          │
+          ├─── Gemini ───→ geminiClient.ts (原生 API)
+          │                   ├── analyzeReferenceImage()  // 风格分析
+          │                   └── generateImageWithReference()
+          │
+          └─── 即梦 (Jimeng) ──→ imageProvider.ts
+                                  └── generateJimengImage()
+                                      └── Volcengine 签名
+```
+
+### 关键特性
+
+| 特性 | 说明 |
+|-----|------|
+| **迭代优化** | 最多迭代 3 次，审核不通过时自动重试 |
+| **参考图风格迁移** | 上传参考图，Agent 学习视觉风格后生成配图 |
+| **多模态审核** | review_agent 使用 Vision 模型检查图文相关性 |
+| **SSE 实时流式** | 前端实时看到 Agent 执行进度 |
+| **Langfuse 追踪** | 支持完整的 Trace 和 Span 记录 |
+
+### 相关文件
+
+| 文件 | 用途 |
+|-----|------|
+| `src/server/agents/multiAgentSystem.ts` | 核心多 Agent 系统 |
+| `src/server/agents/xhsContentAgent.ts` | 简化版单 Agent 实现 |
+| `src/server/agents/tools/index.ts` | Agent 工具集 |
+| `src/pages/api/agent/stream.ts` | SSE 流式 API |
+| `src/server/db/seeds/agentPrompts.ts` | Prompt 种子数据 |

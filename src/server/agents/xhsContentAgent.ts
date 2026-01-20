@@ -3,7 +3,7 @@ import { BaseMessage, HumanMessage, AIMessage } from "@langchain/core/messages";
 import { ChatOpenAI } from "@langchain/openai";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { xhsTools } from "./tools";
-import { supabase } from "../supabase";
+import { queryOne } from "../pg";
 
 // Agent 状态定义
 const AgentState = Annotation.Root({
@@ -17,12 +17,10 @@ const AgentState = Annotation.Root({
 
 // 获取默认 LLM 配置
 async function getDefaultLLMConfig() {
-  const { data } = await supabase
-    .from("llm_providers")
-    .select("base_url, api_key, model_name")
-    .eq("is_default", true)
-    .eq("is_enabled", true)
-    .maybeSingle();
+  const data = await queryOne<{ base_url: string; api_key: string; model_name: string }>(
+    `SELECT base_url, api_key, model_name FROM llm_providers
+     WHERE is_default = 1 AND is_enabled = 1`
+  );
 
   if (data?.base_url && data?.api_key && data?.model_name) {
     return {

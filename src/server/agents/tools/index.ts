@@ -1,11 +1,13 @@
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
+import * as fs from "fs";
+import * as path from "path";
 import { supabase } from "../../supabase";
 import { db, schema } from "../../db";
 import { getTagStats, getTopTitles, getLatestTrendReport } from "../../services/xhs/analytics/insightService";
 import { enqueueTask } from "../../services/xhs/llm/generationQueue";
 import { analyzeReferenceImage } from "../../services/xhs/llm/geminiClient";
-import { generateImage as generateJimengImage } from "../../services/xhs/integration/imageProvider";
+import { generateImageWithReference as generateWithProvider } from "../../services/xhs/integration/imageProvider";
 
 // Tool 1: 搜索已抓取的笔记
 export const searchNotesTool = tool(
@@ -171,58 +173,77 @@ export const analyzeReferenceImageTool = tool(
   }
 );
 
-// Tool 7: 带参考图生成图片 (使用火山引擎即梦)
+// Tool 7: 带参考图生成图片 (支持 gemini/jimeng)
 export const generateImageWithReferenceTool = tool(
-  async ({ prompt, referenceImageUrl, sequence, role, creativeId }) => {
+  async ({ prompt, referenceImageUrl, sequence, role, creativeId, provider }) => {
     try {
-      // 使用火山引擎即梦 API，通过 images 参数传入参考图
-      const result = await generateJimengImage({
+      const result = await generateWithProvider({
         prompt,
-        model: "jimeng",
-        images: [referenceImageUrl], // 参考图作为风格参考
+        referenceImageUrl,
+        provider: provider as "gemini" | "jimeng" | undefined,
+        aspectRatio: "3:4",
       });
 
-      // 创建生成任务记录
-      const { data: task, error } = await supabase
-        .from("generation_tasks")
-        .insert({
-          creative_id: creativeId,
-          status: "done",
-          prompt,
-          model: "jimeng_t2i_v40",
-          reference_image_url: referenceImageUrl,
-          sequence,
-          result_json: { role, imageSize: result.imageBuffer.length },
-        })
-        .select("id")
-        .single();
+      // 保存图片到本地文件系统
+      const outputDir = path.join(process.cwd(), "public", "generated");
+      if (!fs.existsSync(outputDir)) {
+        fs.mkdirSync(outputDir, { recursive: true });
+      }
+      const filename = `img_${Date.now()}_${sequence}.png`;
+      const imagePath = path.join(outputDir, filename);
+      fs.writeFileSync(imagePath, result.imageBuffer);
 
-      if (error) throw error;
+      // 创建生成任务记录（可选，不影响图片生成结果）
+      let taskId: number | null = null;
+      try {
+        const { data: task, error } = await supabase
+          .from("generation_tasks")
+          .insert({
+            creative_id: creativeId || null,
+            status: "done",
+            prompt,
+            model: result.provider,
+            reference_image_url: referenceImageUrl,
+            sequence,
+            result_json: JSON.stringify({ role, imageSize: result.imageBuffer.length, path: imagePath }),
+          })
+          .select("id")
+          .single();
+        if (!error && task) {
+          taskId = task.id;
+        }
+      } catch {}
 
-      return JSON.stringify({
+      const response = {
         success: true,
-        taskId: task.id,
+        taskId,
         sequence,
         role,
         imageSize: result.imageBuffer.length,
-        message: "图片生成成功 (火山引擎即梦)",
-      });
+        path: imagePath,
+        message: `图片生成成功 (${result.provider})`,
+      };
+      return JSON.stringify(response);
     } catch (error) {
+      const errorMsg = error instanceof Error
+        ? error.message
+        : (typeof error === 'object' ? JSON.stringify(error) : String(error));
       return JSON.stringify({
         success: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMsg,
       });
     }
   },
   {
-    name: "generateImageWithReference",
-    description: "根据参考图风格生成小红书配图（使用火山引擎即梦），支持指定图片序号和角色",
+    name: "generate_with_reference",
+    description: "根据参考图风格生成小红书配图，支持指定图片序号和角色",
     schema: z.object({
       prompt: z.string().describe("中文或英文生图提示词"),
       referenceImageUrl: z.string().describe("参考图 URL"),
       sequence: z.number().describe("图片序号 (0=封面)"),
       role: z.enum(["cover", "step", "detail", "result", "comparison"]).describe("图片角色"),
       creativeId: z.number().optional().describe("关联的创意ID"),
+      provider: z.enum(["gemini", "jimeng"]).optional().describe("图片生成服务商"),
     }),
   }
 );
@@ -271,6 +292,29 @@ export const saveImagePlanTool = tool(
     }),
   }
 );
+
+// 别名导出 (兼容 multiAgentSystem.ts 的命名)
+export const analyzeTagsTool = analyzeTopTagsTool;
+export const analyzeStyleTool = analyzeReferenceImageTool;
+export const generateWithReferenceTool = generateImageWithReferenceTool;
+
+// 导入 promptTools
+export { managePromptTool, promptTools } from "./promptTools";
+
+// 导入 intentTools (保留兼容，但推荐使用 askUserTool)
+export { recommendTemplatesTool, intentTools, detectIntent } from "./intentTools";
+export type { IntentType, IntentResult } from "./intentTools";
+
+// 导入 askUserTool - 统一用户确认工具
+export { askUserTool, askUserTools } from "./askUserTool";
+export type { AskUserOption, UserResponse, AskUserInterrupt } from "./askUserTool";
+
+// 工具分组导出 (用于 multiAgentSystem)
+export const researchTools = [searchNotesTool, analyzeTopTagsTool, getTopTitlesTool, getTrendReportTool];
+export const imageTools = [generateImageTool];
+export const styleTools = [analyzeReferenceImageTool];
+export const plannerTools = [saveImagePlanTool];
+export const referenceImageTools = [generateImageWithReferenceTool];
 
 // 导出所有工具
 export const xhsTools = [

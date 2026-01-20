@@ -1,0 +1,221 @@
+import { StateGraph, END, START } from "@langchain/langgraph";
+import { ToolNode } from "@langchain/langgraph/prebuilt";
+import { AIMessage } from "@langchain/core/messages";
+import { ChatOpenAI } from "@langchain/openai";
+import { AgentState, type StyleAnalysis } from "../state/agentState";
+import {
+  supervisorNode,
+  researchAgentNode,
+  writerAgentNode,
+  styleAnalyzerNode,
+  imagePlannerNode,
+  imageAgentNode,
+  reviewAgentNode,
+} from "../nodes";
+import {
+  routeFromSupervisor,
+  shouldContinueSupervisor,
+  shouldContinueResearch,
+  shouldContinueImage,
+  shouldContinueStyle,
+  shouldContinueReview,
+} from "../routing";
+import {
+  researchTools,
+  imageTools,
+  styleTools,
+  referenceImageTools,
+  promptTools,
+  intentTools,
+} from "../tools";
+import { getCheckpointer } from "../utils";
+
+export interface HITLConfig {
+  enableHITL?: boolean;
+  threadId?: string;
+}
+
+// 自定义参考图工具节点
+function createReferenceImageToolNode(baseToolNode: ToolNode) {
+  return async (state: typeof AgentState.State) => {
+    const referenceImages = state.referenceImages.length > 0
+      ? state.referenceImages
+      : (state.referenceImageUrl ? [state.referenceImageUrl] : []);
+
+    const fullReferenceImageUrl = referenceImages[0] || "";
+    const imageProvider = state.imageGenProvider || "gemini";
+
+    const modifiedState = {
+      ...state,
+      messages: state.messages.map((msg) => {
+        if (msg && "tool_calls" in msg && (msg as AIMessage).tool_calls?.length) {
+          const aiMsg = msg as AIMessage;
+          const modifiedToolCalls = aiMsg.tool_calls?.map((tc) => {
+            if (tc.name === "generate_with_reference" && tc.args) {
+              return {
+                ...tc,
+                args: {
+                  ...tc.args,
+                  referenceImageUrl: fullReferenceImageUrl,
+                  provider: imageProvider,
+                },
+              };
+            }
+            return tc;
+          });
+          return new AIMessage({
+            content: aiMsg.content,
+            tool_calls: modifiedToolCalls,
+          });
+        }
+        return msg;
+      }),
+    };
+
+    const result = await baseToolNode.invoke(modifiedState);
+
+    let newSuccessCount = 0;
+    const newImagePaths: string[] = [];
+    if (result.messages) {
+      for (const msg of result.messages) {
+        const content = typeof msg.content === "string" ? msg.content : "";
+        if (/"success"\s*:\s*true/.test(content)) {
+          newSuccessCount++;
+          const pathMatch = content.match(/"path":"([^"]+)"/);
+          if (pathMatch) {
+            newImagePaths.push(pathMatch[1]);
+          }
+        }
+      }
+    }
+
+    const totalGenerated = state.generatedImageCount + newSuccessCount;
+    const plannedCount = state.imagePlans.length;
+    const isComplete = totalGenerated >= plannedCount && plannedCount > 0;
+
+    return {
+      ...result,
+      generatedImageCount: totalGenerated,
+      generatedImagePaths: newImagePaths,
+      imagesComplete: isComplete,
+    };
+  };
+}
+
+// ========== 原有代码 ==========
+
+export async function buildGraph(model: ChatOpenAI, hitlConfig?: HITLConfig) {
+  // Tool 节点
+  const researchToolNode = new ToolNode(researchTools);
+  const imageToolNode = new ToolNode(imageTools);
+  const styleToolNode = new ToolNode(styleTools);
+  const supervisorToolNode = new ToolNode([...promptTools, ...intentTools]);
+  const baseReferenceImageToolNode = new ToolNode(referenceImageTools);
+  const referenceImageToolNode = createReferenceImageToolNode(baseReferenceImageToolNode);
+
+  // 构建 Graph
+  const workflow = new StateGraph(AgentState)
+    // Supervisor 节点
+    .addNode("supervisor", (state) => supervisorNode(state, model))
+    .addNode("supervisor_tools", supervisorToolNode)
+    .addNode("supervisor_route", async () => ({})) // 空节点，仅用于路由
+
+    // Agent 节点
+    .addNode("research_agent", (state) => researchAgentNode(state, model))
+    .addNode("writer_agent", (state) => writerAgentNode(state, model))
+    .addNode("style_analyzer_agent", styleAnalyzerNode)
+    .addNode("image_planner_agent", (state) => imagePlannerNode(state, model))
+    .addNode("image_agent", (state) => imageAgentNode(state, model))
+    .addNode("review_agent", reviewAgentNode)
+
+    // Tool 节点
+    .addNode("research_tools", researchToolNode)
+    .addNode("image_tools", imageToolNode)
+    .addNode("style_tools", styleToolNode)
+    .addNode("reference_image_tools", referenceImageToolNode)
+
+    // Style 分析后处理
+    .addNode("supervisor_with_style", async (state: typeof AgentState.State) => {
+      const lastMessage = state.messages[state.messages.length - 1];
+      const content = lastMessage && typeof lastMessage.content === "string" ? lastMessage.content : "";
+      let styleAnalysis: StyleAnalysis | null = null;
+      try {
+        const jsonMatch = content.match(/\{[\s\S]*"style"[\s\S]*\}/);
+        if (jsonMatch) {
+          styleAnalysis = JSON.parse(jsonMatch[0]);
+        }
+      } catch {}
+      return { styleAnalysis };
+    })
+
+    // 入口边
+    .addEdge(START, "supervisor")
+
+    // Supervisor 路由
+    .addConditionalEdges("supervisor", shouldContinueSupervisor, {
+      supervisor_tools: "supervisor_tools",
+      route: "supervisor_route",
+    })
+
+    // Supervisor 路由到各 Agent
+    .addConditionalEdges("supervisor_route", routeFromSupervisor, {
+      research_agent: "research_agent",
+      writer_agent: "writer_agent",
+      style_analyzer_agent: "style_analyzer_agent",
+      image_planner_agent: "image_planner_agent",
+      image_agent: "image_agent",
+      review_agent: "review_agent",
+      [END]: END,
+    })
+
+    // Supervisor 工具
+    .addEdge("supervisor_tools", "supervisor")
+
+    // Research 流程
+    .addConditionalEdges("research_agent", shouldContinueResearch, {
+      research_tools: "research_tools",
+      supervisor: "supervisor",
+    })
+    .addEdge("research_tools", "research_agent")
+
+    // Writer 流程
+    .addEdge("writer_agent", "supervisor")
+
+    // Style 流程
+    .addConditionalEdges("style_analyzer_agent", shouldContinueStyle, {
+      style_tools: "style_tools",
+      supervisor: "supervisor",
+      supervisor_with_style: "supervisor_with_style",
+    })
+    .addEdge("style_tools", "style_analyzer_agent")
+    .addEdge("supervisor_with_style", "supervisor")
+
+    // Image Planner 流程
+    .addEdge("image_planner_agent", "supervisor")
+
+    // Image 流程
+    .addConditionalEdges("image_agent", shouldContinueImage, {
+      image_tools: "image_tools",
+      reference_image_tools: "reference_image_tools",
+      supervisor: "supervisor",
+    })
+    .addEdge("image_tools", "image_agent")
+    .addEdge("reference_image_tools", "image_agent")
+
+    // Review 流程：approved 直接 END，否则回 supervisor
+    .addConditionalEdges("review_agent", shouldContinueReview, {
+      [END]: END,
+      supervisor: "supervisor",
+    });
+
+  // 根据 HITL 配置决定是否启用中断
+  if (hitlConfig?.enableHITL) {
+    const checkpointer = await getCheckpointer();
+    return workflow.compile({
+      checkpointer,
+      interruptAfter: ["writer_agent", "image_planner_agent"],
+    });
+  }
+
+  return workflow.compile();
+}

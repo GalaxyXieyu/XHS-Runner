@@ -1,4 +1,4 @@
-import { supabase } from '../supabase';
+import { query, queryOne, getPool } from "../pg";
 
 export interface ExtensionService {
   id: number;
@@ -13,29 +13,23 @@ export interface ExtensionService {
 }
 
 export async function listExtensionServices(): Promise<ExtensionService[]> {
-  const { data } = await supabase
-    .from('extension_services')
-    .select('*')
-    .order('id');
-  return data || [];
+  return query<ExtensionService>(
+    `SELECT * FROM extension_services ORDER BY id`
+  );
 }
 
 export async function getExtensionService(id: number): Promise<ExtensionService | undefined> {
-  const { data } = await supabase
-    .from('extension_services')
-    .select('*')
-    .eq('id', id)
-    .single();
-  return data || undefined;
+  return queryOne<ExtensionService>(
+    `SELECT * FROM extension_services WHERE id = $1`,
+    [id]
+  );
 }
 
 export async function getExtensionServiceByType(serviceType: string): Promise<ExtensionService | undefined> {
-  const { data } = await supabase
-    .from('extension_services')
-    .select('*')
-    .eq('service_type', serviceType)
-    .single();
-  return data || undefined;
+  return queryOne<ExtensionService>(
+    `SELECT * FROM extension_services WHERE service_type = $1`,
+    [serviceType]
+  );
 }
 
 export async function createExtensionService(payload: {
@@ -46,19 +40,21 @@ export async function createExtensionService(payload: {
   config_json?: string;
   is_enabled?: boolean;
 }): Promise<ExtensionService> {
-  const { data } = await supabase
-    .from('extension_services')
-    .insert({
-      service_type: payload.service_type,
-      name: payload.name,
-      api_key: payload.api_key || null,
-      endpoint: payload.endpoint || null,
-      config_json: payload.config_json || null,
-      is_enabled: payload.is_enabled ? 1 : 0
-    })
-    .select()
-    .single();
-  return data!;
+  const pool = getPool();
+  const result = await pool.query(
+    `INSERT INTO extension_services (service_type, name, api_key, endpoint, config_json, is_enabled, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+     RETURNING *`,
+    [
+      payload.service_type,
+      payload.name,
+      payload.api_key || null,
+      payload.endpoint || null,
+      payload.config_json || null,
+      payload.is_enabled ? 1 : 0
+    ]
+  );
+  return result.rows[0] as ExtensionService;
 }
 
 export async function updateExtensionService(id: number, payload: {
@@ -68,20 +64,37 @@ export async function updateExtensionService(id: number, payload: {
   config_json?: string;
   is_enabled?: boolean;
 }): Promise<ExtensionService | undefined> {
-  const updateData: any = { updated_at: new Date().toISOString() };
-  if (payload.name !== undefined) updateData.name = payload.name;
-  if (payload.api_key !== undefined) updateData.api_key = payload.api_key;
-  if (payload.endpoint !== undefined) updateData.endpoint = payload.endpoint;
-  if (payload.config_json !== undefined) updateData.config_json = payload.config_json;
-  if (payload.is_enabled !== undefined) updateData.is_enabled = payload.is_enabled ? 1 : 0;
+  const updates: string[] = ['updated_at = NOW()'];
+  const values: any[] = [];
+  let paramIndex = 1;
 
-  const { data } = await supabase
-    .from('extension_services')
-    .update(updateData)
-    .eq('id', id)
-    .select()
-    .single();
-  return data || undefined;
+  if (payload.name !== undefined) {
+    updates.push(`name = $${paramIndex++}`);
+    values.push(payload.name);
+  }
+  if (payload.api_key !== undefined) {
+    updates.push(`api_key = $${paramIndex++}`);
+    values.push(payload.api_key);
+  }
+  if (payload.endpoint !== undefined) {
+    updates.push(`endpoint = $${paramIndex++}`);
+    values.push(payload.endpoint);
+  }
+  if (payload.config_json !== undefined) {
+    updates.push(`config_json = $${paramIndex++}`);
+    values.push(payload.config_json);
+  }
+  if (payload.is_enabled !== undefined) {
+    updates.push(`is_enabled = $${paramIndex++}`);
+    values.push(payload.is_enabled ? 1 : 0);
+  }
+
+  values.push(id);
+
+  return queryOne<ExtensionService>(
+    `UPDATE extension_services SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
+    values
+  );
 }
 
 export async function upsertExtensionService(payload: {
@@ -92,26 +105,36 @@ export async function upsertExtensionService(payload: {
   config_json?: string;
   is_enabled?: boolean;
 }): Promise<ExtensionService> {
-  const { data } = await supabase
-    .from('extension_services')
-    .upsert({
-      service_type: payload.service_type,
-      name: payload.name,
-      api_key: payload.api_key || null,
-      endpoint: payload.endpoint || null,
-      config_json: payload.config_json || null,
-      is_enabled: payload.is_enabled ? 1 : 0,
-      updated_at: new Date().toISOString()
-    }, { onConflict: 'service_type' })
-    .select()
-    .single();
-  return data!;
+  const pool = getPool();
+  const result = await pool.query(
+    `INSERT INTO extension_services (service_type, name, api_key, endpoint, config_json, is_enabled, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, NOW())
+     ON CONFLICT (service_type)
+     DO UPDATE SET
+       name = EXCLUDED.name,
+       api_key = EXCLUDED.api_key,
+       endpoint = EXCLUDED.endpoint,
+       config_json = EXCLUDED.config_json,
+       is_enabled = EXCLUDED.is_enabled,
+       updated_at = EXCLUDED.updated_at
+     RETURNING *`,
+    [
+      payload.service_type,
+      payload.name,
+      payload.api_key || null,
+      payload.endpoint || null,
+      payload.config_json || null,
+      payload.is_enabled ? 1 : 0
+    ]
+  );
+  return result.rows[0] as ExtensionService;
 }
 
 export async function deleteExtensionService(id: number): Promise<boolean> {
-  const { error } = await supabase
-    .from('extension_services')
-    .delete()
-    .eq('id', id);
-  return !error;
+  const pool = getPool();
+  const result = await pool.query(
+    `DELETE FROM extension_services WHERE id = $1`,
+    [id]
+  );
+  return result.rowCount !== null && result.rowCount > 0;
 }

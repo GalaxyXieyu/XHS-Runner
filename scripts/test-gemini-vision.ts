@@ -14,7 +14,7 @@ async function testGeminiVision() {
     .select()
     .from(schema.llmProviders)
     .where(and(
-      eq(schema.llmProviders.isEnabled, 1),
+      eq(schema.llmProviders.isEnabled, true),
       eq(schema.llmProviders.supportsVision, true)
     ));
 

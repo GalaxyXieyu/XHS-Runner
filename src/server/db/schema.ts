@@ -93,6 +93,12 @@ export const promptProfiles = pgTable('prompt_profiles', {
   model: text('model'),
   temperature: real('temperature'),
   maxTokens: integer('max_tokens'),
+  isTemplate: boolean('is_template').default(false),
+  tags: jsonb('tags').$type<string[]>().default([]),
+  usageCount: integer('usage_count').default(0),
+  successCount: integer('success_count').default(0),
+  failCount: integer('fail_count').default(0),
+  lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

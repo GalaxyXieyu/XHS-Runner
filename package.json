@@ -28,6 +28,7 @@
     "@copilotkit/sdk-js": "^1.50.1",
     "@langchain/core": "^1.1.15",
     "@langchain/langgraph": "^1.0.15",
+    "@langchain/langgraph-checkpoint-postgres": "^1.0.0",
     "@langchain/langgraph-supervisor": "^1.0.1",
     "@langchain/openai": "^1.2.2",
     "@libsql/client": "^0.17.0",

@@ -74,10 +74,10 @@ async function apiCall(method: string, url: string, body?: any) {
 }
 
 async function jobCall(method: string, payload?: any) {
-  if (window.jobs) {
-    if (method === 'create') return window.jobs.create(payload);
-    if (method === 'update') return window.jobs.update(payload);
-    if (method === 'byTheme') return window.jobs.byTheme(payload);
+  if ((window as any).jobs) {
+    if (method === 'create') return (window as any).jobs.create(payload);
+    if (method === 'update') return (window as any).jobs.update(payload);
+    if (method === 'byTheme') return (window as any).jobs.byTheme(payload);
   }
   if (method === 'create') {
     const res = await fetch('/api/jobs', {

@@ -55,11 +55,11 @@ function parseCreativeContent(content: string): ParsedContent | null {
   if (!content.includes("标题") || !content.includes("标签")) return null;
 
   // 提取标题
-  const titleMatch = content.match(/(?:📌\s*)?标题[：:]\s*(.+?)(?:\n|$)/);
+  const titleMatch = content.match(/标题[：:]\s*(.+?)(?:\n|$)/);
   const title = titleMatch?.[1]?.trim() || "";
 
   // 提取标签
-  const tagMatch = content.match(/(?:🏷️\s*)?标签[：:]\s*(.+?)(?:\n|$)/);
+  const tagMatch = content.match(/标签[：:]\s*(.+?)(?:\n|$)/);
   const tagsStr = tagMatch?.[1] || "";
   const tags = tagsStr.match(/#[\w\u4e00-\u9fa5]+/g)?.map(t => t.slice(1)) || [];
 
@@ -276,7 +276,7 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
       console.error("Stream error:", error);
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: "❌ 连接错误，请重试" },
+        { role: "assistant", content: "连接错误，请重试" },
       ]);
     } finally {
       setIsStreaming(false);
@@ -288,12 +288,12 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
 
   const getEventIcon = (type: string) => {
     switch (type) {
-      case "agent_start": return "🤖";
-      case "agent_end": return "✅";
-      case "tool_call": return "🔧";
-      case "tool_result": return "📊";
-      case "message": return "💬";
-      default: return "•";
+      case "agent_start": return "";
+      case "agent_end": return "";
+      case "tool_call": return "";
+      case "tool_result": return "";
+      case "message": return "";
+      default: return "";
     }
   };
 

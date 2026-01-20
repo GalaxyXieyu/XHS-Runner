@@ -1,15 +1,22 @@
 import { NextApiRequest, NextApiResponse } from "next";
 import { HumanMessage, AIMessage, ToolMessage } from "@langchain/core/messages";
-import { createMultiAgentSystem, AgentEvent } from "@/server/agents/multiAgentSystem";
+import { INTERRUPT } from "@langchain/langgraph";
+import { createMultiAgentSystem } from "@/server/agents/multiAgentSystem";
+import { AgentEvent, AgentType } from "@/server/agents/state/agentState";
 import { createTrace, logGeneration, logSpan, flushLangfuse } from "@/server/services/langfuseService";
 import { createCreative } from "@/server/services/xhs/data/creativeService";
+import { v4 as uuidv4 } from "uuid";
+import type { AskUserInterrupt } from "@/server/agents/tools/askUserTool";
+import { detectIntent } from "@/server/agents/tools/intentTools";
+import { resetImageToolCallCount } from "@/server/agents/routing";
+import { startTraj, endTraj, logAgent } from "@/server/agents/utils";
 
 // 解析 writer_agent 生成的内容
 function parseWriterContent(content: string): { title: string; body: string; tags: string[] } {
-  const titleMatch = content.match(/(?:📌\s*)?标题[：:]\s*(.+?)(?:\n|$)/);
+  const titleMatch = content.match(/标题[：:]\s*(.+?)(?:\n|$)/);
   const title = titleMatch?.[1]?.trim() || "AI 生成内容";
 
-  const tagMatch = content.match(/(?:🏷️\s*)?标签[：:]\s*(.+?)(?:\n|$)/);
+  const tagMatch = content.match(/标签[：:]\s*(.+?)(?:\n|$)/);
   const tagsStr = tagMatch?.[1] || "";
   const tags = tagsStr.match(/#[\w\u4e00-\u9fa5]+/g)?.map(t => t.slice(1)) || [];
 
@@ -42,7 +49,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { message, themeId, referenceImageUrl, referenceImages, imageGenProvider } = req.body;
+  const { message, themeId, referenceImageUrl, referenceImages, imageGenProvider, enableHITL } = req.body;
   if (!message) {
     return res.status(400).json({ error: "Message is required" });
   }
@@ -51,6 +58,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const refImages: string[] = referenceImages || (referenceImageUrl ? [referenceImageUrl] : []);
   const hasReferenceImage = refImages.length > 0;
   const provider = imageGenProvider || 'gemini'; // 默认使用 gemini
+  const threadId = enableHITL ? uuidv4() : undefined;
 
   // 设置 SSE 响应头
   res.setHeader("Content-Type", "text/event-stream");
@@ -81,13 +89,35 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     type: "agent_start",
     agent: "supervisor",
     content: hasReferenceImage
-      ? `🚀 开始处理请求 (${refImages.length}张参考图)...`
-      : "🚀 开始处理请求...",
+      ? `开始处理请求 (${refImages.length}张参考图)...`
+      : "开始处理请求...",
     timestamp: Date.now(),
   });
 
+  // 开始轨迹记录
+  const trajId = threadId || uuidv4();
+  startTraj(trajId, message, hasReferenceImage, themeId);
+
+  // 意图识别
+  const intentResult = detectIntent(message);
+  if (intentResult.confidence > 0.5) {
+    sendEvent({
+      type: "intent_detected",
+      intent: intentResult.intent,
+      confidence: intentResult.confidence,
+      suggestedCategory: intentResult.suggestedCategory,
+      keywords: intentResult.keywords,
+      timestamp: Date.now(),
+    } as any);
+  }
+
   try {
-    const app = await createMultiAgentSystem();
+    // 重置图片生成计数（每次请求独立计数）
+    resetImageToolCallCount();
+
+    const app = await createMultiAgentSystem(
+      enableHITL ? { enableHITL: true, threadId } : undefined
+    );
 
     const contextMessage = themeId
       ? `[当前主题ID: ${themeId}] ${message}`
@@ -97,20 +127,54 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const initialState: any = {
       messages: [new HumanMessage(contextMessage)],
       imageGenProvider: provider,
+      threadId: threadId || "",
     };
     if (refImages.length > 0) {
       initialState.referenceImages = refImages;
       initialState.referenceImageUrl = refImages[0]; // 兼容旧代码
     }
 
-    const stream = await app.stream(initialState, { recursionLimit: 100 });
+    const streamConfig: any = { recursionLimit: 100 };
+    if (threadId) {
+      streamConfig.configurable = { thread_id: threadId };
+    }
+
+    const stream = await app.stream(initialState, streamConfig);
+    let lastNodeName = "";
+    let writerContent: { title: string; body: string; tags: string[] } | null = null;
+    let imagePlans: any[] = [];
 
     for await (const chunk of stream) {
-      console.log("[DEBUG] Stream chunk:", JSON.stringify(Object.keys(chunk)));
+      // 检查是否有 interrupt (askUser 工具触发)
+      // chunk 可能是各种类型，需要安全检查
+      if (chunk && typeof chunk === "object" && INTERRUPT in chunk) {
+        const chunkWithInterrupt = chunk as { [INTERRUPT]: Array<{ value: unknown }> };
+        const interrupts = chunkWithInterrupt[INTERRUPT];
+        const interruptData = interrupts?.[0];
+        if (interruptData?.value && typeof interruptData.value === "object" && (interruptData.value as AskUserInterrupt).type === "ask_user") {
+          const askUserData = interruptData.value as AskUserInterrupt;
+          sendEvent({
+            type: "ask_user",
+            question: askUserData.question,
+            options: askUserData.options,
+            selectionType: askUserData.selectionType,
+            allowCustomInput: askUserData.allowCustomInput,
+            context: askUserData.context,
+            threadId: threadId!,
+            timestamp: askUserData.timestamp,
+          } as any);
+          sendEvent({
+            type: "workflow_paused",
+            threadId: threadId!,
+            timestamp: Date.now(),
+          } as any);
+          await flushLangfuse();
+          res.end();
+          return;
+        }
+      }
 
       for (const [nodeName, nodeOutput] of Object.entries(chunk)) {
-        console.log(`[DEBUG] Processing node: ${nodeName}`);
-
         if (nodeName === "__start__" || nodeName === "__end__") continue;
         if (nodeName === "supervisor_with_style") continue; // 跳过内部节点
 
@@ -120,7 +184,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         sendEvent({
           type: "agent_start",
           agent: nodeName,
-          content: `🤖 ${getAgentDisplayName(nodeName)} 开始工作...`,
+          content: `${getAgentDisplayName(nodeName)} 开始工作...`,
           timestamp: Date.now(),
         });
 
@@ -132,7 +196,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                   type: "tool_call",
                   agent: nodeName,
                   tool: tc.name,
-                  content: `🔧 调用工具: ${tc.name}`,
+                  content: `调用工具: ${tc.name}`,
                   timestamp: Date.now(),
                 });
 
@@ -150,7 +214,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 type: "tool_result",
                 agent: nodeName,
                 tool: msg.name,
-                content: `📊 ${msg.name} 返回结果`,
+                content: `${msg.name} 返回结果`,
                 timestamp: Date.now(),
               });
             }
@@ -180,6 +244,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               if (nodeName === "writer_agent" && themeId) {
                 try {
                   const parsed = parseWriterContent(msg.content);
+                  writerContent = parsed; // 保存用于 HITL
                   const creative = await createCreative({
                     themeId,
                     title: parsed.title,
@@ -194,6 +259,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                   console.error("Failed to save creative:", saveError);
                 }
               }
+
+              // 捕获 image_planner_agent 的输出用于 HITL
+              if (nodeName === "image_planner_agent") {
+                try {
+                  const planMatch = msg.content.match(/```json\s*([\s\S]*?)\s*```/);
+                  if (planMatch) {
+                    imagePlans = JSON.parse(planMatch[1]);
+                  }
+                } catch (e) {
+                  console.error("Failed to parse image plans:", e);
+                }
+              }
             }
           }
         }
@@ -201,16 +278,58 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         sendEvent({
           type: "agent_end",
           agent: nodeName,
-          content: `✅ ${getAgentDisplayName(nodeName)} 完成`,
+          content: `${getAgentDisplayName(nodeName)} 完成`,
           timestamp: Date.now(),
         });
+
+        // 记录 agent 执行结果
+        if (nodeName !== "supervisor" && nodeName !== "supervisor_route") {
+          const summary = output.messages?.[0]?.content?.slice?.(0, 100) || "completed";
+          logAgent(trajId, nodeName as AgentType, true, typeof summary === "string" ? summary : "completed");
+        }
+
+        // HITL: 在 writer_agent 或 image_planner_agent 完成后发送确认请求
+        if (enableHITL && threadId) {
+          if (nodeName === "writer_agent" && writerContent) {
+            res.write(`data: ${JSON.stringify({
+              type: "confirmation_required",
+              confirmationType: "content",
+              data: writerContent,
+              threadId,
+              timestamp: Date.now(),
+            })}\n\n`);
+            res.write(`data: ${JSON.stringify({ type: "workflow_paused", threadId, timestamp: Date.now() })}\n\n`);
+            await flushLangfuse();
+            res.end();
+            return;
+          }
+          if (nodeName === "image_planner_agent" && imagePlans.length > 0) {
+            res.write(`data: ${JSON.stringify({
+              type: "confirmation_required",
+              confirmationType: "image_plans",
+              data: imagePlans,
+              threadId,
+              timestamp: Date.now(),
+            })}\n\n`);
+            res.write(`data: ${JSON.stringify({ type: "workflow_paused", threadId, timestamp: Date.now() })}\n\n`);
+            await flushLangfuse();
+            res.end();
+            return;
+          }
+        }
+
+        lastNodeName = nodeName;
       }
     }
 
     res.write(`data: [DONE]\n\n`);
+    // 结束轨迹记录
+    endTraj(trajId, true, { creative: creativeId, images: imagePlans.length });
     await flushLangfuse();
     res.end();
   } catch (error: unknown) {
+    // 记录失败轨迹
+    endTraj(trajId, false);
     console.error("Multi-agent error:", error);
     console.error("Error type:", typeof error);
     console.error("Error constructor:", error?.constructor?.name);
@@ -227,7 +346,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
     sendEvent({
       type: "message",
-      content: `❌ 错误: ${errorMessage}`,
+      content: `错误: ${errorMessage}`,
       timestamp: Date.now(),
     });
     res.end();
