@@ -230,11 +230,11 @@ export async function analyzeReferenceImage(imageUrl: string): Promise<{
 }
 
 /**
- * 带参考图生成图片（带重试逻辑 + 串行队列）
+ * 带参考图生成图片（带重试逻辑 + 串行队列，支持多张参考图）
  */
 export async function generateImageWithReference(params: {
   prompt: string;
-  referenceImageUrl: string;
+  referenceImageUrls: string[]; // 支持多张参考图
   aspectRatio?: string;
 }): Promise<{
   imageBase64: string;
@@ -246,13 +246,17 @@ export async function generateImageWithReference(params: {
     const baseUrl = (model.baseUrl || 'https://yunwu.ai').replace(/\/v1$/, '');
     const modelName = model.modelName || 'gemini-2.0-flash-exp-image-generation';
 
-    const referenceData = await convertToInlineData(params.referenceImageUrl);
+    // 转换所有参考图为 inlineData 格式
+    const referenceDataList = await Promise.all(
+      params.referenceImageUrls.map(url => convertToInlineData(url))
+    );
 
+    // 构建请求体，支持多张参考图
     const requestBody = {
       contents: [{
         parts: [
           { text: params.prompt },
-          referenceData
+          ...referenceDataList // 展开所有参考图到 parts 数组
         ]
       }],
       generationConfig: {

@@ -298,7 +298,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         // 记录 agent 执行结果
         if (nodeName !== "supervisor" && nodeName !== "supervisor_route") {
-          const summary = output.messages?.[0]?.content?.slice?.(0, 100) || "completed";
+          const summary = output.messages?.[0]?.content?.slice?.(0, 500) || "completed";
           logAgent(trajId, nodeName as AgentType, true, typeof summary === "string" ? summary : "completed");
         }
 

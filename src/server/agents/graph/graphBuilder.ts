@@ -42,7 +42,8 @@ function createReferenceImageToolNode(baseToolNode: ToolNode) {
       ? state.referenceImages
       : (state.referenceImageUrl ? [state.referenceImageUrl] : []);
 
-    const fullReferenceImageUrl = referenceImages[0] || "";
+    // 支持多张参考图，传递给生成工具
+    const fullReferenceImageUrls = referenceImages; // 数组，保留所有参考图
     const imageProvider = state.imageGenProvider || "gemini";
 
     const modifiedState = {
@@ -56,7 +57,7 @@ function createReferenceImageToolNode(baseToolNode: ToolNode) {
                 ...tc,
                 args: {
                   ...tc.args,
-                  referenceImageUrl: fullReferenceImageUrl,
+                  referenceImageUrls: fullReferenceImageUrls, // 传递数组而非单个 URL
                   provider: imageProvider,
                 },
               };

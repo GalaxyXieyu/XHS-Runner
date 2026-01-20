@@ -84,7 +84,7 @@ export function startTraj(
   logBuffer.set(threadId, []);
 
   const line = `#TRAJ ${threadId} ${traj.createdAt}`;
-  const inputLine = `@IN prompt="${truncate(prompt, 50)}" ref_img=${refImg ? 1 : 0}${theme ? ` theme=${theme}` : ""}`;
+  const inputLine = `@IN prompt="${prompt}" ref_img=${refImg ? 1 : 0}${theme ? ` theme=${theme}` : ""}`;
 
   appendLog(threadId, line);
   appendLog(threadId, inputLine);
@@ -116,7 +116,7 @@ export function logSupervisor(
   traj.steps.push(step);
 
   const stateLine = `R:${state.R} C:${state.C} S:${state.S} I:${state.Ip}/${state.Ig} rev:${state.rev} i:${state.i}/${state.max}`;
-  const line = `[${stepId}] ${ts} SUP | ${stateLine}\n    -> ${next} | ${truncate(reason, 60)}`;
+  const line = `[${stepId}] ${ts} SUP | ${stateLine}\n    -> ${next} | ${reason}`;
 
   appendLog(threadId, line);
 }
@@ -145,7 +145,7 @@ export function logAgent(
   traj.steps.push(step);
 
   const status = ok ? "OK" : "FAIL";
-  const line = `[${stepId}] ${ts} ${agent} | ${status} | ${truncate(summary, 60)}`;
+  const line = `[${stepId}] ${ts} ${agent} | ${status} | ${summary}`;
 
   appendLog(threadId, line);
 }

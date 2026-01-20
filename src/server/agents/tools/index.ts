@@ -7,6 +7,7 @@ import { db, schema } from "../../db";
 import { getTagStats, getTopTitles, getLatestTrendReport } from "../../services/xhs/analytics/insightService";
 import { enqueueTask } from "../../services/xhs/llm/generationQueue";
 import { analyzeReferenceImage } from "../../services/xhs/llm/geminiClient";
+import { searchWeb } from "../../services/tavilySearch";
 import { generateImageWithReference as generateWithProvider } from "../../services/xhs/integration/imageProvider";
 
 // Tool 1: 搜索已抓取的笔记
@@ -173,13 +174,13 @@ export const analyzeReferenceImageTool = tool(
   }
 );
 
-// Tool 7: 带参考图生成图片 (支持 gemini/jimeng)
+// Tool 7: 带参考图生成图片 (支持 gemini/jimeng，多参考图)
 export const generateImageWithReferenceTool = tool(
-  async ({ prompt, referenceImageUrl, sequence, role, creativeId, provider }) => {
+  async ({ prompt, referenceImageUrls, sequence, role, creativeId, provider }) => {
     try {
       const result = await generateWithProvider({
         prompt,
-        referenceImageUrl,
+        referenceImageUrls, // 支持多张参考图
         provider: provider as "gemini" | "jimeng" | undefined,
         aspectRatio: "3:4",
       });
@@ -203,7 +204,7 @@ export const generateImageWithReferenceTool = tool(
             status: "done",
             prompt,
             model: result.provider,
-            reference_image_url: referenceImageUrl,
+            reference_image_url: referenceImageUrls?.[0] || "", // 保存第一张参考图到数据库
             sequence,
             result_json: JSON.stringify({ role, imageSize: result.imageBuffer.length, path: imagePath }),
           })
@@ -239,7 +240,7 @@ export const generateImageWithReferenceTool = tool(
     description: "根据参考图风格生成小红书配图，支持指定图片序号和角色",
     schema: z.object({
       prompt: z.string().describe("中文或英文生图提示词"),
-      referenceImageUrl: z.string().describe("参考图 URL"),
+      referenceImageUrls: z.array(z.string()).describe("参考图 URL 数组，支持多张参考图"),
       sequence: z.number().describe("图片序号 (0=封面)"),
       role: z.enum(["cover", "step", "detail", "result", "comparison"]).describe("图片角色"),
       creativeId: z.number().optional().describe("关联的创意ID"),
@@ -248,7 +249,46 @@ export const generateImageWithReferenceTool = tool(
   }
 );
 
-// Tool 8: 保存图片规划
+// Tool 8: 联网搜索 (Tavily, 带缓存)
+export const webSearchTool = tool(
+  async ({ query, maxResults, forceRefresh }) => {
+    try {
+      const result = await searchWeb(query, {
+        maxResults: maxResults || 5,
+        forceRefresh: forceRefresh || false,
+      });
+
+      return JSON.stringify({
+        query: result.query,
+        answer: result.answer,
+        results: result.results.slice(0, maxResults || 5).map((r) => ({
+          title: r.title,
+          url: r.url,
+          content: r.content?.slice(0, 300),
+          score: r.score,
+        })),
+        cached: result.cached,
+        responseTimeMs: result.responseTime,
+      });
+    } catch (error) {
+      return JSON.stringify({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+  {
+    name: "webSearch",
+    description: "联网搜索最新信息，支持搜索小红书、知乎、百度等平台内容，获取实时热点和趋势分析。相同查询 30 分钟内不重复搜索（开发阶段节省 token）。",
+    schema: z.object({
+      query: z.string().describe("搜索关键词，如 '2024 小红书 AI 教程 热门'"),
+      maxResults: z.number().default(5).describe("最大返回结果数"),
+      forceRefresh: z.boolean().default(false).describe("是否强制刷新缓存"),
+    }),
+  }
+);
+
+// Tool 9: 保存图片规划
 export const saveImagePlanTool = tool(
   async ({ creativeId, plans }) => {
     try {
@@ -310,7 +350,7 @@ export { askUserTool, askUserTools } from "./askUserTool";
 export type { AskUserOption, UserResponse, AskUserInterrupt } from "./askUserTool";
 
 // 工具分组导出 (用于 multiAgentSystem)
-export const researchTools = [searchNotesTool, analyzeTopTagsTool, getTopTitlesTool, getTrendReportTool];
+export const researchTools = [searchNotesTool, analyzeTopTagsTool, getTopTitlesTool, getTrendReportTool, webSearchTool];
 export const imageTools = [generateImageTool];
 export const styleTools = [analyzeReferenceImageTool];
 export const plannerTools = [saveImagePlanTool];
@@ -326,4 +366,5 @@ export const xhsTools = [
   analyzeReferenceImageTool,
   generateImageWithReferenceTool,
   saveImagePlanTool,
+  webSearchTool,
 ];

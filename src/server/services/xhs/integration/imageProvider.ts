@@ -357,7 +357,7 @@ export type ReferenceImageProvider = 'gemini' | 'jimeng';
 
 export interface ReferenceImageInput {
   prompt: string;
-  referenceImageUrl: string;
+  referenceImageUrls: string[]; // 支持多张参考图
   provider?: ReferenceImageProvider; // 不传则从设置读取
   aspectRatio?: string;
 }
@@ -390,7 +390,7 @@ async function generateWithGemini(input: ReferenceImageInput): Promise<Reference
   const { generateImageWithReference: geminiGenerate } = await import('../llm/geminiClient');
   const result = await geminiGenerate({
     prompt: input.prompt,
-    referenceImageUrl: input.referenceImageUrl,
+    referenceImageUrls: input.referenceImageUrls, // 支持多张参考图
     aspectRatio: input.aspectRatio || '3:4',
   });
   return {
@@ -405,7 +405,7 @@ async function generateWithJimeng(input: ReferenceImageInput): Promise<Reference
   const { accessKey, secretKey, superbedToken } = await getJimengConfig();
   const result = await generateJimengImage({
     prompt: input.prompt,
-    images: [input.referenceImageUrl],
+    images: input.referenceImageUrls, // 支持多张参考图，直接传递数组
     accessKey,
     secretKey,
     superbedToken,

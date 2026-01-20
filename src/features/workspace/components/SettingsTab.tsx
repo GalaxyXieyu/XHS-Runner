@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Key, Database, Settings as SettingsIcon, QrCode, Smartphone, CheckCircle, Loader, Plus, Edit2, Trash2, FlaskConical, Activity } from 'lucide-react';
+import { Key, Database, Settings as SettingsIcon, QrCode, Smartphone, CheckCircle, Loader, Plus, Edit2, Trash2, FlaskConical, Activity, Globe } from 'lucide-react';
 import type { Theme } from '@/App';
 import { PromptPlayground } from '@/components/workspace/PromptPlayground';
 import type { AuthStatus } from '@/hooks/useAuthStatus';
@@ -63,6 +63,13 @@ interface LangfuseConfig {
   hasSecretKey: boolean;
 }
 
+interface TavilyConfig {
+  configured: boolean;
+  enabled: boolean;
+  endpoint: string;
+  hasApiKey: boolean;
+}
+
 const defaultExtensionTypes = [
   { service_type: 'image', name: '图像生成', description: 'AI 图像生成服务（如 DALL-E、Midjourney）' },
   { service_type: 'imagehost', name: '图床', description: '图片存储与 CDN 服务' },
@@ -86,6 +93,9 @@ export function SettingsTab({ theme: _theme, auth }: SettingsTabProps) {
   const [langfuseConfig, setLangfuseConfig] = useState<LangfuseConfig | null>(null);
   const [showLangfuseModal, setShowLangfuseModal] = useState(false);
   const [langfuseSaving, setLangfuseSaving] = useState(false);
+  const [tavilyConfig, setTavilyConfig] = useState<TavilyConfig | null>(null);
+  const [showTavilyModal, setShowTavilyModal] = useState(false);
+  const [tavilySaving, setTavilySaving] = useState(false);
 
   // Form refs for modals
   const llmFormRef = {
@@ -112,6 +122,10 @@ export function SettingsTab({ theme: _theme, auth }: SettingsTabProps) {
     publicKey: null as HTMLInputElement | null,
     endpoint: null as HTMLInputElement | null,
   };
+  const tavilyFormRef = {
+    apiKey: null as HTMLInputElement | null,
+    endpoint: null as HTMLInputElement | null,
+  };
 
   // Load data on mount
   useEffect(() => {
@@ -120,6 +134,7 @@ export function SettingsTab({ theme: _theme, auth }: SettingsTabProps) {
     loadExtensionServices();
     loadCaptureEnabled();
     loadLangfuseConfig();
+    loadTavilyConfig();
   }, []);
 
   const loadCaptureEnabled = async () => {
@@ -239,6 +254,53 @@ export function SettingsTab({ theme: _theme, auth }: SettingsTabProps) {
       await loadLangfuseConfig();
     } catch (e) {
       console.error('Failed to toggle Langfuse:', e);
+    }
+  };
+
+  const loadTavilyConfig = async () => {
+    try {
+      const res = await fetch('/api/settings/tavily');
+      const data = await res.json();
+      setTavilyConfig(data);
+    } catch (e) {
+      console.error('Failed to load Tavily config:', e);
+    }
+  };
+
+  const handleSaveTavily = async () => {
+    const apiKey = tavilyFormRef.apiKey?.value?.trim();
+    const endpoint = tavilyFormRef.endpoint?.value?.trim();
+
+    setTavilySaving(true);
+    try {
+      await fetch('/api/settings/tavily', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          apiKey: apiKey || undefined,
+          endpoint: endpoint || undefined,
+          enabled: true,
+        }),
+      });
+      await loadTavilyConfig();
+      setShowTavilyModal(false);
+    } catch (e) {
+      console.error('Failed to save Tavily config:', e);
+    } finally {
+      setTavilySaving(false);
+    }
+  };
+
+  const handleToggleTavily = async (enabled: boolean) => {
+    try {
+      await fetch('/api/settings/tavily', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      });
+      await loadTavilyConfig();
+    } catch (e) {
+      console.error('Failed to toggle Tavily:', e);
     }
   };
 
@@ -1119,6 +1181,51 @@ export function SettingsTab({ theme: _theme, auth }: SettingsTabProps) {
                 </div>
               </div>
 
+              {/* Tavily Web Search */}
+              <div className="bg-white border border-gray-200 rounded p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-blue-500" />
+                    <div className="text-xs font-medium text-gray-900">联网搜索 (Tavily)</div>
+                    {tavilyConfig?.configured && tavilyConfig?.enabled && (
+                      <CheckCircle className="w-3 h-3 text-green-500" />
+                    )}
+                  </div>
+                  {tavilyConfig?.configured && (
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={tavilyConfig?.enabled ?? false}
+                        onChange={(e) => handleToggleTavily(e.target.checked)}
+                        className="w-3.5 h-3.5 text-blue-500 rounded"
+                      />
+                      <span className="text-xs text-gray-600">启用</span>
+                    </label>
+                  )}
+                </div>
+                <p className="text-xs text-gray-500 mb-3">
+                  联网搜索最新热点和趋势，支持获取小红书、知乎等平台内容
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowTavilyModal(true)}
+                    className="px-3 py-1.5 text-xs border border-gray-200 text-gray-700 rounded hover:bg-gray-50 transition-colors"
+                  >
+                    {tavilyConfig?.configured ? '重新配置' : '配置 Tavily'}
+                  </button>
+                  {tavilyConfig?.configured && (
+                    <a
+                      href="https://app.tavily.com/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-1.5 text-xs text-blue-600 hover:text-blue-700"
+                    >
+                      获取 API Key →
+                    </a>
+                  )}
+                </div>
+              </div>
+
               <button className="px-4 py-2 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors">
                 保存设置
               </button>
@@ -1181,6 +1288,59 @@ export function SettingsTab({ theme: _theme, auth }: SettingsTabProps) {
                       className="flex-1 px-3 py-1.5 text-xs bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors disabled:opacity-50"
                     >
                       {langfuseSaving ? '保存中...' : '保存并启用'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Tavily Config Modal */}
+            {showTavilyModal && (
+              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                <div className="bg-white rounded-lg p-4 max-w-md w-full mx-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Globe className="w-4 h-4 text-blue-500" />
+                    <div className="text-sm font-medium text-gray-900">配置 Tavily 联网搜索</div>
+                  </div>
+                  <p className="text-xs text-gray-500 mb-4">
+                    Tavily 是一个专为 AI 设计的搜索引擎，可以快速获取网页内容用于研究和趋势分析。
+                  </p>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs text-gray-700 mb-1">API Endpoint</label>
+                      <input
+                        ref={el => { tavilyFormRef.endpoint = el; }}
+                        type="text"
+                        defaultValue={tavilyConfig?.endpoint || 'https://api.tavily.com/search'}
+                        placeholder="https://api.tavily.com/search"
+                        className="w-full px-3 py-2 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-700 mb-1">
+                        API Key {tavilyConfig?.hasApiKey && <span className="text-green-600">(已配置)</span>}
+                      </label>
+                      <input
+                        ref={el => { tavilyFormRef.apiKey = el; }}
+                        type="password"
+                        placeholder={tavilyConfig?.hasApiKey ? '留空保持不变' : 'tvly-...'}
+                        className="w-full px-3 py-2 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-2 mt-4">
+                    <button
+                      onClick={() => setShowTavilyModal(false)}
+                      className="flex-1 px-3 py-1.5 text-xs border border-gray-200 text-gray-700 rounded hover:bg-gray-50 transition-colors"
+                    >
+                      取消
+                    </button>
+                    <button
+                      onClick={handleSaveTavily}
+                      disabled={tavilySaving}
+                      className="flex-1 px-3 py-1.5 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors disabled:opacity-50"
+                    >
+                      {tavilySaving ? '保存中...' : '保存并启用'}
                     </button>
                   </div>
                 </div>

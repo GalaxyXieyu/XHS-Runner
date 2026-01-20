@@ -4,7 +4,7 @@ import { AgentState, type AgentType, type ImagePlan } from "../state/agentState"
 import { compressContext, safeSliceMessages } from "../utils";
 import { getAgentPrompt } from "../../services/promptManager";
 import { askUserTool } from "../tools";
-import { getTemplateByKey, getTemplateStructure, type TemplateStructure } from "../../services/contentTypeTemplateManager";
+import { getTemplateByKey, type TemplateStructure } from "../../services/contentTypeTemplateManager";
 
 /**
  * 从消息中提取标题
@@ -140,12 +140,29 @@ export async function imagePlannerNode(state: typeof AgentState.State, model: Ch
   let plans: ImagePlan[] = [];
 
   if (template) {
-    // Agent 模式：让 LLM 根据模板生成 prompts
-    const systemPrompt = generateAgentSystemPrompt(template, {
+    // 从 Langfuse 获取 prompt
+    const structure = template.structure as TemplateStructure;
+    const structureDesc = [
+      structure.cover ? `封面 (cover): ${structure.cover.description}，需要 ${structure.cover.imageCount} 张` : "",
+      structure.steps ? `步骤 (steps): ${structure.steps.description}，需要 ${structure.steps.imageCount} 张` : "",
+      structure.detail ? `细节 (detail): ${structure.detail.description}，需要 ${structure.detail.imageCount || 1} 张` : "",
+      structure.result ? `总结 (result): ${structure.result.description}，需要 ${structure.result.imageCount || 1} 张` : "",
+    ].filter(Boolean).join("\n");
+
+    const systemPrompt = await getAgentPrompt("image_planner_agent", {
+      templateName: template.name,
+      templateDescription: template.description,
       colorPalette,
       mood,
       lighting,
+      structureDesc,
+      coverPromptTemplate: template.coverPromptTemplate,
+      contentPromptTemplate: template.contentPromptTemplate,
     });
+
+    if (!systemPrompt) {
+      throw new Error("Prompt 'image_planner_agent' not found. Please create it in Langfuse: xhs-agent-image_planner_agent");
+    }
 
     // 调用 LLM 生成图片规划
     const response = await modelWithTools.invoke([
@@ -165,13 +182,13 @@ export async function imagePlannerNode(state: typeof AgentState.State, model: Ch
       // 解析失败，使用占位计划
     }
 
-    // 如果解析失败或没有生成完整计划，使用占位
+    // 如果解析失败或没有生成完整计划，使用非 agent 模式生成完整 prompt
     if (plans.length === 0 || plans.some(p => !p.prompt)) {
       plans = generatePlansFromTemplate(template, title, {
         colorPalette,
         mood,
         lighting,
-      }, true);
+      }, false); // 改为 false，生成完整 prompt
     }
 
     // 如果有 review feedback，添加到 plan 中
