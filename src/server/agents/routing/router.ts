@@ -35,14 +35,12 @@ export function routeFromSupervisor(state: typeof AgentState.State): string {
   if (!state.imagesComplete) return "image_agent";
   if (!state.reviewFeedback) return "review_agent";
 
-  // 审核未通过
+  // 审核未通过：回 supervisor 重新评估，不直接使用 targetAgent
   if (state.reviewFeedback && !state.reviewFeedback.approved) {
     if (state.iterationCount >= state.maxIterations) {
       return END;
     }
-    if (state.reviewFeedback.targetAgent) {
-      return state.reviewFeedback.targetAgent;
-    }
+    return "supervisor";  // 回 supervisor 重新评估下一步
   }
   return END;
 }

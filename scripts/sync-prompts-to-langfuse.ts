@@ -194,8 +194,7 @@ REASON: [决策理由]`,
 ## 输出格式 (JSON)
 {
   "approved": true/false,
-  "suggestions": ["仅拒绝时填写，每条不超过15字"],
-  "targetAgent": "image_planner_agent" | "image_agent" | null
+  "suggestions": ["仅拒绝时填写，每条不超过15字"]
 }`,
 };
 

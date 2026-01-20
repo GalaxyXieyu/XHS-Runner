@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp, boolean, real, jsonb, date, unique } from 'drizzle-orm/pg-core';
+import { pgTable, serial, text, integer, timestamp, boolean, real, jsonb, date, unique, numeric } from 'drizzle-orm/pg-core';
 
 // ==================== Core Tables ====================
 
@@ -420,3 +420,55 @@ export type NewReferenceImage = typeof referenceImages.$inferInsert;
 
 export type ImagePlan = typeof imagePlans.$inferSelect;
 export type NewImagePlan = typeof imagePlans.$inferInsert;
+
+// ==================== Content Type Templates ====================
+
+export const contentTypeTemplates = pgTable('content_type_templates', {
+  id: serial('id').primaryKey(),
+  key: text('key').notNull().unique(),
+  name: text('name').notNull(),
+  description: text('description'),
+  category: text('category').notNull(), // edu/billboard/product/story
+  // 结构定义 (JSON)
+  structure: jsonb('structure').notNull(),
+  // 封面 prompt 模板
+  coverPromptTemplate: text('cover_prompt_template').notNull(),
+  // 内容图 prompt 模板
+  contentPromptTemplate: text('content_prompt_template').notNull(),
+  // 默认比例
+  defaultAspectRatio: text('default_aspect_ratio').default('3:4'),
+  // 预设示例图 URL (用于 UI 展示)
+  exampleImageUrls: text('example_image_urls').array(),
+  // 是否内置模板
+  isBuiltin: boolean('is_builtin').default(false),
+  // 是否启用
+  isEnabled: boolean('is_enabled').default(true),
+  // 创建者 ID (用于自定义模板)
+  userId: text('user_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type ContentTypeTemplate = typeof contentTypeTemplates.$inferSelect;
+export type NewContentTypeTemplate = typeof contentTypeTemplates.$inferInsert;
+
+// ==================== Reference Image Analysis ====================
+
+export const referenceImageAnalyses = pgTable('reference_image_analyses', {
+  id: serial('id').primaryKey(),
+  referenceImageId: integer('reference_image_id').references(() => referenceImages.id, { onDelete: 'cascade' }),
+  // 分析结果
+  isStyleReference: boolean('is_style_reference').notNull(), // 是否风格参考
+  confidence: numeric('confidence', { precision: 3, scale: 2 }).notNull(), // 置信度
+  // 风格参数 (如果是风格参考)
+  styleParams: jsonb('style_params'), // { colorPalette, mood, lighting, styleKeywords }
+  // 素材参数 (如果是素材参考)
+  materialParams: jsonb('material_params'), // { composition, elements, layout }
+  // 原始分析文本
+  rawAnalysis: text('raw_analysis'),
+  modelUsed: text('model_used'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type ReferenceImageAnalysis = typeof referenceImageAnalyses.$inferSelect;
+export type NewReferenceImageAnalysis = typeof referenceImageAnalyses.$inferInsert;

@@ -27,7 +27,6 @@ export interface ImagePlan {
 export interface ReviewFeedback {
   approved: boolean;
   suggestions: string[];
-  targetAgent?: "image_planner_agent" | "image_agent" | "writer_agent";
   optimizedPrompts?: string[];
 }
 
@@ -129,6 +128,11 @@ export const AgentState = Annotation.Root({
   summary: Annotation<string>({
     value: (_, y) => y,
     default: () => "",
+  }),
+  // 内容类型模板
+  contentType: Annotation<string>({
+    value: (_, y) => y,
+    default: () => "product",
   }),
 });
 

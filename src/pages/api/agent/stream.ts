@@ -10,6 +10,7 @@ import type { AskUserInterrupt } from "@/server/agents/tools/askUserTool";
 import { detectIntent } from "@/server/agents/tools/intentTools";
 import { resetImageToolCallCount } from "@/server/agents/routing";
 import { startTraj, endTraj, logAgent } from "@/server/agents/utils";
+import { detectContentType } from "@/server/services/contentTypeDetector";
 
 // 解析 writer_agent 生成的内容
 function parseWriterContent(content: string): { title: string; body: string; tags: string[] } {
@@ -111,6 +112,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     } as any);
   }
 
+  // 自动检测内容类型
+  const contentTypeDetection = detectContentType(message);
+
+  // 发送内容类型检测事件
+  sendEvent({
+    type: "content_type_detected",
+    contentType: contentTypeDetection.type,
+    confidence: contentTypeDetection.confidence,
+    reasoning: contentTypeDetection.reasoning,
+    timestamp: Date.now(),
+  } as any);
+
   try {
     // 重置图片生成计数（每次请求独立计数）
     resetImageToolCallCount();
@@ -128,6 +141,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       messages: [new HumanMessage(contextMessage)],
       imageGenProvider: provider,
       threadId: threadId || "",
+      contentType: contentTypeDetection.type,
     };
     if (refImages.length > 0) {
       initialState.referenceImages = refImages;
