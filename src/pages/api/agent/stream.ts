@@ -1,5 +1,5 @@
 import { NextApiRequest, NextApiResponse } from "next";
-import { HumanMessage, AIMessage, ToolMessage } from "@langchain/core/messages";
+import { HumanMessage } from "@langchain/core/messages";
 import { INTERRUPT } from "@langchain/langgraph";
 import { createMultiAgentSystem } from "@/server/agents/multiAgentSystem";
 import { AgentEvent, AgentType } from "@/server/agents/state/agentState";
@@ -203,22 +203,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         });
 
         if (output.messages) {
+          // 收集工具调用信息（用于后续关联）
+          const toolCallsMap = new Map<string, any>();
+
           for (const msg of output.messages) {
             if (msg.tool_calls?.length) {
               for (const tc of msg.tool_calls) {
+                toolCallsMap.set(tc.id || tc.name, tc.args);
+
                 sendEvent({
                   type: "tool_call",
                   agent: nodeName,
                   tool: tc.name,
                   content: `调用工具: ${tc.name}`,
                   timestamp: Date.now(),
-                });
-
-                await logSpan({
-                  traceId,
-                  name: `tool:${tc.name}`,
-                  input: tc.args,
-                  metadata: { agent: nodeName },
                 });
               }
             }
@@ -230,6 +228,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 tool: msg.name,
                 content: `${msg.name} 返回结果`,
                 timestamp: Date.now(),
+              });
+
+              // 记录完整的工具调用到 Langfuse（input + output）
+              const toolInput = toolCallsMap.get(msg.tool_call_id) || toolCallsMap.get(msg.name) || {};
+              await logSpan({
+                traceId,
+                name: `tool:${msg.name}`,
+                input: toolInput,
+                output: typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content),
+                metadata: { agent: nodeName },
               });
             }
 
