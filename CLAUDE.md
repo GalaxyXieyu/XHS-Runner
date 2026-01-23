@@ -115,26 +115,17 @@
 | review_agent | `xhs-agent-review_agent` |
 
 ### 工作流程
-
-1. **运行时**：从 Langfuse 拉取最新 prompt → 同步到数据库 → 使用
-2. **Langfuse 不可用时**：使用数据库缓存
-3. **代码修改 prompt 后**：调用 `uploadPromptToLangfuse()` 同步到 Langfuse
-
-### 代码中修改 Prompt
-
-如果在代码中修改了 prompt，**必须同步到 Langfuse**：
-
-```typescript
-import { uploadPromptToLangfuse } from "@/server/services/promptManager";
-
-// 修改后上传到 Langfuse
-await uploadPromptToLangfuse("writer_agent", newPrompt, true); // true = production
-```
+1. **修改 Prompt**：编辑 `prompts/` 目录下的对应 YAML 文件 (`.yaml`)
+2. **同步 Prompt**：执行 `npx tsx scripts/sync-prompts-to-langfuse.ts`
+   - 此脚本会自动解析 YAML 文件
+   - 上传到 Langfuse (Production 标签)
+   - 同步到本地数据库缓存
+3. **验证 Prompt**：脚本执行完成后会输出当前的 prompt 内容进行验证
 
 ### 相关文件
-
+- `prompts/*.yaml` - Prompt 定义文件 (Single Source of Truth)
+- `scripts/sync-prompts-to-langfuse.ts` - 同步脚本
 - `src/server/services/promptManager.ts` - Prompt 管理服务
-- `src/server/agents/multiAgentSystem.ts` - Multi-Agent 系统
 - 数据库表：`agent_prompts`
 
 ### Agent Prompt 调试心法

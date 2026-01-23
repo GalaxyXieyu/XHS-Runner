@@ -52,7 +52,7 @@ function createReferenceImageToolNode(baseToolNode: ToolNode) {
         if (msg && "tool_calls" in msg && (msg as AIMessage).tool_calls?.length) {
           const aiMsg = msg as AIMessage;
           const modifiedToolCalls = aiMsg.tool_calls?.map((tc) => {
-            if (tc.name === "generate_with_reference" && tc.args) {
+            if ((tc.name === "generate_with_reference" || tc.name === "generate_images_batch") && tc.args) {
               return {
                 ...tc,
                 args: {
@@ -145,7 +145,7 @@ export async function buildGraph(model: ChatOpenAI, hitlConfig?: HITLConfig) {
         if (jsonMatch) {
           styleAnalysis = JSON.parse(jsonMatch[0]);
         }
-      } catch {}
+      } catch { }
       return { styleAnalysis };
     })
 

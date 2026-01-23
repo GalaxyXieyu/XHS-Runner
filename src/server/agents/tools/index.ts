@@ -9,6 +9,7 @@ import { enqueueTask } from "../../services/xhs/llm/generationQueue";
 import { analyzeReferenceImage } from "../../services/xhs/llm/geminiClient";
 import { searchWeb } from "../../services/tavilySearch";
 import { generateImageWithReference as generateWithProvider } from "../../services/xhs/integration/imageProvider";
+import { getSetting } from "../../settings";
 
 // Tool 1: 搜索已抓取的笔记
 export const searchNotesTool = tool(
@@ -174,77 +175,182 @@ export const analyzeReferenceImageTool = tool(
   }
 );
 
-// Tool 7: 带参考图生成图片 (支持 gemini/jimeng，多参考图)
+// Tool 7: 带参考图生成图片 (支持 gemini/jimeng，多参考图) - 默认版 (兼容性保留)
 export const generateImageWithReferenceTool = tool(
   async ({ prompt, referenceImageUrls, sequence, role, creativeId, provider }) => {
     try {
       const result = await generateWithProvider({
         prompt,
-        referenceImageUrls, // 支持多张参考图
+        referenceImageUrls: referenceImageUrls || [],
         provider: provider as "gemini" | "jimeng" | undefined,
         aspectRatio: "3:4",
       });
 
-      // 保存图片到本地文件系统
       const outputDir = path.join(process.cwd(), "public", "generated");
-      if (!fs.existsSync(outputDir)) {
-        fs.mkdirSync(outputDir, { recursive: true });
-      }
+      if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
       const filename = `img_${Date.now()}_${sequence}.png`;
       const imagePath = path.join(outputDir, filename);
       fs.writeFileSync(imagePath, result.imageBuffer);
 
-      // 创建生成任务记录（可选，不影响图片生成结果）
-      let taskId: number | null = null;
-      try {
-        const { data: task, error } = await supabase
-          .from("generation_tasks")
-          .insert({
-            creative_id: creativeId || null,
-            status: "done",
-            prompt,
-            model: result.provider,
-            reference_image_url: referenceImageUrls?.[0] || "", // 保存第一张参考图到数据库
-            sequence,
-            result_json: JSON.stringify({ role, imageSize: result.imageBuffer.length, path: imagePath }),
-          })
-          .select("id")
-          .single();
-        if (!error && task) {
-          taskId = task.id;
-        }
-      } catch {}
-
-      const response = {
+      return JSON.stringify({
         success: true,
-        taskId,
         sequence,
         role,
         imageSize: result.imageBuffer.length,
         path: imagePath,
         message: `图片生成成功 (${result.provider})`,
-      };
-      return JSON.stringify(response);
-    } catch (error) {
-      const errorMsg = error instanceof Error
-        ? error.message
-        : (typeof error === 'object' ? JSON.stringify(error) : String(error));
-      return JSON.stringify({
-        success: false,
-        error: errorMsg,
       });
+    } catch (error: any) {
+      return JSON.stringify({ success: false, error: error.message || String(error) });
     }
   },
   {
     name: "generate_with_reference",
-    description: "根据参考图风格生成小红书配图，支持指定图片序号和角色",
+    description: "根据参考图生成小红书配图",
     schema: z.object({
-      prompt: z.string().describe("中文或英文生图提示词"),
-      referenceImageUrls: z.array(z.string()).describe("参考图 URL 数组，支持多张参考图"),
+      prompt: z.string().describe("生图提示词"),
+      referenceImageUrls: z.array(z.string()).optional().describe("参考图 URL 数组"),
       sequence: z.number().describe("图片序号 (0=封面)"),
       role: z.enum(["cover", "step", "detail", "result", "comparison"]).describe("图片角色"),
-      creativeId: z.number().optional().describe("关联的创意ID"),
-      provider: z.enum(["gemini", "jimeng"]).optional().describe("图片生成服务商"),
+      creativeId: z.number().optional().describe("关联创意ID"),
+      provider: z.enum(["gemini", "jimeng"]).optional().describe("服务商"),
+    }),
+  }
+);
+
+/**
+ * 工厂函数：创建简化的批量生图工具
+ * LLM 只需要传递 prompt 列表，其他参数（参考图、provider、sequence、role）都自动处理
+ */
+export function createReferenceImageTools(fixedUrls: string[]) {
+  console.log(`[createReferenceImageTools] 创建工具，固定参考图: ${fixedUrls.length} 个`);
+
+  const genBatch = tool(
+    async ({ prompts }) => {
+      console.log(`[generate_images] 开始批量生成 ${prompts.length} 张图片`);
+      console.log(`[generate_images] 使用固定参考图: ${fixedUrls.length} 个`);
+
+      // 从设置中读取默认 provider
+      const defaultProvider = (await getSetting('imageGenProvider')) || 'jimeng';
+      console.log(`[generate_images] provider: ${defaultProvider}`);
+
+      const results: any[] = [];
+      for (let i = 0; i < prompts.length; i++) {
+        const prompt = prompts[i];
+        const sequence = i; // 自动分配序号
+        const role = i === 0 ? 'cover' : 'step'; // 第一张是封面，其他是步骤图
+
+        try {
+          console.log(`[generate_images] 生成第 ${i + 1}/${prompts.length} 张 (seq=${sequence}, role=${role})`);
+          const result = await generateWithProvider({
+            prompt,
+            referenceImageUrls: fixedUrls, // 使用闭包中的固定 URL
+            provider: defaultProvider as "gemini" | "jimeng",
+            aspectRatio: "3:4",
+          });
+
+          const outputDir = path.join(process.cwd(), "public", "generated");
+          if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
+          const filename = `img_${Date.now()}_${sequence}.png`;
+          const imagePath = path.join(outputDir, filename);
+          fs.writeFileSync(imagePath, result.imageBuffer);
+
+          console.log(`[generate_images] 第 ${i + 1} 张成功 (${Math.round(result.imageBuffer.length / 1024)}KB)`);
+          results.push({ sequence, role, success: true, path: imagePath });
+        } catch (error: any) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          console.error(`[generate_images] 第 ${i + 1} 张失败: ${errorMsg}`);
+          results.push({ sequence, role, success: false, error: errorMsg });
+        }
+      }
+
+      const successCount = results.filter(r => r.success).length;
+      return JSON.stringify({
+        total: prompts.length,
+        success: successCount,
+        failed: prompts.length - successCount,
+        results,
+        message: `批量生成完成: ${successCount}/${prompts.length} 成功`,
+      });
+    },
+    {
+      name: "generate_images",
+      description: "批量生成小红书配图。只需传递提示词列表，参考图、序号、角色会自动处理。第一张自动设为封面，其他为步骤图。",
+      schema: z.object({
+        prompts: z.array(z.string()).describe("图片生成提示词列表，按顺序生成"),
+      }),
+    }
+  );
+
+  return [genBatch]; // 只返回一个工具，简化 LLM 的选择
+}
+
+
+// Tool 7b: 批量生成图片 (串行执行，避免并发限流)
+export const generateImagesBatchTool = tool(
+  async ({ images, referenceImageUrls, provider }) => {
+    console.log(`[generate_images_batch] 开始批量生成 ${images.length} 张图片, provider=${provider}`);
+    console.log(`[generate_images_batch] referenceImageUrls: ${referenceImageUrls?.length || 0} 个, 类型: ${referenceImageUrls?.[0]?.slice(0, 50)}...`);
+    const results: { sequence: number; role: string; success: boolean; path?: string; error?: string }[] = [];
+
+    for (const img of images) {
+      console.log(`[generate_images_batch] 生成 seq=${img.sequence}, role=${img.role}`);
+      try {
+        const result = await generateWithProvider({
+          prompt: img.prompt,
+          referenceImageUrls,
+          provider: provider as "gemini" | "jimeng" | undefined,
+          aspectRatio: "3:4",
+        });
+
+        // 保存图片
+        const outputDir = path.join(process.cwd(), "public", "generated");
+        if (!fs.existsSync(outputDir)) {
+          fs.mkdirSync(outputDir, { recursive: true });
+        }
+        const filename = `img_${Date.now()}_${img.sequence}.png`;
+        const imagePath = path.join(outputDir, filename);
+        fs.writeFileSync(imagePath, result.imageBuffer);
+
+        console.log(`[generate_images_batch] seq=${img.sequence} 成功 (${Math.round(result.imageBuffer.length / 1024)}KB)`);
+        results.push({
+          sequence: img.sequence,
+          role: img.role,
+          success: true,
+          path: imagePath,
+        });
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        console.error(`[generate_images_batch] seq=${img.sequence} 失败: ${errorMsg}`);
+        results.push({
+          sequence: img.sequence,
+          role: img.role,
+          success: false,
+          error: errorMsg,
+        });
+      }
+    }
+
+    const successCount = results.filter(r => r.success).length;
+    return JSON.stringify({
+      total: images.length,
+      success: successCount,
+      failed: images.length - successCount,
+      results,
+      message: `批量生成完成: ${successCount}/${images.length} 成功`,
+    });
+  },
+  {
+    name: "generate_images_batch",
+    description: "批量生成多张小红书配图（串行执行，避免并发限流）。一次调用生成所有图片，内部串行处理。",
+    schema: z.object({
+      images: z.array(z.object({
+        sequence: z.number().describe("图片序号 (0=封面)"),
+        role: z.enum(["cover", "step", "detail", "result", "comparison"]).describe("图片角色"),
+        prompt: z.string().describe("图片生成提示词"),
+      })).describe("要生成的图片列表"),
+      referenceImageUrls: z.array(z.string()).optional().describe("参考图 URL 数组，支持传递多张参考图（每张图都会应用到所有生成图片）"),
+      provider: z.enum(["gemini", "jimeng"]).optional().describe("图片生成服务商，默认 jimeng"),
     }),
   }
 );
@@ -354,7 +460,8 @@ export const researchTools = [searchNotesTool, analyzeTopTagsTool, getTopTitlesT
 export const imageTools = [generateImageTool];
 export const styleTools = [analyzeReferenceImageTool];
 export const plannerTools = [saveImagePlanTool];
-export const referenceImageTools = [generateImageWithReferenceTool];
+// 注意：referenceImageTools 现在为空，因为动态工具会在 imageAgentNode 中创建
+export const referenceImageTools: any[] = [];
 
 // 导出所有工具
 export const xhsTools = [

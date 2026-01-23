@@ -81,7 +81,7 @@ async function fetchFromDatabase(agentName: string): Promise<string | null> {
   try {
     const data = await queryOne<{ system_prompt: string }>(
       `SELECT system_prompt FROM agent_prompts
-       WHERE agent_name = $1 AND is_enabled = 1`,
+       WHERE agent_name = $1 AND is_enabled = true`,
       [agentName]
     );
     return data?.system_prompt || null;
@@ -197,7 +197,7 @@ export async function getAllAgentPrompts(): Promise<Map<string, string>> {
 
   try {
     const rows = await query<{ agent_name: string; system_prompt: string }>(
-      `SELECT agent_name, system_prompt FROM agent_prompts WHERE is_enabled = 1`
+      `SELECT agent_name, system_prompt FROM agent_prompts WHERE is_enabled = true`
     );
 
     for (const row of rows) {
@@ -216,7 +216,7 @@ export async function getAllAgentPrompts(): Promise<Map<string, string>> {
 export async function listAgents(): Promise<string[]> {
   try {
     const rows = await query<{ agent_name: string }>(
-      `SELECT agent_name FROM agent_prompts WHERE is_enabled = 1`
+      `SELECT agent_name FROM agent_prompts WHERE is_enabled = true`
     );
     return rows.map((row) => row.agent_name);
   } catch (error) {

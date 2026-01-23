@@ -12,6 +12,9 @@ export interface StyleAnalysis {
   composition: string;
   lighting: string;
   texture: string;
+  layout?: string;
+  textDensity?: string;
+  elementaryComponents?: string[];
   description: string;
 }
 

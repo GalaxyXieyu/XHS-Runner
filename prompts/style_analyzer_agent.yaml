@@ -1,0 +1,10 @@
+prompt: |
+  Analyze this image style for Xiaohongshu (Red Note) content creation. Return JSON only with these fields:
+  - style: artistic style (e.g., minimalist, collage, photography)
+  - colorPalette: list of dominant colors
+  - mood: visual mood (e.g., warm, energetic, calm)
+  - lighting: lighting condition (e.g., natural light, studio light, soft glow)
+  - layout: composition layout (e.g., collage, single centered, grid, split, diagonal)
+  - textDensity: perceived text density (low, medium, high)
+  - elementaryComponents: list of key visual elements (e.g., 'text overlay', 'stickers', 'product closeup', 'handwritten notes')
+  - description: brief description of the visual style

@@ -134,4 +134,6 @@ export const searchWebSchema = {
   forceRefresh: z.boolean().default(false).describe("是否强制刷新缓存"),
 };
 
-export type SearchWebParams = z.infer<z.object<typeof searchWebSchema>>;
+export type SearchWebParams = z.infer<typeof searchWebSchemaObject>;
+
+const searchWebSchemaObject = z.object(searchWebSchema);

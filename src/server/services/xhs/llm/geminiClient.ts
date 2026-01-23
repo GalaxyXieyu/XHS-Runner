@@ -5,6 +5,7 @@
 
 import { db, schema } from '../../../db';
 import { eq, and } from 'drizzle-orm';
+import { getAgentPrompt } from '../../../services/promptManager';
 
 // Gemini 图片生成串行队列（避免并发限流）
 class GeminiImageLock {
@@ -129,6 +130,9 @@ export async function analyzeReferenceImage(imageUrl: string): Promise<{
   composition: string;
   lighting: string;
   texture: string;
+  layout?: string;
+  textDensity?: string;
+  elementaryComponents?: string[];
   description: string;
 }> {
   const model = await getVisionModel();
@@ -142,14 +146,14 @@ export async function analyzeReferenceImage(imageUrl: string): Promise<{
   // 使用 Gemini 原生格式
   const requestBody = {
     contents: [
-      // Few-shot 示例 1
+      // Few-shot 示例 1 (包含新字段，保持简短)
       {
         role: "user",
         parts: [{ text: "Analyze this image style and return JSON only." }]
       },
       {
         role: "model",
-        parts: [{ text: `{"style":"minimalist","colorPalette":["White","Black","Gold"],"mood":"elegant","composition":"centered","lighting":"soft","texture":"smooth","description":"Clean modern design with luxury accents"}` }]
+        parts: [{ text: `{"style":"minimalist","colorPalette":["White","Black","Gold"],"mood":"elegant","composition":"centered","lighting":"soft","texture":"smooth","layout":"single centered","textDensity":"low","elementaryComponents":["product closeup","text overlay"],"description":"Clean modern design"}` }]
       },
       // Few-shot 示例 2
       {
@@ -158,13 +162,13 @@ export async function analyzeReferenceImage(imageUrl: string): Promise<{
       },
       {
         role: "model",
-        parts: [{ text: `{"style":"3D illustration","colorPalette":["Cream","Coral","Teal"],"mood":"playful","composition":"isometric","lighting":"ambient","texture":"matte","description":"Cute 3D miniature scene with soft colors"}` }]
+        parts: [{ text: `{"style":"3D illustration","colorPalette":["Cream","Coral","Teal"],"mood":"playful","composition":"isometric","lighting":"ambient","texture":"matte","layout":"collage","textDensity":"medium","elementaryComponents":["stickers","handwritten notes"],"description":"Cute 3D miniature scene"}` }]
       },
-      // 实际请求
+      // 实际请求 - 使用硬编码 Prompt 确保 JSON 格式
       {
         role: "user",
         parts: [
-          { text: "Analyze this image style and return JSON only." },
+          { text: "Analyze this image. Return ONLY a JSON object with these exact keys: style, colorPalette (array), mood, composition, lighting, texture, layout, textDensity, elementaryComponents (array), description. NO explanation, NO markdown, JUST JSON." },
           imageData
         ]
       }
@@ -316,36 +320,36 @@ export async function generateImageWithReference(params: {
         // 检查是否只有 thoughtSignature（模型在思考但没生成图片）
         const hasThoughtSignature = responseStr.includes('thoughtSignature');
         if (hasThoughtSignature && attempt < maxRetries) {
-        lastError = new Error('模型返回思考过程但未生成图片');
-        continue;
-      }
+          lastError = new Error('模型返回思考过程但未生成图片');
+          continue;
+        }
 
-      // 尝试从文本中提取 URL
-      const textPart = data.candidates?.[0]?.content?.parts?.find(p => p.text);
-      if (textPart?.text) {
-        const urlMatch = textPart.text.match(/(https?:\/\/[^\s\)]+\.(?:png|jpg|jpeg|gif|webp))/i);
-        if (urlMatch) {
-          const imgResponse = await fetch(urlMatch[1]);
-          const buffer = await imgResponse.arrayBuffer();
-          return {
-            imageBase64: Buffer.from(buffer).toString('base64'),
-            mimeType: imgResponse.headers.get('content-type') || 'image/png',
-          };
+        // 尝试从文本中提取 URL
+        const textPart = data.candidates?.[0]?.content?.parts?.find(p => p.text);
+        if (textPart?.text) {
+          const urlMatch = textPart.text.match(/(https?:\/\/[^\s\)]+\.(?:png|jpg|jpeg|gif|webp))/i);
+          if (urlMatch) {
+            const imgResponse = await fetch(urlMatch[1]);
+            const buffer = await imgResponse.arrayBuffer();
+            return {
+              imageBase64: Buffer.from(buffer).toString('base64'),
+              mimeType: imgResponse.headers.get('content-type') || 'image/png',
+            };
+          }
+        }
+
+        lastError = new Error('Gemini 未返回图片数据');
+        if (attempt < maxRetries) {
+          continue;
+        }
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        if (attempt < maxRetries) {
+          continue;
         }
       }
-
-      lastError = new Error('Gemini 未返回图片数据');
-      if (attempt < maxRetries) {
-        continue;
-      }
-    } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err));
-      if (attempt < maxRetries) {
-        continue;
-      }
     }
-  }
 
-  throw lastError || new Error('Gemini 图片生成失败');
+    throw lastError || new Error('Gemini 图片生成失败');
   });
 }

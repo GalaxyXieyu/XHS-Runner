@@ -14,9 +14,11 @@ export async function styleAnalyzerNode(state: typeof AgentState.State) {
     `风格类型: ${styleAnalysis.style}\n` +
     `主色调: ${styleAnalysis.colorPalette.join(", ")}\n` +
     `氛围: ${styleAnalysis.mood}\n` +
-    `构图: ${styleAnalysis.composition}\n` +
+    `构图: ${styleAnalysis.composition || styleAnalysis.layout || "未识别"}\n` +
+    `布局: ${styleAnalysis.layout || "未识别"}\n` +
     `光线: ${styleAnalysis.lighting}\n` +
-    `质感: ${styleAnalysis.texture}\n` +
+    `文字密度: ${styleAnalysis.textDensity || "未识别"}\n` +
+    `关键元素: ${(styleAnalysis.elementaryComponents || []).join(", ")}\n` +
     `风格描述: ${styleAnalysis.description}`
   );
 

@@ -28,6 +28,9 @@ async function extractStyleFromUrls(referenceImageUrls: string[]): Promise<{
   colorPalette: string[];
   mood: string;
   lighting: string;
+  layout: string;
+  textDensity: string;
+  elementaryComponents: string[];
   styleKeywords: string[];
 }> {
   const { analyzeReferenceImage } = await import("../../services/xhs/llm/geminiClient");
@@ -36,6 +39,9 @@ async function extractStyleFromUrls(referenceImageUrls: string[]): Promise<{
     colorPalette: string[];
     mood: string;
     lighting: string;
+    layout?: string;
+    textDensity?: string;
+    elementaryComponents?: string[];
     styleKeywords: string[];
   }[] = [];
 
@@ -53,6 +59,9 @@ async function extractStyleFromUrls(referenceImageUrls: string[]): Promise<{
           colorPalette: styleAnalysis.colorPalette,
           mood: styleAnalysis.mood,
           lighting: styleAnalysis.lighting,
+          layout: styleAnalysis.layout,
+          textDensity: styleAnalysis.textDensity,
+          elementaryComponents: styleAnalysis.elementaryComponents,
           styleKeywords: [styleAnalysis.style],
         });
       }
@@ -66,6 +75,9 @@ async function extractStyleFromUrls(referenceImageUrls: string[]): Promise<{
       colorPalette: [],
       mood: "",
       lighting: "",
+      layout: "",
+      textDensity: "",
+      elementaryComponents: [],
       styleKeywords: [],
     };
   }
@@ -74,12 +86,18 @@ async function extractStyleFromUrls(referenceImageUrls: string[]): Promise<{
   const colorPaletteSet = new Set<string>();
   const moodSet = new Set<string>();
   const lightingSet = new Set<string>();
+  const layoutSet = new Set<string>();
+  const textDensitySet = new Set<string>();
+  const elementaryComponentsSet = new Set<string>();
   const styleKeywordsSet = new Set<string>();
 
   for (const params of allStyleParams) {
     params.colorPalette.forEach((c) => colorPaletteSet.add(c));
     if (params.mood) moodSet.add(params.mood);
     if (params.lighting) lightingSet.add(params.lighting);
+    if (params.layout) layoutSet.add(params.layout);
+    if (params.textDensity) textDensitySet.add(params.textDensity);
+    params.elementaryComponents?.forEach((c) => elementaryComponentsSet.add(c));
     params.styleKeywords.forEach((k) => styleKeywordsSet.add(k));
   }
 
@@ -87,6 +105,9 @@ async function extractStyleFromUrls(referenceImageUrls: string[]): Promise<{
     colorPalette: Array.from(colorPaletteSet),
     mood: Array.from(moodSet).join(" + "),
     lighting: Array.from(lightingSet).join(" + "),
+    layout: Array.from(layoutSet).join(" + "),
+    textDensity: Array.from(textDensitySet).join(" + "),
+    elementaryComponents: Array.from(elementaryComponentsSet),
     styleKeywords: Array.from(styleKeywordsSet),
   };
 }
@@ -109,6 +130,9 @@ export async function imagePlannerNode(state: typeof AgentState.State, model: Ch
     colorPalette: [] as string[],
     mood: "",
     lighting: "",
+    layout: "",
+    textDensity: "",
+    elementaryComponents: [] as string[],
     styleKeywords: [] as string[],
   };
 
@@ -127,10 +151,23 @@ export async function imagePlannerNode(state: typeof AgentState.State, model: Ch
   if (!styleParams.lighting && styleAnalysis?.lighting) {
     styleParams.lighting = styleAnalysis.lighting;
   }
+  if (!styleParams.layout && styleAnalysis?.layout) {
+    styleParams.layout = styleAnalysis.layout;
+  }
+  if (!styleParams.textDensity && styleAnalysis?.textDensity) {
+    styleParams.textDensity = styleAnalysis.textDensity;
+  }
+  if (!styleParams.elementaryComponents.length && styleAnalysis?.elementaryComponents) {
+    styleParams.elementaryComponents = styleAnalysis.elementaryComponents;
+  }
+
 
   const colorPalette = styleParams.colorPalette.join("、") || "柔和自然色调";
   const mood = styleParams.mood || "精致高级";
   const lighting = styleParams.lighting || "柔和自然光";
+  const layout = styleParams.layout || "多图拼接";
+  const textDensity = styleParams.textDensity || "适中";
+  const elementaryComponents = styleParams.elementaryComponents.join("、") || "无";
   const reviewSuggestions = state.reviewFeedback?.suggestions?.join("\n") || "";
 
   // 从消息中提取标题
@@ -155,6 +192,9 @@ export async function imagePlannerNode(state: typeof AgentState.State, model: Ch
       colorPalette,
       mood,
       lighting,
+      layout,
+      textDensity,
+      elementaryComponents,
       structureDesc,
       coverPromptTemplate: template.coverPromptTemplate,
       contentPromptTemplate: template.contentPromptTemplate,

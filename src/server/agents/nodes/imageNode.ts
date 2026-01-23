@@ -3,44 +3,85 @@ import { ChatOpenAI } from "@langchain/openai";
 import { AgentState, type AgentType } from "../state/agentState";
 import { compressContext, safeSliceMessages } from "../utils";
 import { getAgentPrompt } from "../../services/promptManager";
-import { imageTools, referenceImageTools } from "../tools";
+import { isHttpUrl, uploadBase64ToSuperbed, generateImageWithReference } from "../../services/xhs/integration/imageProvider";
+import { getSetting } from "../../settings";
+import * as fs from "fs";
+import * as path from "path";
 
 export async function imageAgentNode(state: typeof AgentState.State, model: ChatOpenAI) {
-  const modelWithTools = state.referenceImageUrl
-    ? model.bindTools(referenceImageTools)
-    : model.bindTools(imageTools);
-
-  const compressed = await compressContext(state, model);
-
   const plans = state.imagePlans;
   const optimizedPrompts = state.reviewFeedback?.optimizedPrompts || [];
-  const refImageUrl = state.referenceImageUrl || "";
 
-  const plansWithPrompts = plans.map((p, i) => {
-    const prompt = optimizedPrompts[i] || p.prompt || p.description;
-    return `- 序号${p.sequence} (${p.role}): prompt="${prompt}"`;
-  }).join("\n");
+  // 获取参考图数据并上传
+  const rawReferenceImages = state.referenceImages && state.referenceImages.length > 0
+    ? state.referenceImages
+    : (state.referenceImageUrl ? [state.referenceImageUrl] : []);
 
-  const stateVariables = {
-    hasReferenceImage: state.referenceImageUrl ? "true" : "false",
-    plansWithPrompts,
-    refImageUrl: refImageUrl.slice(0, 80),
-  };
-
-  const systemPrompt = await getAgentPrompt("image_agent", stateVariables);
-  if (!systemPrompt) {
-    throw new Error("Prompt 'image_agent' not found. Please create it in Langfuse: xhs-agent-image_agent");
+  const processedRefImageUrls: string[] = [];
+  for (let i = 0; i < rawReferenceImages.length; i++) {
+    let url = rawReferenceImages[i];
+    if (url && !isHttpUrl(url)) {
+      try {
+        console.log(`[imageAgentNode] 正在上传第 ${i + 1} 张 base64 参考图到 Superbed...`);
+        url = await uploadBase64ToSuperbed(url, `agent-ref-${Date.now()}-${i}.png`);
+        console.log(`[imageAgentNode] 上传成功: ${url}`);
+      } catch (e) {
+        console.warn(`[imageAgentNode] 第 ${i + 1} 张参考图上传失败:`, e);
+      }
+    }
+    if (url) processedRefImageUrls.push(url);
   }
 
-  const response = await modelWithTools.invoke([
-    new HumanMessage(systemPrompt),
-    ...safeSliceMessages(compressed.messages, 10),
-  ]);
+  console.log(`[imageAgentNode] 参考图已上传: ${processedRefImageUrls.length} 个`);
+
+  // 直接生成图片，不使用工具
+  const provider = (await getSetting('imageGenProvider')) || 'jimeng';
+  console.log(`[imageAgentNode] 开始生成 ${plans.length} 张图片, provider=${provider}`);
+
+  const results: any[] = [];
+  const generatedPaths: string[] = [];
+
+  for (let i = 0; i < plans.length; i++) {
+    const plan = plans[i];
+    const prompt = optimizedPrompts[i] || plan.prompt || plan.description;
+    const sequence = plan.sequence;
+    const role = plan.role;
+
+    try {
+      console.log(`[imageAgentNode] 生成第 ${i + 1}/${plans.length} 张 (seq=${sequence}, role=${role})`);
+      const result = await generateImageWithReference({
+        prompt,
+        referenceImageUrls: processedRefImageUrls,
+        provider: provider as "gemini" | "jimeng",
+        aspectRatio: "3:4",
+      });
+
+      const outputDir = path.join(process.cwd(), "public", "generated");
+      if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
+      const filename = `img_${Date.now()}_${sequence}.png`;
+      const imagePath = path.join(outputDir, filename);
+      fs.writeFileSync(imagePath, result.imageBuffer);
+
+      console.log(`[imageAgentNode] 第 ${i + 1} 张成功 (${Math.round(result.imageBuffer.length / 1024)}KB)`);
+      results.push({ sequence, role, success: true, path: imagePath });
+      generatedPaths.push(imagePath);
+    } catch (error: any) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error(`[imageAgentNode] 第 ${i + 1} 张失败: ${errorMsg}`);
+      results.push({ sequence, role, success: false, error: errorMsg });
+    }
+  }
+
+  const successCount = results.filter(r => r.success).length;
+  const message = `批量生成完成: ${successCount}/${plans.length} 成功`;
+  console.log(`[imageAgentNode] ${message}`);
 
   return {
-    messages: [response],
+    messages: [new HumanMessage(message)],
     currentAgent: "image_agent" as AgentType,
     reviewFeedback: null,
-    summary: compressed.summary,
+    generatedImagePaths: [...(state.generatedImagePaths || []), ...generatedPaths],
+    generatedImageCount: (state.generatedImageCount || 0) + successCount,
+    imagesComplete: successCount === plans.length,
   };
 }

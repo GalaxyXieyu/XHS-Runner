@@ -73,7 +73,8 @@ export function shouldContinueImage(state: typeof AgentState.State): string {
     if (imageToolCallCount >= MAX_IMAGE_TOOL_CALLS) {
       return "supervisor";
     }
-    return state.referenceImageUrl ? "reference_image_tools" : "image_tools";
+    // 统一使用 image_tools 节点（动态工具在 image_agent 内部创建）
+    return "image_tools";
   }
 
   return "supervisor";

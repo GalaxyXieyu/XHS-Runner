@@ -70,8 +70,8 @@ interface GeminiNativeResponse {
 }
 
 export async function generateContent(prompt: string) {
-  const baseUrlRaw = process.env.NANOBANANA_ENDPOINT || (await getSetting('nanobananaEndpoint'));
-  const apiKeyRaw = process.env.NANOBANANA_API_KEY || (await getSetting('nanobananaApiKey'));
+  const baseUrlRaw = await getSetting('nanobananaEndpoint');
+  const apiKeyRaw = await getSetting('nanobananaApiKey');
 
   if (!prompt || !String(prompt).trim()) {
     throw new Error('PROMPT_REQUIRED: prompt is required');

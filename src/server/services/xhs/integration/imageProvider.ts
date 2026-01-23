@@ -141,12 +141,30 @@ function stripBase64Header(base64: string) {
   return base64.replace(/^data:image\/[^;]+;base64,/, '');
 }
 
-function isHttpUrl(value: string) {
+export function isHttpUrl(value: string) {
   return /^https?:\/\//i.test(value);
 }
 
-async function uploadBase64ToSuperbed(base64: string, filename: string, token?: string): Promise<string> {
-  const resolvedToken = token || process.env.SUPERBED_TOKEN;
+export async function uploadBase64ToSuperbed(base64: string, filename: string, token?: string): Promise<string> {
+  let resolvedToken = token;
+
+  if (!resolvedToken) {
+    try {
+      // 尝试从 extension_services 获取
+      const service = await getExtensionServiceByType('imagehost');
+      if (service?.api_key) {
+        resolvedToken = service.api_key;
+      }
+    } catch { }
+  }
+
+  if (!resolvedToken) {
+    try {
+      // 尝试从 settings 获取
+      resolvedToken = await getSetting('superbedToken') || "";
+    } catch { }
+  }
+
   if (!resolvedToken) {
     throw new Error('SUPERBED_NOT_CONFIGURED: 请先配置 Superbed Token');
   }
@@ -180,7 +198,21 @@ async function uploadBase64ToSuperbed(base64: string, filename: string, token?: 
   if (result.err !== 0 || !result.url) {
     throw new Error(`superbed上传失败：${result.msg || '未知错误'}`);
   }
-  return result.url;
+
+  // Superbed 返回的 URL 会 302 重定向到百度云 CDN
+  // 即梦服务器无法跟随重定向，需要手动解析获取最终直链
+  const superbedUrl = result.url;
+  try {
+    const redirectRes = await fetch(superbedUrl, { method: 'HEAD', redirect: 'manual' });
+    const directUrl = redirectRes.headers.get('location');
+    if (directUrl && directUrl.startsWith('http')) {
+      // Redirect resolved silently
+      return directUrl;
+    }
+  } catch (e) {
+    console.warn('[uploadBase64ToSuperbed] 重定向解析失败，使用原 URL:', e);
+  }
+  return superbedUrl;
 }
 
 async function generateJimengImage(params: {
@@ -255,7 +287,7 @@ async function generateJimengImage(params: {
           const delay = Math.min(5000 * Math.pow(2, attempt - 1), 60000);
           await new Promise(resolve => setTimeout(resolve, delay));
         }
-        const result: any = await postJson(apiUrl, requestBody, headers, 60000);
+        const result: any = await postJson(apiUrl, requestBody, headers, 120000);
         if (result.code !== 10000) {
           throw new Error(`即梦API调用失败: code=${result.code}, msg=${result.message || 'Unknown'}`);
         }
@@ -263,9 +295,11 @@ async function generateJimengImage(params: {
         if (!base64) {
           throw new Error('即梦API返回空结果');
         }
+        const imageBuffer = Buffer.from(base64, 'base64');
+        console.log(`[Jimeng] 图片生成成功 (${Math.round(imageBuffer.length / 1024)}KB)`);
         return {
           text: '',
-          imageBuffer: Buffer.from(base64, 'base64'),
+          imageBuffer,
           metadata: { model: 'jimeng_t2i_v40', prompt, imageUrls },
         };
       } catch (error: any) {
@@ -282,9 +316,9 @@ async function generateJimengImage(params: {
 }
 
 async function getJimengConfig() {
-  let accessKey = String(process.env.VOLCENGINE_ACCESS_KEY || '').trim();
-  let secretKey = String(process.env.VOLCENGINE_SECRET_KEY || '').trim();
-  let superbedToken = String(process.env.SUPERBED_TOKEN || '').trim();
+  let accessKey = '';
+  let secretKey = '';
+  let superbedToken = '';
 
   if (!accessKey || !secretKey || !superbedToken) {
     try {
@@ -299,7 +333,7 @@ async function getJimengConfig() {
           const config = JSON.parse(imageService.config_json);
           accessKey = accessKey || config.volcengine_access_key || '';
           secretKey = secretKey || config.volcengine_secret_key || '';
-        } catch {}
+        } catch { }
       }
 
       if (imagehostService?.api_key) {

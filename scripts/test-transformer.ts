@@ -138,14 +138,15 @@ async function testTransformerNote() {
       imageGenProvider,
     };
 
-    // 使用全部参考图（多参考图模式）
+    // 使用参考图
     if (referenceImagesBase64.length > 0) {
       if (useMultiRef) {
         requestBody.referenceImages = referenceImagesBase64; // 全部传给 AI
+        console.log(`\n📤 发送请求到 Agent (${referenceImagesBase64.length} 张参考图)...\n`);
       } else {
-        requestBody.referenceImages = referenceImagesBase64; // 默认也全部传递
+        requestBody.referenceImages = [referenceImagesBase64[0]]; // 默认只用第一张
+        console.log(`\n📤 发送请求到 Agent (仅使用第 1 张参考图)...\n`);
       }
-      console.log(`\n📤 发送请求到 Agent (${referenceImagesBase64.length} 张参考图)...\n`);
     }
 
     const response = await fetch(`${API_URL}/api/agent/stream`, {
