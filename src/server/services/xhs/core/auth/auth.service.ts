@@ -11,7 +11,7 @@ import {
   XHSError,
 } from '../../shared/errors';
 import { BaseService } from '../../shared/base.service';
-import { deleteCookiesFile, getCookiesInfo } from '../../shared/cookies';
+import { deleteCookiesFile, getCookiesInfo, saveCookies } from '../../shared/cookies';
 import { isLoggedIn, getLoginStatusWithProfile } from '../../shared/xhs.utils';
 import { logger } from '../../shared/logger';
 import { sleep } from '../../shared/utils';
@@ -27,11 +27,16 @@ export interface PollResult {
   loggedIn: boolean;
   message?: string;
   profile?: any;
+  qrCodeUrl?: string; // 如果二维码刷新了，返回新的二维码
+  qrCodeRefreshed?: boolean;
+  verificationRound?: number; // 当前是第几轮验证（1=首次，2=二次验证，3=三次验证...）
 }
 
 export class AuthService extends BaseService {
   private qrCodePage: Page | null = null;
   private qrCodeSessionActive: boolean = false;
+  private lastQRCodeHash: string | null = null; // 用于检测二维码变化
+  private verificationRound: number = 1; // 当前验证轮次
 
   constructor(config: Config) {
     super(config);
@@ -54,6 +59,7 @@ export class AuthService extends BaseService {
       const page = await this.getBrowserManager().createPage(true, browserPath, false);
       this.qrCodePage = page;
       this.qrCodeSessionActive = true;
+      this.verificationRound = 1; // 重置验证轮次
 
       // 设置 User-Agent 避免被检测
       await page.setUserAgent(
@@ -158,6 +164,7 @@ export class AuthService extends BaseService {
 
   /**
    * 轮询检测登录状态（配合 getQRCode 使用）
+   * 同时检测二维码是否刷新，如果刷新则返回新的二维码
    */
   async pollLoginStatus(): Promise<PollResult> {
     try {
@@ -208,6 +215,7 @@ export class AuthService extends BaseService {
         await page.close();
         this.qrCodePage = null;
         this.qrCodeSessionActive = false;
+        this.lastQRCodeHash = null;
 
         return {
           success: true,
@@ -217,10 +225,76 @@ export class AuthService extends BaseService {
         };
       }
 
+      // 检测二维码是否刷新（小红书扫码后可能会刷新二维码，进入二次/三次验证）
+      let qrCodeRefreshed = false;
+      let newQRCodeUrl: string | undefined;
+
+      try {
+        // 使用多个选择器尝试找到二维码，按优先级排序
+        // 二次验证页面的二维码可能使用不同的选择器
+        const qrCodeSelectors = [
+          // 二次验证页面的二维码选择器（优先级最高）
+          '.verify-qrcode img',
+          '.qrcode-container img',
+          '[class*="verify"] img[src*="qrcode"]',
+          '[class*="verify"] .qrcode-img',
+          // 标准登录页面的二维码选择器
+          '.qrcode-img',
+          'img[class*="qrcode"]',
+          '[class*="qrcode"] img',
+          'img[src*="qrcode"]',
+          // 通用二维码选择器（排除头像等小图片）
+          'img[width="200"]',
+          'img[height="200"]',
+        ];
+
+        let qrCodeElement = null;
+        let usedSelector = '';
+
+        for (const selector of qrCodeSelectors) {
+          try {
+            const element = await page.$(selector);
+            if (element) {
+              // 验证这是一个合理大小的二维码（排除头像等小图片）
+              const box = await element.boundingBox();
+              if (box && box.width >= 100 && box.height >= 100) {
+                qrCodeElement = element;
+                usedSelector = selector;
+                break;
+              }
+            }
+          } catch {
+            continue;
+          }
+        }
+
+        if (qrCodeElement) {
+          const qrCodeBase64 = await qrCodeElement.screenshot({ encoding: 'base64' });
+          // 简单的 hash 检测：使用 base64 前100个字符作为指纹
+          const currentHash = qrCodeBase64.substring(0, 100);
+
+          if (this.lastQRCodeHash && this.lastQRCodeHash !== currentHash) {
+            // 二维码已刷新，可能进入了下一轮验证
+            qrCodeRefreshed = true;
+            this.verificationRound++;
+            newQRCodeUrl = `data:image/png;base64,${qrCodeBase64}`;
+            logger.info(`检测到二维码已刷新（第 ${this.verificationRound} 轮验证），选择器: ${usedSelector}`);
+          }
+          this.lastQRCodeHash = currentHash;
+        } else {
+          logger.warn('未找到二维码元素，可能页面结构已变化');
+        }
+      } catch (e) {
+        logger.warn('检测二维码刷新失败:', e);
+      }
+
       return {
         success: true,
         loggedIn: false,
-        message: 'waiting',
+        message: this.verificationRound > 1 ? `第 ${this.verificationRound} 轮验证中` : 'waiting',
+        qrCodeRefreshed,
+        qrCodeUrl: newQRCodeUrl,
+        verificationRound: this.verificationRound,
       };
     } catch (error) {
       logger.error(`轮询登录状态失败: ${error}`);
@@ -493,6 +567,114 @@ export class AuthService extends BaseService {
     } catch (error) {
       logger.error(`Status check failed: ${error}`);
       throw new XHSError(`Status check failed: ${error}`, 'StatusCheckError', {}, error as Error);
+    }
+  }
+
+  /**
+   * 从 Cookie 字符串导入登录状态
+   * 支持两种格式：
+   * 1. 浏览器 Cookie 字符串格式: "name1=value1; name2=value2"
+   * 2. JSON 数组格式: [{"name": "xxx", "value": "xxx", "domain": ".xiaohongshu.com"}]
+   */
+  async importCookies(cookieString: string): Promise<LoginResult> {
+    try {
+      let cookies: Array<{ name: string; value: string; domain: string; path: string }> = [];
+
+      const trimmed = cookieString.trim();
+
+      // 尝试解析为 JSON
+      if (trimmed.startsWith('[')) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (Array.isArray(parsed)) {
+            cookies = parsed.map((c: any) => ({
+              name: c.name,
+              value: c.value,
+              domain: c.domain || '.xiaohongshu.com',
+              path: c.path || '/',
+            }));
+          }
+        } catch {
+          throw new Error('JSON 格式解析失败');
+        }
+      } else {
+        // 解析浏览器 Cookie 字符串格式: "name1=value1; name2=value2"
+        const pairs = trimmed.split(';').map((p) => p.trim()).filter(Boolean);
+        for (const pair of pairs) {
+          const eqIndex = pair.indexOf('=');
+          if (eqIndex > 0) {
+            const name = pair.substring(0, eqIndex).trim();
+            const value = pair.substring(eqIndex + 1).trim();
+            if (name && value) {
+              cookies.push({
+                name,
+                value,
+                domain: '.xiaohongshu.com',
+                path: '/',
+              });
+            }
+          }
+        }
+      }
+
+      if (cookies.length === 0) {
+        return {
+          success: false,
+          message: 'Cookie 解析失败，请检查格式',
+          status: 'logged_out',
+          action: 'none',
+        };
+      }
+
+      // 检查必要的 cookie
+      const requiredCookies = ['web_session'];
+      const cookieNames = cookies.map((c) => c.name);
+      const missingCookies = requiredCookies.filter((name) => !cookieNames.includes(name));
+
+      if (missingCookies.length > 0) {
+        logger.warn(`缺少关键 Cookie: ${missingCookies.join(', ')}`);
+        // 不阻止导入，只是警告
+      }
+
+      // 保存 cookies
+      saveCookies(cookies);
+      logger.info(`成功导入 ${cookies.length} 个 Cookie`);
+
+      // 验证登录状态
+      try {
+        const status = await this.checkStatus();
+        if (status.loggedIn) {
+          return {
+            success: true,
+            message: `成功导入 ${cookies.length} 个 Cookie，登录验证通过`,
+            status: 'logged_in',
+            action: 'logged_in',
+            profile: status.profile,
+          };
+        } else {
+          return {
+            success: true,
+            message: `已导入 ${cookies.length} 个 Cookie，但登录验证未通过，Cookie 可能已过期`,
+            status: 'logged_out',
+            action: 'none',
+          };
+        }
+      } catch (e) {
+        return {
+          success: true,
+          message: `已导入 ${cookies.length} 个 Cookie，验证时出错: ${e}`,
+          status: 'logged_out',
+          action: 'none',
+        };
+      }
+    } catch (error) {
+      logger.error(`Cookie 导入失败: ${error}`);
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : 'Cookie 导入失败',
+        status: 'logged_out',
+        action: 'none',
+      };
     }
   }
 }

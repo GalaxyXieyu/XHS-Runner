@@ -16,6 +16,7 @@ interface AuthState {
   profile: Profile | null;
   error: string | null;
   qrCodeUrl: string | null;
+  verificationRound: number; // 当前验证轮次
 }
 
 const CHECK_INTERVAL = 5 * 60 * 1000; // 5分钟
@@ -30,6 +31,7 @@ export function useAuthStatus() {
     profile: null,
     error: null,
     qrCodeUrl: null,
+    verificationRound: 1,
   });
 
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -83,7 +85,7 @@ export function useAuthStatus() {
 
   // 获取二维码并开始轮询
   const startQRCodeLogin = useCallback(async () => {
-    setState(prev => ({ ...prev, status: 'logging_in', isLoggingIn: true, error: null, qrCodeUrl: null }));
+    setState(prev => ({ ...prev, status: 'logging_in', isLoggingIn: true, error: null, qrCodeUrl: null, verificationRound: 1 }));
 
     try {
       // 获取二维码
@@ -104,7 +106,7 @@ export function useAuthStatus() {
         throw new Error(qrResult.message || '获取二维码失败');
       }
 
-      setState(prev => ({ ...prev, qrCodeUrl: qrResult.qrCodeUrl }));
+      setState(prev => ({ ...prev, qrCodeUrl: qrResult.qrCodeUrl, verificationRound: 1 }));
 
       // 开始轮询登录状态
       stopPolling();
@@ -129,7 +131,19 @@ export function useAuthStatus() {
               profile: pollResult.profile || null,
               error: null,
               qrCodeUrl: null,
+              verificationRound: 1,
             });
+          } else if (pollResult.qrCodeRefreshed && pollResult.qrCodeUrl) {
+            // 二维码已刷新，更新显示
+            const round = pollResult.verificationRound || 1;
+            if (round > 1) {
+              toast.info(`第 ${round} 轮验证`, { description: '请继续扫描新的二维码' });
+            }
+            setState(prev => ({
+              ...prev,
+              qrCodeUrl: pollResult.qrCodeUrl,
+              verificationRound: round,
+            }));
           } else if (pollResult.message === 'no_active_session') {
             // 会话已过期，需要重新获取二维码
             stopPolling();
@@ -192,6 +206,7 @@ export function useAuthStatus() {
           profile: result.profile || null,
           error: null,
           qrCodeUrl: null,
+          verificationRound: 1,
         });
         return true;
       } else {
@@ -230,6 +245,7 @@ export function useAuthStatus() {
         profile: null,
         error: null,
         qrCodeUrl: null,
+        verificationRound: 1,
       });
     } catch (e) {
       console.error('Logout failed:', e);
@@ -258,6 +274,54 @@ export function useAuthStatus() {
     stopPolling();
     return startQRCodeLogin();
   }, [stopPolling, startQRCodeLogin]);
+
+  // 导入 Cookie
+  const importCookies = useCallback(async (cookieString: string) => {
+    setState(prev => ({ ...prev, status: 'logging_in', isLoggingIn: true, error: null }));
+
+    try {
+      const res = await fetch('/api/auth/import-cookies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cookies: cookieString }),
+      });
+      const result = await res.json();
+
+      if (result.success && result.status === 'logged_in') {
+        toast.success('登录成功', { description: result.message });
+        setState({
+          status: 'logged_in',
+          isLoggedIn: true,
+          isChecking: false,
+          isLoggingIn: false,
+          profile: result.profile || null,
+          error: null,
+          qrCodeUrl: null,
+          verificationRound: 1,
+        });
+        return true;
+      } else {
+        toast.error('导入失败', { description: result.message });
+        setState(prev => ({
+          ...prev,
+          status: 'logged_out',
+          isLoggingIn: false,
+          error: result.message,
+        }));
+        return false;
+      }
+    } catch (e) {
+      const errorMsg = e instanceof Error ? e.message : 'Cookie 导入失败';
+      toast.error('导入失败', { description: errorMsg });
+      setState(prev => ({
+        ...prev,
+        status: 'error',
+        isLoggingIn: false,
+        error: errorMsg,
+      }));
+      return false;
+    }
+  }, []);
 
   // 应用启动时自动检测
   useEffect(() => {
@@ -297,5 +361,6 @@ export function useAuthStatus() {
     logout,
     cancelLogin,
     refreshQRCode,
+    importCookies,
   };
 }

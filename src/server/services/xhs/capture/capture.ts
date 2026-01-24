@@ -1,6 +1,7 @@
 import { getDatabase } from '../../../db';
 import { getSetting, getSettings, setSetting } from '../../../settings';
 import { fetchTopNotes, fetchNoteDetail } from './xhsClient';
+import { enqueueImageDownload } from './imageDownloadService';
 
 // 检测小红书安全限制
 const RATE_LIMIT_KEYWORDS = ['安全限制', '访问频次异常', '请勿频繁操作', '300013'];
@@ -358,7 +359,14 @@ export async function runCapture(keywordId: number, limit = 50) {
         }
       }
       const rowId = await insertTopic(keywordId, keyword.theme_id, enrichedNote);
-      if (rowId) inserted += 1;
+      if (rowId) {
+        inserted += 1;
+        // 将图片加入下载队列
+        const mediaUrls = Array.isArray(enrichedNote.media_urls)
+          ? enrichedNote.media_urls
+          : null;
+        await enqueueImageDownload(rowId, enrichedNote.cover_url || null, mediaUrls);
+      }
     }
   }
 

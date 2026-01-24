@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import type { Theme } from "@/App";
 import { Bot, Send, X, Wand2, Paperclip, ChevronDown, ChevronRight, ChevronLeft, Image, RefreshCw, Download, Copy, MoreHorizontal } from "lucide-react";
-import type { AgentEvent, ChatMessage, ImageTask } from "../types";
+import type { AgentEvent, ChatMessage, ImageTask, AskUserOption, AskUserDialogState } from "../types";
 import type { ContentPackage } from "@/features/material-library/types";
 import { NoteDetailModal, type NoteDetailData } from "@/components/NoteDetailModal";
 
@@ -86,9 +86,9 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
   const [streamPhase, setStreamPhase] = useState<string>("");  // 当前阶段提示
   const [showCustomForm, setShowCustomForm] = useState(false);
   const [mode, setMode] = useState<Mode>("agent");
-  const [expandedProcess, setExpandedProcess] = useState(false);  // 过程消息展开状态（默认折叠）
+  const [expandedProcess, setExpandedProcess] = useState(true);  // 过程消息展开状态（默认展开）
   const [imageTasks, setImageTasks] = useState<ImageTask[]>([]);  // 图片生成任务
-  const [imageGenProvider, setImageGenProvider] = useState<'gemini' | 'jimeng'>('gemini');  // 图片生成模型
+  const [imageGenProvider, setImageGenProvider] = useState<'gemini' | 'jimeng'>('jimeng');  // 图片生成模型
   const [customConfig, setCustomConfig] = useState<CustomConfig>({
     goal: "collects",
     tone: "",
@@ -105,6 +105,18 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
   const [packages, setPackages] = useState<ContentPackage[]>([]);
   const [selectedPackage, setSelectedPackage] = useState<ContentPackage | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+
+  // askUser 对话框状态
+  const [askUserDialog, setAskUserDialog] = useState<AskUserDialogState>({
+    isOpen: false,
+    question: "",
+    options: [],
+    selectionType: "single",
+    allowCustomInput: false,
+    threadId: "",
+    selectedIds: [],
+    customInput: "",
+  });
 
   // 转换 ContentPackage 为 NoteDetailData
   const packageToNoteData = useCallback((pkg: ContentPackage): NoteDetailData => ({
@@ -213,7 +225,7 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
       const response = await fetch("/api/agent/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMessage, themeId: theme.id, imageGenProvider }),
+        body: JSON.stringify({ message: userMessage, themeId: theme.id, imageGenProvider, enableHITL: true }),
       });
 
       const reader = response.body?.getReader();
@@ -268,6 +280,20 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
                   return newMessages;
                 });
               }
+
+              // 处理 askUser 事件 - 显示用户选择对话框
+              if (event.type === "ask_user" && event.question) {
+                setAskUserDialog({
+                  isOpen: true,
+                  question: event.question,
+                  options: event.options || [],
+                  selectionType: event.selectionType || "single",
+                  allowCustomInput: event.allowCustomInput || false,
+                  threadId: event.threadId || "",
+                  selectedIds: [],
+                  customInput: "",
+                });
+              }
             } catch { }
           }
         }
@@ -283,6 +309,130 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
       setStreamPhase("");  // 清除阶段提示
       // 生成完成后刷新素材库
       fetchPackages();
+    }
+  };
+
+  // 提交 askUser 响应
+  const handleAskUserSubmit = async () => {
+    if (!askUserDialog.threadId) return;
+
+    const response = {
+      selectedIds: askUserDialog.selectedIds,
+      customInput: askUserDialog.customInput || undefined,
+    };
+
+    // 关闭对话框
+    setAskUserDialog(prev => ({ ...prev, isOpen: false }));
+
+    // 显示用户选择的内容
+    const selectedLabels = askUserDialog.options
+      .filter(opt => askUserDialog.selectedIds.includes(opt.id))
+      .map(opt => opt.label)
+      .join(", ");
+    const userResponse = askUserDialog.customInput || selectedLabels || "已确认";
+    setMessages(prev => [...prev, { role: "user", content: userResponse }]);
+
+    // 发送响应到后端继续工作流
+    try {
+      setIsStreaming(true);
+      setStreamPhase("继续处理中...");
+
+      const res = await fetch("/api/agent/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          threadId: askUserDialog.threadId,
+          userResponse: response,
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to submit response");
+      }
+
+      // 处理 SSE 流（与 handleSubmit 类似）
+      const reader = res.body?.getReader();
+      if (!reader) return;
+
+      const decoder = new TextDecoder();
+      let assistantContent = "";
+      const collectedEvents: AgentEvent[] = [];
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split("\n");
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const data = line.slice(6);
+            if (data === "[DONE]") continue;
+
+            try {
+              const event: AgentEvent = JSON.parse(data);
+              collectedEvents.push(event);
+              setEvents(prev => [...prev, event]);
+              updatePhase(event);
+
+              if (event.type === "message" && event.content) {
+                assistantContent += (assistantContent ? "\n\n" : "") + event.content;
+                setMessages((prev) => {
+                  const newMessages = [...prev];
+                  const lastMsg = newMessages[newMessages.length - 1];
+                  if (lastMsg?.role === "assistant") {
+                    lastMsg.content = assistantContent;
+                    lastMsg.events = [...collectedEvents];
+                  } else {
+                    newMessages.push({
+                      role: "assistant",
+                      content: assistantContent,
+                      events: [...collectedEvents],
+                    });
+                  }
+                  return newMessages;
+                });
+              }
+
+              // 处理嵌套的 askUser
+              if (event.type === "ask_user" && event.question) {
+                setAskUserDialog({
+                  isOpen: true,
+                  question: event.question,
+                  options: event.options || [],
+                  selectionType: event.selectionType || "single",
+                  allowCustomInput: event.allowCustomInput || false,
+                  threadId: event.threadId || "",
+                  selectedIds: [],
+                  customInput: "",
+                });
+              }
+            } catch { }
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Confirm error:", error);
+      setMessages(prev => [...prev, { role: "assistant", content: "响应提交失败，请重试" }]);
+    } finally {
+      setIsStreaming(false);
+      setStreamPhase("");
+      fetchPackages();
+    }
+  };
+
+  // 处理选项选择
+  const handleOptionSelect = (optionId: string) => {
+    if (askUserDialog.selectionType === "single") {
+      setAskUserDialog(prev => ({ ...prev, selectedIds: [optionId] }));
+    } else {
+      setAskUserDialog(prev => ({
+        ...prev,
+        selectedIds: prev.selectedIds.includes(optionId)
+          ? prev.selectedIds.filter(id => id !== optionId)
+          : [...prev.selectedIds, optionId],
+      }));
     }
   };
 
@@ -647,12 +797,24 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
                                   {toolEvents.map((event, i) => {
                                     // 工具/Agent 名称中文映射
                                     const nameMap: Record<string, string> = {
+                                      // 工具名称
                                       search_notes: "搜索笔记",
                                       analyze_notes: "分析笔记",
+                                      analyze_tags: "分析标签",
+                                      get_top_titles: "获取爆款标题",
                                       generate_content: "生成内容",
+                                      generate_images: "生成图片",
+                                      save_creative: "保存创作",
+                                      askUser: "询问用户",
+                                      web_search: "网络搜索",
+                                      tavily_search: "Tavily 搜索",
+                                      // Agent 名称
                                       research_agent: "研究助手",
                                       writer_agent: "写作助手",
                                       image_agent: "图片助手",
+                                      image_planner_agent: "图片规划",
+                                      style_analyzer_agent: "风格分析",
+                                      review_agent: "审核助手",
                                       supervisor: "任务调度",
                                     };
                                     const rawName = event.tool || event.agent || "";
@@ -876,6 +1038,88 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
             className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg"
             onClick={(e) => e.stopPropagation()}
           />
+        </div>
+      )}
+
+      {/* askUser 对话框 */}
+      {askUserDialog.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full mx-4 overflow-hidden">
+            {/* 标题 */}
+            <div className="px-6 py-4 border-b border-gray-100">
+              <h3 className="text-lg font-semibold text-gray-800">需要您的确认</h3>
+            </div>
+
+            {/* 问题内容 */}
+            <div className="px-6 py-4">
+              <p className="text-gray-700 whitespace-pre-wrap">{askUserDialog.question}</p>
+
+              {/* 选项列表 */}
+              {askUserDialog.options.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  {askUserDialog.options.map((option) => (
+                    <button
+                      key={option.id}
+                      onClick={() => handleOptionSelect(option.id)}
+                      className={`w-full text-left px-4 py-3 rounded-xl border-2 transition-all ${
+                        askUserDialog.selectedIds.includes(option.id)
+                          ? "border-blue-500 bg-blue-50"
+                          : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                          askUserDialog.selectedIds.includes(option.id)
+                            ? "border-blue-500 bg-blue-500"
+                            : "border-gray-300"
+                        }`}>
+                          {askUserDialog.selectedIds.includes(option.id) && (
+                            <div className="w-2 h-2 rounded-full bg-white" />
+                          )}
+                        </div>
+                        <div>
+                          <div className="font-medium text-gray-800">{option.label}</div>
+                          {option.description && (
+                            <div className="text-sm text-gray-500">{option.description}</div>
+                          )}
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* 自定义输入 */}
+              {askUserDialog.allowCustomInput && (
+                <div className="mt-4">
+                  <textarea
+                    value={askUserDialog.customInput}
+                    onChange={(e) => setAskUserDialog(prev => ({ ...prev, customInput: e.target.value }))}
+                    placeholder="或者输入您的回复..."
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-none"
+                    rows={3}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* 操作按钮 */}
+            <div className="px-6 py-4 bg-gray-50 flex justify-end gap-3">
+              <button
+                onClick={() => setAskUserDialog(prev => ({ ...prev, isOpen: false }))}
+                className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleAskUserSubmit}
+                disabled={askUserDialog.options.length > 0 && askUserDialog.selectedIds.length === 0 && !askUserDialog.customInput}
+                className="px-6 py-2 bg-blue-500 text-white rounded-xl hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                确认
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

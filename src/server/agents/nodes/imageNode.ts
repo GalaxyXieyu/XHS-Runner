@@ -35,7 +35,8 @@ export async function imageAgentNode(state: typeof AgentState.State, model: Chat
   console.log(`[imageAgentNode] 参考图已上传: ${processedRefImageUrls.length} 个`);
 
   // 直接生成图片，不使用工具
-  const provider = (await getSetting('imageGenProvider')) || 'jimeng';
+  // 优先从 state 读取用户选择的 provider，其次从数据库设置读取，最后默认 jimeng
+  const provider = state.imageGenProvider || (await getSetting('imageGenProvider')) || 'jimeng';
   console.log(`[imageAgentNode] 开始生成 ${plans.length} 张图片, provider=${provider}`);
 
   const results: any[] = [];

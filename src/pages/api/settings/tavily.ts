@@ -2,7 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { supabase } from '@/server/supabase';
 import { clearTavilyConfigCache, getTavilyConfig } from '@/server/services/tavilyService';
 
-export default async NextApiRequest, function handler(req: res: NextApiResponse) {
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
     try {
       const { data } = await supabase

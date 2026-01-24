@@ -30,6 +30,7 @@ export interface ImagePlan {
 export interface ReviewFeedback {
   approved: boolean;
   suggestions: string[];
+  targetAgent?: string;
   optimizedPrompts?: string[];
 }
 
@@ -104,7 +105,7 @@ export const AgentState = Annotation.Root({
   }),
   imageGenProvider: Annotation<string>({
     value: (_, y) => y,
-    default: () => "gemini",
+    default: () => "jimeng",
   }),
   // HITL 相关状态
   pendingConfirmation: Annotation<PendingConfirmation | null>({

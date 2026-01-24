@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { FolderKanban, Sparkles, BarChart3, Settings as SettingsIcon, PanelLeftClose, PanelLeftOpen, ListChecks } from 'lucide-react';
+import { FolderKanban, Sparkles, BarChart3, Settings as SettingsIcon, PanelLeftClose, PanelLeftOpen, ListChecks, ChevronDown, Archive, Activity, Hash, Users } from 'lucide-react';
 import { ThemeManagement } from './components/ThemeManagement';
 import { CreativeTab } from '@/features/workspace/components/CreativeTab';
 import { OperationsTab } from '@/features/workspace/components/OperationsTab';
@@ -58,6 +58,13 @@ export default function App() {
   const [themes, setThemes] = useState<Theme[]>([]);
   const [loading, setLoading] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [showThemeDropdown, setShowThemeDropdown] = useState(false);
+
+  // CreativeTab 子 tab 状态提升
+  const [creativeMainTab, setCreativeMainTab] = useState<'generate' | 'library' | 'tasks'>('generate');
+  // 素材库数量和运行中任务数量（由 CreativeTab 回调更新）
+  const [libraryCount, setLibraryCount] = useState(0);
+  const [runningTasksCount, setRunningTasksCount] = useState(0);
 
   const auth = useAuthStatus();
   const showLoginDialog = !auth.isChecking && !auth.isLoggedIn;
@@ -191,22 +198,104 @@ export default function App() {
       <main className="flex-1 overflow-y-auto">
         {/* Header */}
         <header className="h-12 bg-white border-b border-gray-200 px-4 flex items-center justify-between sticky top-0 z-10">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <h1 className="text-sm font-medium text-gray-900">
               {navItems.find(item => item.id === currentView)?.label}
             </h1>
+            {/* 主题选择器 - 仅在需要主题的视图显示 */}
+            {currentView !== 'themes' && currentView !== 'settings' && currentView !== 'taskCenter' && (
+              <div className="relative">
+                <button
+                  onClick={() => setShowThemeDropdown(!showThemeDropdown)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+                >
+                  <span className="text-gray-700 max-w-[120px] truncate">
+                    {selectedTheme?.name || '选择主题'}
+                  </span>
+                  <ChevronDown className="w-3.5 h-3.5 text-gray-500" />
+                </button>
+                {showThemeDropdown && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-10"
+                      onClick={() => setShowThemeDropdown(false)}
+                    />
+                    <div className="absolute top-full left-0 mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-20 py-1 max-h-64 overflow-y-auto">
+                      {themes.map((theme) => (
+                        <button
+                          key={theme.id}
+                          onClick={() => {
+                            setSelectedTheme(theme);
+                            setShowThemeDropdown(false);
+                          }}
+                          className={`w-full px-3 py-2 text-left text-xs hover:bg-gray-50 transition-colors ${
+                            selectedTheme?.id === theme.id ? 'bg-red-50 text-red-600' : 'text-gray-700'
+                          }`}
+                        >
+                          {theme.name}
+                        </button>
+                      ))}
+                      {themes.length === 0 && (
+                        <div className="px-3 py-2 text-xs text-gray-400">暂无主题</div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+            {/* 关键词和竞品信息 */}
             {selectedTheme && currentView !== 'themes' && currentView !== 'settings' && currentView !== 'taskCenter' && (
-              <>
-                <span className="text-gray-400">·</span>
-                <span className="text-xs text-gray-600">{selectedTheme.name}</span>
-              </>
+              <div className="flex items-center gap-2 text-xs text-gray-500">
+                <span className="flex items-center gap-1">
+                  <Hash className="w-3 h-3" />
+                  {selectedTheme.keywords.length} 个关键词
+                </span>
+                <span>·</span>
+                <span className="flex items-center gap-1">
+                  <Users className="w-3 h-3" />
+                  {selectedTheme.competitors.length} 个竞品
+                </span>
+              </div>
             )}
           </div>
-          {selectedTheme && currentView !== 'themes' && currentView !== 'settings' && currentView !== 'taskCenter' && (
-            <div className="flex items-center gap-2 text-xs text-gray-500">
-              <span>{selectedTheme.keywords.length} 个关键词</span>
-              <span>·</span>
-              <span>{selectedTheme.competitors.length} 个竞品</span>
+          {/* 右侧按钮 - 仅在 creative 视图显示 */}
+          {currentView === 'creative' && selectedTheme && (
+            <div className="flex items-center gap-1.5">
+              {creativeMainTab !== 'generate' && (
+                <button
+                  onClick={() => setCreativeMainTab('generate')}
+                  className="px-3 py-1.5 text-xs rounded-full font-medium transition-all bg-blue-50 text-blue-600 hover:bg-blue-100"
+                >
+                  <Sparkles className="w-3.5 h-3.5 inline mr-1" />
+                  返回创作
+                </button>
+              )}
+              <button
+                onClick={() => setCreativeMainTab('library')}
+                className={`px-3 py-1.5 text-xs rounded-full font-medium transition-all ${
+                  creativeMainTab === 'library'
+                    ? 'bg-gray-800 text-white'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                <Archive className="w-3.5 h-3.5 inline mr-1" />
+                素材库
+                <span className="ml-1 text-[10px] opacity-60">{libraryCount}</span>
+              </button>
+              <button
+                onClick={() => setCreativeMainTab('tasks')}
+                className={`px-3 py-1.5 text-xs rounded-full font-medium transition-all ${
+                  creativeMainTab === 'tasks'
+                    ? 'bg-gray-800 text-white'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                <Activity className="w-3.5 h-3.5 inline mr-1" />
+                任务管理
+                {runningTasksCount > 0 && (
+                  <span className="ml-1 text-[10px] opacity-60">{runningTasksCount}</span>
+                )}
+              </button>
             </div>
           )}
         </header>
@@ -235,6 +324,10 @@ export default function App() {
                     setSelectedTheme(next);
                   }
                 }}
+                mainTab={creativeMainTab}
+                onMainTabChange={setCreativeMainTab}
+                onLibraryCountChange={setLibraryCount}
+                onRunningTasksCountChange={setRunningTasksCount}
               />
             </div>
           )}
@@ -291,9 +384,11 @@ export default function App() {
         status={auth.status}
         error={auth.error}
         qrCodeUrl={auth.qrCodeUrl}
+        verificationRound={auth.verificationRound}
         onLogin={auth.login}
         onRefreshQRCode={auth.refreshQRCode}
         onCancel={auth.cancelLogin}
+        onImportCookies={auth.importCookies}
       />
     </div>
   );

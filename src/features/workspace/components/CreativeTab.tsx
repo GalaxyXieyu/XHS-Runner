@@ -46,8 +46,19 @@ function normalizeCreative(row: any): ContentPackage {
   };
 }
 
-export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) {
-  const [mainTab, setMainTab] = useState<'generate' | 'library' | 'tasks'>('generate');
+export function CreativeTab({
+  theme,
+  themes,
+  onSelectTheme,
+  mainTab: externalMainTab,
+  onMainTabChange,
+  onLibraryCountChange,
+  onRunningTasksCountChange,
+}: CreativeTabProps) {
+  // 如果外部提供了 mainTab，使用外部状态；否则使用内部状态
+  const [internalMainTab, setInternalMainTab] = useState<'generate' | 'library' | 'tasks'>('generate');
+  const mainTab = externalMainTab ?? internalMainTab;
+  const setMainTab = onMainTabChange ?? setInternalMainTab;
   const [generateMode, setGenerateMode] = useState<'oneClick' | 'scheduled' | 'agent'>('agent');
   const [taskStatusTab, setTaskStatusTab] = useState<'running' | 'completed' | 'failed'>('running');
   // UI 状态映射：
@@ -157,6 +168,11 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
     loadCreatives();
     loadJobs();
   }, [theme.id]);
+
+  // 通知父组件素材库数量变化
+  useEffect(() => {
+    onLibraryCountChange?.(allPackages.length);
+  }, [allPackages.length, onLibraryCountChange]);
 
   // 数据流边界：
   // - /api/creatives: 内容包列表与运行态轮询数据源
@@ -282,6 +298,11 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
   const runningTasks = taskExecutions.filter(e => e.status === 'running');
   const completedTasks = taskExecutions.filter(e => e.status === 'completed');
   const failedTasks = taskExecutions.filter(e => e.status === 'failed');
+
+  // 通知父组件运行中任务数量变化
+  useEffect(() => {
+    onRunningTasksCountChange?.(runningTasks.length);
+  }, [runningTasks.length, onRunningTasksCountChange]);
 
   const ideaStyleOptions = [
     { key: 'cozy', name: '温馨治愈' },
@@ -435,43 +456,6 @@ export function CreativeTab({ theme, themes, onSelectTheme }: CreativeTabProps) 
 
   return (
     <div className="h-full flex flex-col bg-white">
-      {/* Header */}
-      <div className="flex justify-end gap-1.5 px-4 py-3">
-        {mainTab !== 'generate' && (
-          <button
-            onClick={() => setMainTab('generate')}
-            className="px-3 py-1.5 text-xs rounded-full font-medium transition-all bg-blue-50 text-blue-600 hover:bg-blue-100"
-          >
-            <Sparkles className="w-3.5 h-3.5 inline mr-1" />
-            返回创作
-          </button>
-        )}
-        <button
-          onClick={() => setMainTab('library')}
-          className={`px-3 py-1.5 text-xs rounded-full font-medium transition-all ${mainTab === 'library'
-            ? 'bg-gray-800 text-white'
-            : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-          }`}
-        >
-          <Archive className="w-3.5 h-3.5 inline mr-1" />
-          素材库
-          <span className="ml-1 text-[10px] opacity-60">{allPackages.length}</span>
-        </button>
-        <button
-          onClick={() => setMainTab('tasks')}
-          className={`px-3 py-1.5 text-xs rounded-full font-medium transition-all ${mainTab === 'tasks'
-            ? 'bg-gray-800 text-white'
-            : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-          }`}
-        >
-          <Activity className="w-3.5 h-3.5 inline mr-1" />
-          任务管理
-          {runningTasks.length > 0 && (
-            <span className="ml-1 text-[10px] opacity-60">{runningTasks.length}</span>
-          )}
-        </button>
-      </div>
-
       {/* Content Area */}
       <div className="flex-1 overflow-hidden">
         {/* ========== 内容生成 Tab ========== */}

@@ -1,6 +1,6 @@
 import { NextApiRequest, NextApiResponse } from "next";
 import { resumeWorkflow } from "@/server/agents/multiAgentSystem";
-import { ImagePlan } from "@/server/agents/state/agentState";
+import { ImagePlan, AgentEvent } from "@/server/agents/state/agentState";
 import { db, schema } from "@/server/db";
 import type { UserResponse } from "@/server/agents/tools/askUserTool";
 
@@ -16,6 +16,14 @@ interface ConfirmRequest {
   };
   // askUser 响应
   userResponse?: UserResponse;
+}
+
+// 发送 SSE 事件（与 stream.ts 格式一致）
+function sendEvent(res: NextApiResponse, event: AgentEvent) {
+  res.write(`data: ${JSON.stringify(event)}\n\n`);
+  if (typeof (res as any).flush === "function") {
+    (res as any).flush();
+  }
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -34,19 +42,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (userResponse) {
       const stream = await resumeWorkflow(threadId, userResponse);
       res.setHeader("Content-Type", "text/event-stream");
-      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
       res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
+
+      sendEvent(res, {
+        type: "agent_start",
+        agent: "supervisor",
+        content: "继续处理中...",
+        timestamp: Date.now(),
+      });
 
       for await (const event of stream) {
-        const data = JSON.stringify({
-          type: "state_update",
-          data: event,
-          timestamp: Date.now(),
-        });
-        res.write(`data: ${data}\n\n`);
+        // 直接发送事件（与 stream.ts 格式一致）
+        if (event && typeof event === "object") {
+          sendEvent(res, event as AgentEvent);
+        }
       }
 
-      res.write(`data: ${JSON.stringify({ type: "done", timestamp: Date.now() })}\n\n`);
+      res.write(`data: [DONE]\n\n`);
       res.end();
       return;
     }
@@ -89,22 +103,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         break;
     }
 
-    // 设置 SSE 响应头
+    // 设置 SSE 响应头（与 stream.ts 和 userResponse 部分保持一致）
     res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
 
-    // 流式返回结果
+    sendEvent(res, {
+      type: "agent_start",
+      agent: "supervisor",
+      content: "继续处理中...",
+      timestamp: Date.now(),
+    });
+
+    // 流式返回结果（与 stream.ts 格式一致）
     for await (const event of stream) {
-      const data = JSON.stringify({
-        type: "state_update",
-        data: event,
-        timestamp: Date.now(),
-      });
-      res.write(`data: ${data}\n\n`);
+      if (event && typeof event === "object") {
+        sendEvent(res, event as AgentEvent);
+      }
     }
 
-    res.write(`data: ${JSON.stringify({ type: "done", timestamp: Date.now() })}\n\n`);
+    res.write(`data: [DONE]\n\n`);
     res.end();
   } catch (error) {
     console.error("[/api/agent/confirm] Error:", error);

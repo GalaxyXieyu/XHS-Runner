@@ -198,6 +198,7 @@ export async function imagePlannerNode(state: typeof AgentState.State, model: Ch
       structureDesc,
       coverPromptTemplate: template.coverPromptTemplate,
       contentPromptTemplate: template.contentPromptTemplate,
+      reviewSuggestions,
     });
 
     if (!systemPrompt) {
