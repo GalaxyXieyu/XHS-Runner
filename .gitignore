@@ -5,8 +5,7 @@ dist/
 *.log
 .DS_Store
 .env.local
-data/
-data/
+/data/
 plan/
 electron/server/
 tsconfig.tsbuildinfo
