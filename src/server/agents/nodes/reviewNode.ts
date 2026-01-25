@@ -65,8 +65,20 @@ export async function reviewAgentNode(state: typeof AgentState.State) {
   // 异步记录审核结果（不阻塞返回）
   recordReviewResult(feedback.approved).catch(console.error);
 
+  // 创建友好的审核结果消息（不使用 emoji）
+  const reviewMessage = feedback.approved
+    ? `审核通过\n\n` +
+      `已审核 ${state.generatedImagePaths.length} 张图片，内容符合要求。\n` +
+      `图文相关性、品牌合规性、文字可读性均达标。\n\n` +
+      `流程完成！`
+    : `审核未通过\n\n` +
+      `发现以下问题：\n${feedback.suggestions.map((s, i) => `${i + 1}. ${s}`).join('\n')}\n\n` +
+      `建议：根据反馈优化内容或图片规划。`;
+
+  const friendlyResponse = new HumanMessage(reviewMessage);
+
   return {
-    messages: [response],
+    messages: [friendlyResponse],
     currentAgent: "review_agent" as AgentType,
     reviewFeedback: feedback,
     // 注意：不要修改 imagesComplete，它表示图片是否已生成，而不是审核是否通过

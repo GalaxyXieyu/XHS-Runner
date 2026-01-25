@@ -7,7 +7,7 @@ export interface AskUserOption {
 }
 
 export interface AgentEvent {
-  type: 'agent_start' | 'agent_end' | 'tool_call' | 'tool_result' | 'message' | 'ask_user' | 'workflow_paused';
+  type: 'agent_start' | 'agent_end' | 'tool_call' | 'tool_result' | 'message' | 'ask_user' | 'workflow_paused' | 'confirmation_required' | 'intent_detected' | 'content_type_detected' | 'supervisor_decision' | 'state_update';
   agent?: string;
   tool?: string;
   content: string;
@@ -22,6 +22,26 @@ export interface AgentEvent {
   allowCustomInput?: boolean;
   context?: Record<string, unknown>;
   threadId?: string;
+  // 内容确认相关
+  confirmationType?: 'content' | 'image_plans';
+  data?: {
+    title?: string;
+    content?: string;
+    tags?: string[];
+  } | any[];
+  // 意图检测相关
+  intent?: string;
+  confidence?: number;
+  suggestedCategory?: string;
+  keywords?: string[];
+  // 内容类型检测相关
+  contentType?: string;
+  reasoning?: string;
+  // supervisor 决策相关
+  decision?: string;
+  reason?: string;
+  // 状态更新相关
+  changes?: string;
 }
 
 export interface ChatMessage {
@@ -29,6 +49,11 @@ export interface ChatMessage {
   content: string;
   agent?: string;
   events?: AgentEvent[];
+  confirmation?: {
+    type: 'content' | 'image_plans';
+    data: any;
+    threadId: string;
+  };
 }
 
 export interface ImageTask {
@@ -49,4 +74,13 @@ export interface AskUserDialogState {
   threadId: string;
   selectedIds: string[];
   customInput: string;
+}
+
+// 内容确认对话框状态
+export interface ContentConfirmationState {
+  isOpen: boolean;
+  threadId: string;
+  title: string;
+  content: string;
+  tags: string[];
 }

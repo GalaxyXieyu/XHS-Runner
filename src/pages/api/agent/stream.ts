@@ -266,8 +266,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             }
 
             if (msg.content && typeof msg.content === "string" && !msg.name) {
+              // Supervisor 消息特殊处理：提取路由决策
+              if (nodeName === "supervisor") {
+                const nextMatch = msg.content.match(/NEXT:\s*(\S+)/);
+                const reasonMatch = msg.content.match(/REASON:\s*(.+?)(?:\n|$)/);
+
+                if (nextMatch) {
+                  const nextAgent = nextMatch[1];
+                  const reason = reasonMatch?.[1] || "继续流程";
+
+                  sendEvent({
+                    type: "supervisor_decision",
+                    agent: "supervisor",
+                    content: `NEXT: ${nextAgent}`,
+                    decision: nextAgent,
+                    reason: reason,
+                    timestamp: Date.now(),
+                  } as any);
+                }
+                continue; // 不显示原始 supervisor prompt
+              }
+
               // 跳过包含内部路由信息的消息
-              if (nodeName === "supervisor" || msg.content.includes("NEXT:") || msg.content.includes("REASON:")) continue;
+              if (msg.content.includes("NEXT:") || msg.content.includes("REASON:")) continue;
 
               sendEvent({
                 type: "message",
@@ -332,22 +353,61 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         if (nodeName !== "supervisor" && nodeName !== "supervisor_route") {
           const summary = output.messages?.[0]?.content?.slice?.(0, 500) || "completed";
           logAgent(trajId, nodeName as AgentType, true, typeof summary === "string" ? summary : "completed");
+
+          // 显示关键状态变化
+          const stateChanges: string[] = [];
+          if (nodeName === "writer_agent" && output.contentComplete) {
+            stateChanges.push("✅ 内容创作完成");
+          }
+          if (nodeName === "image_planner_agent" && output.imagePlans?.length > 0) {
+            stateChanges.push(`✅ 图片规划完成 (${output.imagePlans.length}张)`);
+          }
+          if (nodeName === "image_agent" && output.imagesComplete) {
+            stateChanges.push("✅ 图片生成完成");
+          }
+          if (nodeName === "review_agent" && output.reviewFeedback?.approved) {
+            stateChanges.push("✅ 审核通过 - 流程结束");
+          }
+
+          if (stateChanges.length > 0) {
+            sendEvent({
+              type: "state_update",
+              agent: nodeName,
+              changes: stateChanges.join("; "),
+              timestamp: Date.now(),
+            } as any);
+          }
         }
 
         // HITL: 在 writer_agent 或 image_planner_agent 完成后发送确认请求
         if (enableHITL && threadId) {
-          if (nodeName === "writer_agent" && writerContent) {
-            res.write(`data: ${JSON.stringify({
-              type: "confirmation_required",
-              confirmationType: "content",
-              data: writerContent,
-              threadId,
-              timestamp: Date.now(),
-            })}\n\n`);
-            res.write(`data: ${JSON.stringify({ type: "workflow_paused", threadId, timestamp: Date.now() })}\n\n`);
-            await flushLangfuse();
-            res.end();
-            return;
+          if (nodeName === "writer_agent") {
+            // 如果 writerContent 未设置，尝试从最后一条消息中解析
+            if (!writerContent && output.messages?.length > 0) {
+              const lastMsg = output.messages[output.messages.length - 1];
+              const content = typeof lastMsg.content === "string" ? lastMsg.content : "";
+              if (content) {
+                try {
+                  writerContent = parseWriterContent(content);
+                } catch (e) {
+                  console.error("Failed to parse writer content for HITL:", e);
+                }
+              }
+            }
+
+            if (writerContent) {
+              res.write(`data: ${JSON.stringify({
+                type: "confirmation_required",
+                confirmationType: "content",
+                data: writerContent,
+                threadId,
+                timestamp: Date.now(),
+              })}\n\n`);
+              res.write(`data: ${JSON.stringify({ type: "workflow_paused", threadId, timestamp: Date.now() })}\n\n`);
+              await flushLangfuse();
+              res.end();
+              return;
+            }
           }
           if (nodeName === "image_planner_agent" && imagePlans.length > 0) {
             res.write(`data: ${JSON.stringify({

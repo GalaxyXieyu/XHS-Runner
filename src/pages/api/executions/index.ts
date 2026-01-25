@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { supabase } from '@/server/supabase';
+import { getDatabase } from '@/server/db';
 
 function parseNumber(value: string | string[] | undefined, fallback: number, min: number, max: number) {
   if (!value) return fallback;
@@ -31,7 +31,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const offset = parseNumber(req.query.offset, 0, 0, 10000);
     const timeRange = parseTimeRange(req.query.time_range);
 
-    let query = supabase
+    const db = getDatabase();
+    let query = db
       .from('job_executions')
       .select('id, job_id, status, trigger_type, retry_count, started_at, finished_at, duration_ms, result_json, error_message, created_at')
       .order('created_at', { ascending: false })

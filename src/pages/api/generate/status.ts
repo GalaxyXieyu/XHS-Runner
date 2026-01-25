@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getStatus } from '@/server/services/xhs/llm/generationQueue';
-import { supabase } from '@/server/supabase';
+import { getDatabase } from '@/server/db';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -11,7 +11,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const taskId = req.query.taskId ? Number(req.query.taskId) : null;
 
     if (taskId) {
-      const { data: task, error } = await supabase
+      const db = getDatabase();
+      const { data: task, error } = await db
         .from('generation_tasks')
         .select('id, topic_id, status, prompt, model, result_asset_id, created_at, updated_at')
         .eq('id', taskId)

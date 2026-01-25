@@ -1,7 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 
-// Load .env.local for Supabase credentials
+// Load .env.local for database credentials
 require('dotenv').config({ path: path.join(__dirname, '..', '.env.local') });
 const { setUserDataPath } = require('./server/runtime/userDataPath');
 const { initializeDatabase } = require('./server/db');
@@ -458,7 +458,7 @@ function formatDatabaseInitError(error) {
   return [
     '数据库初始化失败，通常是未配置 DATABASE_URL 或 Postgres 连接不可用导致。',
     '',
-    '请检查 .env.local 或环境变量中的 DATABASE_URL / POSTGRES_URL / SUPABASE_DB_URL',
+    '请检查 .env.local 或环境变量中的 DATABASE_URL / POSTGRES_URL',
     '确保数据库可访问且连接串正确',
     '',
     `运行时版本：node=${process.versions.node} electron=${process.versions.electron} abi=${process.versions.modules}`,

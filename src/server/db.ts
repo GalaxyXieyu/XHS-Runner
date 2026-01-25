@@ -1,12 +1,10 @@
 // Database access layer
 // - Drizzle ORM: new code should use `db`/`schema`
-// - Supabase SDK: legacy compatibility for modules not yet migrated
+// - Query client: legacy query helpers backed by Drizzle
 
 export { db, schema } from './db/index';
 import { getDrizzleDb } from './db/index';
-
-// Legacy database helper - for gradual migration
-import { supabase } from './supabase';
+import { getQueryClient } from './db/queryClient';
 
 export function initializeDatabase() {
   // Ensure Drizzle is configured early (Electron/Next 共用)
@@ -17,8 +15,5 @@ export function initializeDatabase() {
 
 export function getDatabase() {
   // Legacy: prefer `db` for new code
-  return supabase;
+  return getQueryClient();
 }
-
-// Re-export Supabase client
-export { supabase };

@@ -2,8 +2,7 @@ import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import * as fs from "fs";
 import * as path from "path";
-import { supabase } from "../../supabase";
-import { db, schema } from "../../db";
+import { db, schema, getDatabase } from "../../db";
 import { getTagStats, getTopTitles, getLatestTrendReport } from "../../services/xhs/analytics/insightService";
 import { enqueueTask } from "../../services/xhs/llm/generationQueue";
 import { analyzeReferenceImage } from "../../services/xhs/llm/geminiClient";
@@ -14,7 +13,8 @@ import { getSetting } from "../../settings";
 // Tool 1: 搜索已抓取的笔记
 export const searchNotesTool = tool(
   async ({ query, themeId, limit }) => {
-    let dbQuery = supabase
+    const queryDb = getDatabase();
+    let dbQuery = queryDb
       .from("topics")
       .select("id, title, desc, like_count, collect_count, comment_count, created_at")
       .ilike("title", `%${query}%`)
@@ -398,6 +398,7 @@ export const webSearchTool = tool(
 export const saveImagePlanTool = tool(
   async ({ creativeId, plans }) => {
     try {
+      const queryDb = getDatabase();
       const insertData = plans.map((p) => ({
         creative_id: creativeId,
         sequence: p.sequence,
@@ -406,7 +407,7 @@ export const saveImagePlanTool = tool(
         status: "planned",
       }));
 
-      const { data, error } = await supabase
+      const { data, error } = await queryDb
         .from("image_plans")
         .insert(insertData)
         .select("id, sequence, role");
@@ -452,11 +453,12 @@ export { recommendTemplatesTool, intentTools, detectIntent } from "./intentTools
 export type { IntentType, IntentResult } from "./intentTools";
 
 // 导入 askUserTool - 统一用户确认工具
-export { askUserTool, askUserTools } from "./askUserTool";
+import { askUserTool, askUserTools } from "./askUserTool";
+export { askUserTool, askUserTools };
 export type { AskUserOption, UserResponse, AskUserInterrupt } from "./askUserTool";
 
 // 工具分组导出 (用于 multiAgentSystem)
-export const researchTools = [searchNotesTool, analyzeTopTagsTool, getTopTitlesTool, getTrendReportTool, webSearchTool];
+export const researchTools = [searchNotesTool, analyzeTopTagsTool, getTopTitlesTool, getTrendReportTool, webSearchTool, askUserTool];
 export const imageTools = [generateImageTool];
 export const styleTools = [analyzeReferenceImageTool];
 export const plannerTools = [saveImagePlanTool];

@@ -3,7 +3,8 @@ import * as schema from './schema';
 export { schema };
 
 // Drizzle ORM 连接层（Postgres）
-// - 使用 `DATABASE_URL` 连接 Postgres（可以是 Supabase Postgres 的 connection string）
+// - 使用 `DATABASE_URL` 连接 Postgres（支持本地/托管连接串）
+// - 可选 `SUPABASE_DB_URL` 仅用于迁移导出脚本
 // - 采用惰性初始化，避免未配置时影响未使用 Drizzle 的路径
 import postgres, { Sql } from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';

@@ -3,9 +3,10 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import type { Theme } from "@/App";
 import { Bot, Send, X, Wand2, Paperclip, ChevronDown, ChevronRight, ChevronLeft, Image, RefreshCw, Download, Copy, MoreHorizontal } from "lucide-react";
-import type { AgentEvent, ChatMessage, ImageTask, AskUserOption, AskUserDialogState } from "../types";
+import type { AgentEvent, ChatMessage, ImageTask, AskUserOption, AskUserDialogState, ContentConfirmationState } from "../types";
 import type { ContentPackage } from "@/features/material-library/types";
 import { NoteDetailModal, type NoteDetailData } from "@/components/NoteDetailModal";
+import { ConfirmationCard } from "./ConfirmationCard";
 
 type AspectRatio = "3:4" | "1:1" | "4:3";
 type ImageModel = "nanobanana" | "jimeng";
@@ -87,6 +88,7 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
   const [showCustomForm, setShowCustomForm] = useState(false);
   const [mode, setMode] = useState<Mode>("agent");
   const [expandedProcess, setExpandedProcess] = useState(true);  // 过程消息展开状态（默认展开）
+  const [expandedLoading, setExpandedLoading] = useState(true);  // 加载状态展开（默认展开）
   const [imageTasks, setImageTasks] = useState<ImageTask[]>([]);  // 图片生成任务
   const [imageGenProvider, setImageGenProvider] = useState<'gemini' | 'jimeng'>('jimeng');  // 图片生成模型
   const [customConfig, setCustomConfig] = useState<CustomConfig>({
@@ -117,6 +119,15 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
     selectedIds: [],
     customInput: "",
   });
+
+  // 待确认的卡片状态
+  const [pendingConfirmation, setPendingConfirmation] = useState<{
+    type: 'content' | 'image_plans';
+    data: any;
+    threadId: string;
+    messageId: number; // 关联的消息ID
+  } | null>(null);
+  const [isConfirming, setIsConfirming] = useState(false);
 
   // 转换 ContentPackage 为 NoteDetailData
   const packageToNoteData = useCallback((pkg: ContentPackage): NoteDetailData => ({
@@ -294,6 +305,42 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
                   customInput: "",
                 });
               }
+
+              // 处理 confirmation_required 事件 - 显示确认卡片
+              if (event.type === "confirmation_required" && event.threadId) {
+                setMessages((prev) => {
+                  const newMessages = [...prev];
+                  const lastMsg = newMessages[newMessages.length - 1];
+
+                  // 添加或更新最后一条消息，附加确认卡片
+                  if (lastMsg?.role === "assistant") {
+                    lastMsg.confirmation = {
+                      type: event.confirmationType || "content",
+                      data: event.data,
+                      threadId: event.threadId,
+                    };
+                  } else {
+                    newMessages.push({
+                      role: "assistant",
+                      content: "",
+                      events: [...collectedEvents],
+                      confirmation: {
+                        type: event.confirmationType || "content",
+                        data: event.data,
+                        threadId: event.threadId,
+                      },
+                    });
+                  }
+
+                  return newMessages;
+                });
+              }
+
+              // 处理 workflow_paused 事件
+              if (event.type === "workflow_paused") {
+                setIsStreaming(false);
+                setStreamPhase("");
+              }
             } catch { }
           }
         }
@@ -376,6 +423,16 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
               setEvents(prev => [...prev, event]);
               updatePhase(event);
 
+              // 收集批量图片生成任务（与 handleSubmit 保持一致）
+              if (event.type === "tool_result" && event.tool === "generate_images" && event.taskIds && event.prompts) {
+                const newTasks: ImageTask[] = event.taskIds.map((id, i) => ({
+                  id,
+                  prompt: event.prompts![i] || "",
+                  status: "queued" as const,
+                }));
+                setImageTasks(prev => [...prev, ...newTasks]);
+              }
+
               if (event.type === "message" && event.content) {
                 assistantContent += (assistantContent ? "\n\n" : "") + event.content;
                 setMessages((prev) => {
@@ -433,6 +490,205 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
           ? prev.selectedIds.filter(id => id !== optionId)
           : [...prev.selectedIds, optionId],
       }));
+    }
+  };
+
+  // 处理内容/图片规划确认
+  const handleConfirmation = async (threadId: string, approved: boolean, feedback?: string) => {
+    // 清除待确认的卡片
+    setMessages(prev => prev.map(msg => ({
+      ...msg,
+      confirmation: undefined,
+    })));
+
+    if (!approved) {
+      // 用户选择重新生成（不添加用户消息，直接开始重新生成）
+      try {
+        setIsStreaming(true);
+        setStreamPhase("重新生成中...");
+
+        const res = await fetch("/api/agent/confirm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            threadId,
+            action: "reject",
+            userFeedback: feedback || "需要更好的内容",
+          }),
+        });
+
+        if (!res.ok) {
+          throw new Error("Failed to reject");
+        }
+
+        // 处理 SSE 流
+        const reader = res.body?.getReader();
+        if (!reader) return;
+
+        const decoder = new TextDecoder();
+        let assistantContent = "";
+        const collectedEvents: AgentEvent[] = [];
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value);
+          const lines = chunk.split("\n");
+
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              const data = line.slice(6);
+              if (data === "[DONE]") continue;
+
+              try {
+                const event: AgentEvent = JSON.parse(data);
+                collectedEvents.push(event);
+                setEvents(prev => [...prev, event]);
+                updatePhase(event);
+
+                if (event.type === "message" && event.content) {
+                  assistantContent += (assistantContent ? "\n\n" : "") + event.content;
+                  setMessages((prev) => {
+                    const newMessages = [...prev];
+                    const lastMsg = newMessages[newMessages.length - 1];
+                    if (lastMsg?.role === "assistant") {
+                      lastMsg.content = assistantContent;
+                      lastMsg.events = [...collectedEvents];
+                    } else {
+                      newMessages.push({
+                        role: "assistant",
+                        content: assistantContent,
+                        events: [...collectedEvents],
+                      });
+                    }
+                    return newMessages;
+                  });
+                }
+              } catch { }
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Reject error:", error);
+        setMessages(prev => [...prev, { role: "assistant", content: "拒绝失败，请重试" }]);
+      } finally {
+        setIsStreaming(false);
+        setStreamPhase("");
+      }
+      return;
+    }
+
+    // 用户确认继续，发送确认请求（不添加用户消息，直接继续流式渲染）
+    try {
+      setIsStreaming(true);
+      setStreamPhase("继续执行中...");
+
+      const res = await fetch("/api/agent/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          threadId,
+          action: "approve",
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to confirm");
+      }
+
+      // 处理 SSE 流（与 handleAskUserSubmit 相同）
+      const reader = res.body?.getReader();
+      if (!reader) return;
+
+      const decoder = new TextDecoder();
+      let assistantContent = "";
+      const collectedEvents: AgentEvent[] = [];
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split("\n");
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const data = line.slice(6);
+            if (data === "[DONE]") continue;
+
+            try {
+              const event: AgentEvent = JSON.parse(data);
+              collectedEvents.push(event);
+              setEvents(prev => [...prev, event]);
+              updatePhase(event);
+
+              // 处理后续的 confirmation_required 事件
+              if (event.type === "confirmation_required" && event.threadId) {
+                setMessages((prev) => {
+                  const newMessages = [...prev];
+                  const lastMsg = newMessages[newMessages.length - 1];
+                  if (lastMsg?.role === "assistant") {
+                    lastMsg.confirmation = {
+                      type: event.confirmationType || "content",
+                      data: event.data,
+                      threadId: event.threadId,
+                    };
+                  } else {
+                    newMessages.push({
+                      role: "assistant",
+                      content: "",
+                      events: [...collectedEvents],
+                      confirmation: {
+                        type: event.confirmationType || "content",
+                        data: event.data,
+                        threadId: event.threadId,
+                      },
+                    });
+                  }
+                  return newMessages;
+                });
+              }
+
+              // 处理消息
+              if (event.type === "message" && event.content) {
+                assistantContent += (assistantContent ? "\n\n" : "") + event.content;
+                setMessages((prev) => {
+                  const newMessages = [...prev];
+                  const lastMsg = newMessages[newMessages.length - 1];
+                  if (lastMsg?.role === "assistant") {
+                    lastMsg.content = assistantContent;
+                    lastMsg.events = [...collectedEvents];
+                  } else {
+                    newMessages.push({
+                      role: "assistant",
+                      content: assistantContent,
+                      events: [...collectedEvents],
+                    });
+                  }
+                  return newMessages;
+                });
+              }
+
+              // 处理图片生成任务
+              if (event.type === "tool_result" && event.tool === "generate_images" && event.taskIds && event.prompts) {
+                const newTasks: ImageTask[] = event.taskIds.map((id, i) => ({
+                  id,
+                  prompt: event.prompts![i] || "",
+                  status: "queued" as const,
+                }));
+                setImageTasks(prev => [...prev, ...newTasks]);
+              }
+            } catch { }
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Confirm error:", error);
+      setMessages(prev => [...prev, { role: "assistant", content: "确认失败，请重试" }]);
+    } finally {
+      setIsStreaming(false);
+      setStreamPhase("");
     }
   };
 
@@ -740,7 +996,12 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
           {/* 消息区域 */}
           <div className="flex-1 flex overflow-hidden">
             <div className={`flex-1 overflow-y-auto px-4 py-3 space-y-4 ${showEvents ? "mr-0" : ""}`}>
-              {messages.map((msg, idx) => (
+              {messages.map((msg, idx) => {
+                // 判断是否是最后一条 assistant 消息
+                const isLastAssistantMessage = idx === messages.length - 1 ||
+                  (idx < messages.length - 1 && messages[idx + 1].role !== 'assistant');
+
+                return (
                 <div key={idx} className="space-y-3">
                   {/* 用户消息 - 简洁灰色风格 */}
                   {msg.role === "user" && (
@@ -771,10 +1032,58 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
                     const toolEvents = msgEvents.filter(e => e.type === "tool_call" || e.type === "tool_result");
                     const isCurrentlyStreaming = isStreaming && idx === messages.length - 1;
 
+                    // 完整的工具/Agent 名称中文映射
+                    const nameMap: Record<string, string> = {
+                      // XHS 数据工具
+                      searchNotes: "搜索笔记",
+                      analyzeTopTags: "分析热门标签",
+                      getTrendReport: "获取趋势报告",
+                      getTopTitles: "获取爆款标题",
+
+                      // 图片生成工具
+                      generateImage: "生成单张图片",
+                      generate_images: "批量生成图片",
+                      generate_images_batch: "批量生成图片（串行）",
+                      generate_with_reference: "参考图生成",
+                      analyzeReferenceImage: "分析参考图风格",
+                      saveImagePlan: "保存图片规划",
+
+                      // 通用工具
+                      webSearch: "联网搜索",
+                      askUser: "询问用户",
+                      managePrompt: "管理提示词模板",
+                      recommendTemplates: "推荐模板",
+                      save_creative: "保存创作",
+
+                      // Agent 名称
+                      research_agent: "研究助手",
+                      writer_agent: "写作助手",
+                      image_agent: "图片生成助手",
+                      image_planner_agent: "图片规划助手",
+                      style_analyzer_agent: "风格分析助手",
+                      review_agent: "审核助手",
+                      supervisor: "任务调度中心",
+
+                      // 兼容旧名称
+                      search_notes: "搜索笔记",
+                      analyze_notes: "分析笔记",
+                      analyze_tags: "分析标签",
+                      get_top_titles: "获取爆款标题",
+                      generate_content: "生成内容",
+                      tavily_search: "联网搜索",
+                    };
+
+                    // 获取最新的步骤名称
+                    const latestEvent = toolEvents.length > 0 ? toolEvents[toolEvents.length - 1] : null;
+                    const latestStepName = latestEvent
+                      ? nameMap[latestEvent.tool || latestEvent.agent || ""] || latestEvent.tool || latestEvent.agent || ""
+                      : "";
+                    const latestStepType = latestEvent?.type === "tool_call" ? "调用" : "完成";
+
                     return (
-                      <div className="space-y-3">
-                        {/* 研究过程 - 包含状态和结果 */}
-                        {(researchContent || toolEvents.length > 0 || isCurrentlyStreaming) && (
+                      <div className="space-y-3 max-w-[80%]">
+                        {/* 研究过程 - 包含状态和结果 - 只在最后一条 assistant 消息中显示 */}
+                        {(researchContent || toolEvents.length > 0 || isCurrentlyStreaming) && isLastAssistantMessage && (
                           <div className="border border-gray-200 rounded-lg overflow-hidden">
                             <button
                               onClick={() => setExpandedProcess(!expandedProcess)}
@@ -786,56 +1095,50 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
                                 <ChevronRight className={`w-3.5 h-3.5 text-blue-500 transition-transform ${expandedProcess ? "rotate-90" : ""}`} />
                               )}
                               <span className="text-xs font-medium text-blue-700">研究过程</span>
-                              {isCurrentlyStreaming && streamPhase && (
-                                <span className="text-xs text-blue-500 ml-1">· {streamPhase}</span>
+                              {/* 显示最新步骤 */}
+                              {latestStepName && (
+                                <span className="text-xs text-blue-500 ml-1">
+                                  · {latestStepType} {latestStepName}
+                                </span>
+                              )}
+                              {/* 显示步骤总数 */}
+                              {toolEvents.length > 0 && (
+                                <span className="text-xs text-gray-400 ml-auto">
+                                  {toolEvents.length} 个步骤
+                                </span>
                               )}
                             </button>
                             {expandedProcess && (
-                              <div className="bg-white border-t border-gray-100 max-h-60 overflow-y-auto">
+                              <div className="bg-white border-t border-gray-100 max-h-96 overflow-y-auto">
                                 {/* 工具调用步骤 */}
                                 <div className="divide-y divide-gray-50">
                                   {toolEvents.map((event, i) => {
-                                    // 工具/Agent 名称中文映射
-                                    const nameMap: Record<string, string> = {
-                                      // 工具名称
-                                      search_notes: "搜索笔记",
-                                      analyze_notes: "分析笔记",
-                                      analyze_tags: "分析标签",
-                                      get_top_titles: "获取爆款标题",
-                                      generate_content: "生成内容",
-                                      generate_images: "生成图片",
-                                      save_creative: "保存创作",
-                                      askUser: "询问用户",
-                                      web_search: "网络搜索",
-                                      tavily_search: "Tavily 搜索",
-                                      // Agent 名称
-                                      research_agent: "研究助手",
-                                      writer_agent: "写作助手",
-                                      image_agent: "图片助手",
-                                      image_planner_agent: "图片规划",
-                                      style_analyzer_agent: "风格分析",
-                                      review_agent: "审核助手",
-                                      supervisor: "任务调度",
-                                    };
                                     const rawName = event.tool || event.agent || "";
                                     const displayName = nameMap[rawName] || rawName;
                                     const isCall = event.type === "tool_call";
 
                                     return (
-                                      <div key={i} className="px-3 py-2">
+                                      <div key={i} className="px-3 py-2 hover:bg-gray-50 transition-colors">
                                         <div className="flex items-center gap-2">
-                                          <span className={`text-xs px-1.5 py-0.5 rounded ${isCall ? "bg-blue-100 text-blue-600" : "bg-green-100 text-green-600"}`}>
+                                          <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${isCall ? "bg-blue-100 text-blue-600" : "bg-green-100 text-green-600"}`}>
                                             {isCall ? "调用" : "结果"}
                                           </span>
                                           <span className="text-xs font-medium text-gray-700">
                                             {displayName}
                                           </span>
                                           {!isCall && (
-                                            <span className="text-xs text-green-600">完成</span>
+                                            <span className="text-xs text-green-600 flex items-center gap-1">
+                                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                              </svg>
+                                              完成
+                                            </span>
                                           )}
                                         </div>
                                         {event.content && (
-                                          <div className="mt-1 text-xs text-gray-500 line-clamp-2">{event.content}</div>
+                                          <div className="mt-1.5 text-xs text-gray-600 leading-relaxed line-clamp-3">
+                                            {event.content}
+                                          </div>
                                         )}
                                       </div>
                                     );
@@ -854,7 +1157,7 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
                         )}
 
                         {/* 创作内容 - 紧凑卡片 */}
-                        {parsed ? (
+                        {parsed && (
                           <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
                             {/* 标题区 */}
                             <div className="px-4 pt-4 pb-2">
@@ -913,12 +1216,27 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
                               </div>
                             )}
                           </div>
-                        ) : !researchContent && msg.content ? (
-                          /* 普通文本回复（仅当没有研究内容时显示） */
+                        )}
+
+                        {/* 确认卡片 */}
+                        {msg.confirmation && !isStreaming && (
+                          <div className="mt-3">
+                            <ConfirmationCard
+                              type={msg.confirmation.type}
+                              data={msg.confirmation.data}
+                              threadId={msg.confirmation.threadId}
+                              onConfirm={handleConfirmation}
+                              isConfirming={isConfirming}
+                            />
+                          </div>
+                        )}
+
+                        {!researchContent && msg.content && !parsed && (
+                          /* 普通文本回复（仅当没有研究内容和创作内容时显示） */
                           <div className="bg-gray-50 rounded-xl px-4 py-3">
                             <div className="text-xs text-gray-700 leading-relaxed whitespace-pre-wrap">{msg.content}</div>
                           </div>
-                        ) : null}
+                        )}
 
                         {/* 操作按钮 */}
                         {!isStreaming && parsed && (
@@ -941,13 +1259,110 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
                     );
                   })()}
                 </div>
-              ))}
+              );
+              })}
 
-              {/* 加载状态 - 轻量进度提示 */}
+              {/* 加载状态 - 可展开的蓝色卡片 */}
               {isStreaming && messages[messages.length - 1]?.role !== "assistant" && (
-                <div className="flex items-center gap-2 px-3 py-2 bg-gray-50/80 rounded-lg">
-                  <div className="w-3 h-3 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
-                  <span className="text-xs text-gray-500">{streamPhase || "AI 正在创作中..."}</span>
+                <div className="max-w-[80%]">
+                  <div className="border border-gray-200 rounded-lg overflow-hidden">
+                    <button
+                      onClick={() => setExpandedLoading(!expandedLoading)}
+                      className="w-full flex items-center gap-2 px-3 py-2 bg-blue-50/50 hover:bg-blue-50 transition-colors text-left"
+                    >
+                      <div className="w-3.5 h-3.5 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin" />
+                      <span className="text-xs font-medium text-blue-700">正在处理</span>
+                      {streamPhase && (
+                        <span className="text-xs text-blue-500 ml-1">· {streamPhase}</span>
+                      )}
+                      {/* 显示事件总数 */}
+                      {events.length > 0 && (
+                        <span className="text-xs text-gray-400 ml-auto mr-2">
+                          {events.length} 个事件
+                        </span>
+                      )}
+                      <ChevronRight className={`w-3.5 h-3.5 text-blue-500 transition-transform ${expandedLoading ? "rotate-90" : ""}`} />
+                    </button>
+                    {expandedLoading && events.length > 0 && (
+                      <div className="bg-white border-t border-gray-100 max-h-96 overflow-y-auto">
+                        <div className="divide-y divide-gray-50">
+                          {events.map((event, i) => {
+                            // 名称映射
+                            const nameMap: Record<string, string> = {
+                              // XHS 数据工具
+                              searchNotes: "搜索笔记",
+                              analyzeTopTags: "分析热门标签",
+                              getTrendReport: "获取趋势报告",
+                              getTopTitles: "获取爆款标题",
+                              // 图片生成工具
+                              generateImage: "生成单张图片",
+                              generate_images: "批量生成图片",
+                              generate_images_batch: "批量生成图片（串行）",
+                              generate_with_reference: "参考图生成",
+                              analyzeReferenceImage: "分析参考图风格",
+                              saveImagePlan: "保存图片规划",
+                              // 通用工具
+                              webSearch: "联网搜索",
+                              askUser: "询问用户",
+                              managePrompt: "管理提示词模板",
+                              recommendTemplates: "推荐模板",
+                              save_creative: "保存创作",
+                              // Agent 名称
+                              research_agent: "研究专家",
+                              writer_agent: "创作专家",
+                              image_agent: "图片生成专家",
+                              image_planner_agent: "图片规划专家",
+                              style_analyzer_agent: "风格分析专家",
+                              review_agent: "审核专家",
+                              supervisor: "主管",
+                              supervisor_route: "任务路由",
+                              // 兼容旧名称
+                              search_notes: "搜索笔记",
+                              analyze_notes: "分析笔记",
+                              analyze_tags: "分析标签",
+                              get_top_titles: "获取爆款标题",
+                              generate_content: "生成内容",
+                              tavily_search: "联网搜索",
+                            };
+
+                            const getEventIcon = () => {
+                              switch (event.type) {
+                                case "agent_start": return "🚀";
+                                case "agent_end": return "✅";
+                                case "tool_call": return "🔧";
+                                case "tool_result": return "📊";
+                                case "message": return "💬";
+                                case "supervisor_decision": return "🎯";
+                                default: return "•";
+                              }
+                            };
+
+                            // 获取显示名称
+                            const rawName = event.tool || event.agent || "";
+                            const displayName = nameMap[rawName] || rawName;
+
+                            return (
+                              <div key={i} className="px-3 py-2 hover:bg-gray-50 transition-colors">
+                                <div className="flex items-start gap-2">
+                                  <span className="text-sm">{getEventIcon()}</span>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="text-xs text-gray-600 break-words">
+                                      {event.content || event.type}
+                                    </div>
+                                    {(event.agent || event.tool) && (
+                                      <div className="text-xs text-gray-400 mt-0.5">
+                                        {displayName}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
               <div ref={messagesEndRef} />
@@ -1043,15 +1458,15 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
 
       {/* askUser 对话框 */}
       {askUserDialog.isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full mx-4 overflow-hidden">
-            {/* 标题 */}
-            <div className="px-6 py-4 border-b border-gray-100">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[80vh] flex flex-col overflow-hidden">
+            {/* 标题 - 固定 */}
+            <div className="px-6 py-4 border-b border-gray-100 flex-shrink-0">
               <h3 className="text-lg font-semibold text-gray-800">需要您的确认</h3>
             </div>
 
-            {/* 问题内容 */}
-            <div className="px-6 py-4">
+            {/* 问题内容 - 可滚动 */}
+            <div className="px-6 py-4 flex-1 overflow-y-auto">
               <p className="text-gray-700 whitespace-pre-wrap">{askUserDialog.question}</p>
 
               {/* 选项列表 */}
@@ -1068,7 +1483,7 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
                       }`}
                     >
                       <div className="flex items-center gap-3">
-                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
                           askUserDialog.selectedIds.includes(option.id)
                             ? "border-blue-500 bg-blue-500"
                             : "border-gray-300"
@@ -1077,10 +1492,10 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
                             <div className="w-2 h-2 rounded-full bg-white" />
                           )}
                         </div>
-                        <div>
+                        <div className="min-w-0">
                           <div className="font-medium text-gray-800">{option.label}</div>
                           {option.description && (
-                            <div className="text-sm text-gray-500">{option.description}</div>
+                            <div className="text-sm text-gray-500 line-clamp-2">{option.description}</div>
                           )}
                         </div>
                       </div>
@@ -1103,8 +1518,8 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
               )}
             </div>
 
-            {/* 操作按钮 */}
-            <div className="px-6 py-4 bg-gray-50 flex justify-end gap-3">
+            {/* 操作按钮 - 固定 */}
+            <div className="px-6 py-4 bg-gray-50 flex justify-end gap-3 flex-shrink-0 border-t border-gray-100">
               <button
                 onClick={() => setAskUserDialog(prev => ({ ...prev, isOpen: false }))}
                 className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"

@@ -43,8 +43,7 @@
 
 ## 数据与配置
 
-- **数据库**：Drizzle + Postgres（Supabase），需配置 `DATABASE_URL` / `POSTGRES_URL` / `SUPABASE_DB_URL`
-- **Supabase 客户端**：`src/server/supabase.ts`（遗留兼容）
+- **数据库**：Drizzle + Postgres，需配置 `DATABASE_URL` / `POSTGRES_URL`（迁移导出时可选 `SUPABASE_DB_URL`）
 - **运行时配置**：`XHS_MCP_DRIVER=local|mock`（默认 local）、`XHS_MCP_XSEC_TOKEN`、`XHS_BROWSER_PATH`
 - **本地数据路径**：`XHS_USER_DATA_PATH`（默认 Electron userData）
 

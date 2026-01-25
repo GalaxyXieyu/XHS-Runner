@@ -119,7 +119,17 @@ export async function buildGraph(model: ChatOpenAI, hitlConfig?: HITLConfig) {
     // Supervisor 节点
     .addNode("supervisor", (state) => supervisorNode(state, model))
     .addNode("supervisor_tools", supervisorToolNode)
-    .addNode("supervisor_route", async () => ({})) // 空节点，仅用于路由
+    .addNode("supervisor_route", async (state: typeof AgentState.State) => {
+      console.log("[supervisor_route] 节点执行");
+      console.log("[supervisor_route] 接收到的 state.messages 长度:", state.messages.length);
+      if (state.messages.length > 0) {
+        const lastMsg = state.messages[state.messages.length - 1];
+        console.log("[supervisor_route] 最后一条消息类型:", lastMsg?.constructor?.name);
+        const content = typeof lastMsg?.content === "string" ? lastMsg.content : "";
+        console.log("[supervisor_route] 最后一条消息内容 (前200字符):", content.slice(0, 200));
+      }
+      return {}; // 空返回，不修改状态
+    }) // 空节点，仅用于路由
 
     // Agent 节点
     .addNode("research_agent", (state) => researchAgentNode(state, model))

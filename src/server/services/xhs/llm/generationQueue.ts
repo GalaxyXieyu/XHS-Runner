@@ -1,5 +1,4 @@
-import { supabase } from '../../../supabase';
-import { db, schema } from '../../../db';
+import { db, schema, getDatabase } from '../../../db';
 import { eq } from 'drizzle-orm';
 import { storeAsset } from '../integration/assetStore';
 import { generateImage, ImageModel } from '../integration/imageProvider';
@@ -65,8 +64,9 @@ async function createTask({
 }) {
   const resolved = await resolveThemeAndTopicIds({ themeId, topicId });
   const finalPrompt = renderTemplate(templateKey || 'default', { topic: prompt });
+  const queryDb = getDatabase();
 
-  const { data, error } = await supabase
+  const { data, error } = await queryDb
     .from('generation_tasks')
     .insert({
       theme_id: resolved.themeId,
@@ -138,7 +138,8 @@ export async function cancelTask(taskId: number) {
     queue.splice(index, 1);
   }
 
-  await supabase
+  const queryDb = getDatabase();
+  await queryDb
     .from('generation_tasks')
     .update({ status: 'canceled', updated_at: new Date().toISOString() })
     .eq('id', taskId);
@@ -172,7 +173,8 @@ async function processQueue() {
 }
 
 async function handleTask(taskId: number) {
-  const { data: task, error } = await supabase
+  const queryDb = getDatabase();
+  const { data: task, error } = await queryDb
     .from('generation_tasks')
     .select('id, prompt, model, theme_id, topic_id, creative_id')
     .eq('id', taskId)
@@ -182,7 +184,7 @@ async function handleTask(taskId: number) {
   if (!task) return;
 
   const nowIso = new Date().toISOString();
-  await supabase
+  await queryDb
     .from('generation_tasks')
     .update({ status: 'generating', updated_at: nowIso })
     .eq('id', taskId);
@@ -227,7 +229,7 @@ async function handleTask(taskId: number) {
 
     const finalCreativeId = creativeId ?? task.creative_id ?? null;
 
-    await supabase
+    await queryDb
       .from('generation_tasks')
       .update({
         status: 'done',
@@ -262,7 +264,7 @@ async function handleTask(taskId: number) {
     console.error(`[generationQueue] handleTask(${taskId}) failed:`, err);
     const errorMessage = err instanceof Error ? err.message : String(err);
 
-    await supabase
+    await queryDb
       .from('generation_tasks')
       .update({ status: 'failed', error_message: errorMessage, updated_at: new Date().toISOString() })
       .eq('id', taskId);

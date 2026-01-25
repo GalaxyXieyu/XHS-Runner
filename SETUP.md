@@ -23,7 +23,7 @@ ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ npm install
 - 连接串错误或网络不可达
 
 **解决方案**：
-在 `.env.local` 中配置 `DATABASE_URL`（或 `POSTGRES_URL` / `SUPABASE_DB_URL`）。
+在 `.env.local` 中配置 `DATABASE_URL`（或 `POSTGRES_URL`）。迁移导出脚本可用 `SUPABASE_DB_URL`。
 
 示例（请替换为你自己的连接串）：
 ```bash
@@ -93,7 +93,7 @@ npm run dev
 3. 重新启动应用
 
 ### Drizzle 连接错误（`Drizzle db is not configured`）
-当前项目的 Drizzle ORM 需要 **Postgres 连接串**（例如 Supabase Postgres 的 connection string）。
+当前项目的 Drizzle ORM 需要 **Postgres 连接串**（本地或远程均可；迁移导出脚本可选 `SUPABASE_DB_URL`）。
 
 解决方案：在你的环境里配置 `DATABASE_URL`（推荐写在 `.env.local`，该文件已在 `.gitignore` 中）。
 

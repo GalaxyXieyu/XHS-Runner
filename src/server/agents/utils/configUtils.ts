@@ -1,6 +1,6 @@
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
 import { ChatOpenAI } from "@langchain/openai";
-import { supabase } from "../../supabase";
+import { getDatabase } from "../../db";
 
 // PostgresSaver 单例
 let checkpointerInstance: PostgresSaver | null = null;
@@ -27,16 +27,17 @@ export interface LLMConfig {
 }
 
 export async function getLLMConfig(requireVision = false): Promise<LLMConfig> {
-  let query = supabase
+  const db = getDatabase();
+  let query = db
     .from("llm_providers")
     .select("base_url, api_key, model_name, max_tokens, supports_vision, supports_image_gen")
-    .eq("is_enabled", 1);
+    .eq("is_enabled", true);
 
   if (requireVision) {
     // 优先选择支持视觉且是默认的，否则取第一个支持视觉的
-    query = query.eq("supports_vision", 1).order("is_default", { ascending: false }).limit(1);
+    query = query.eq("supports_vision", true).order("is_default", { ascending: false }).limit(1);
   } else {
-    query = query.eq("is_default", 1);
+    query = query.eq("is_default", true);
   }
 
   const { data } = await query.maybeSingle();

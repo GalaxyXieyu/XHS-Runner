@@ -1,4 +1,4 @@
-import { HumanMessage } from "@langchain/core/messages";
+import { HumanMessage, AIMessage } from "@langchain/core/messages";
 import { ChatOpenAI } from "@langchain/openai";
 import { AgentState, type AgentType, type ImagePlan } from "../state/agentState";
 import { compressContext, safeSliceMessages } from "../utils";
@@ -244,8 +244,17 @@ export async function imagePlannerNode(state: typeof AgentState.State, model: Ch
     plans = generateFallbackPlans(title, { colorPalette, mood, lighting });
   }
 
+  // 创建包含 JSON 格式的消息（用于 HITL 提取）
+  const plansJson = JSON.stringify(plans, null, 2);
+  const summaryMessage = new AIMessage(
+    `✅ 图片规划完成\n\n` +
+    `共规划 ${plans.length} 张图片：${plans.map(p => p.role).join('、')}\n` +
+    `风格：${colorPalette} / ${mood}\n\n` +
+    `\`\`\`json\n${plansJson}\n\`\`\``
+  );
+
   return {
-    messages: [],
+    messages: [summaryMessage],
     currentAgent: "image_planner_agent" as AgentType,
     imagePlans: plans,
     reviewFeedback: null,

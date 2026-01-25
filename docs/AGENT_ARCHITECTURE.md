@@ -14,7 +14,7 @@ XHS-Agent 是一个基于 **LangGraph** 的多 Agent 协作系统，用于自动
 |-----|---------|
 | Agent 框架 | LangGraph + LangChain |
 | LLM | OpenAI 兼容 API (可配置 Base URL + API Key) |
-| 状态持久化 | PostgresSaver (Supabase) |
+| 状态持久化 | PostgresSaver (Postgres) |
 | 链路追踪 | Langfuse |
 | 通信协议 | SSE (Server-Sent Events) |
 | 图片生成 | 火山引擎即梦 (Jimeng) + Gemini Vision |
@@ -457,7 +457,7 @@ const AgentState = Annotation.Root({
 
 ### 6.2 状态持久化
 
-**Checkpointer**: PostgresSaver (Supabase)
+**Checkpointer**: PostgresSaver (Postgres)
 
 **存储表** (LangGraph 自动创建):
 - `checkpoints` - 检查点主表
@@ -734,7 +734,7 @@ await logGeneration({
 
 ```bash
 # 检查 Langfuse trace
-# 查看 Supabase checkpoints 表
+# 查看 Postgres checkpoints 表
 SELECT * FROM checkpoints ORDER BY created_at DESC LIMIT 10;
 
 # 检查工作流状态

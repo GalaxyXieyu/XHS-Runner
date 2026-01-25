@@ -340,7 +340,7 @@ async function getJimengConfig() {
         superbedToken = superbedToken || imagehostService.api_key;
       }
     } catch {
-      // Ignore missing supabase / extension services
+      // Ignore missing extension services
     }
   }
 

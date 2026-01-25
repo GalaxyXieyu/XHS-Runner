@@ -1,11 +1,12 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { supabase } from '@/server/supabase';
+import { getDatabase } from '@/server/db';
 import { clearTavilyConfigCache, getTavilyConfig } from '@/server/services/tavilyService';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const db = getDatabase();
   if (req.method === 'GET') {
     try {
-      const { data } = await supabase
+      const { data } = await db
         .from('extension_services')
         .select('id, name, api_key, endpoint, is_enabled')
         .eq('service_type', 'tavily_search')
@@ -35,7 +36,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     try {
       // 检查是否已存在配置
-      const { data: existing } = await supabase
+      const { data: existing } = await db
         .from('extension_services')
         .select('id')
         .eq('service_type', 'tavily_search')
@@ -50,12 +51,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (enabled !== undefined) updateData.is_enabled = enabled ? 1 : 0;
 
       if (existing) {
-        await supabase
+        await db
           .from('extension_services')
           .update(updateData)
           .eq('service_type', 'tavily_search');
       } else {
-        await supabase.from('extension_services').insert({
+        await db.from('extension_services').insert({
           service_type: 'tavily_search',
           name: 'Tavily Search API',
           api_key: apiKey || '',

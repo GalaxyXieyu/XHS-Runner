@@ -8,7 +8,7 @@
 - [x] 小红书登录（扫码/Cookie）
 - [x] 多主题管理（创建/编辑/删除）
 - [x] 多关键词抓取（每主题支持多个关键词）
-- [x] 笔记抓取与存储（Postgres / Supabase）
+- [x] 笔记抓取与存储（Postgres）
 
 ### 数据洞察 (InsightTab)
 - [x] 热门标签提取（中文正则 + 互动加权排序）
@@ -49,7 +49,7 @@
 ## 技术栈
 
 - Frontend: React + TypeScript + Tailwind CSS
-- Backend: Next.js API Routes + Postgres (Supabase) + Drizzle
+- Backend: Next.js API Routes + Postgres + Drizzle
 - Desktop: Electron
 - LLM: 可配置（支持 OpenAI 兼容 API）
 
@@ -170,7 +170,7 @@
 
 #### 修改方式
 
-通过 Supabase MCP 直接修改数据库中的 prompt：
+通过数据库连接直接修改 prompt：
 
 ```sql
 UPDATE agent_prompts
@@ -187,33 +187,9 @@ WHERE agent_name = 'supervisor';
 3. **最小化修改** - 只改必要的决策规则，不重写整个 prompt
 4. **版本追踪** - 每次修改 `version + 1`，便于回滚
 
-## 数据库操作 (推荐使用 Supabase MCP)
+## 数据库操作
 
-> ⚠️ **推荐方式**: 使用 Supabase MCP 进行数据库操作，无需手动编写脚本，直接在 Claude Code 中执行。
-
-### Supabase MCP 配置
-
-项目 ID: `emfhfxayynshmgkxdccb`
-
-### 常用 MCP 操作
-
-```yaml
-# 查看表结构
-mcp__supabase__list_tables:
-  project_id: emfhfxayynshmgkxdccb
-  schemas: ["public"]
-
-# 执行 SQL 查询
-mcp__supabase__execute_sql:
-  project_id: emfhfxayynshmgkxdccb
-  query: "SELECT * FROM topics ORDER BY like_count DESC LIMIT 10"
-
-# 执行 DDL 迁移
-mcp__supabase__apply_migration:
-  project_id: emfhfxayynshmgkxdccb
-  name: "add_new_column"
-  query: "ALTER TABLE topics ADD COLUMN new_field TEXT"
-```
+> 推荐使用 Postgres + Drizzle。需要直接查询时可用 `psql` 或一次性脚本。
 
 ### 常用查询示例
 
@@ -234,11 +210,15 @@ SELECT status, COUNT(*) FROM job_executions GROUP BY status;
 SELECT status, COUNT(*) FROM generation_tasks GROUP BY status;
 ```
 
-### 备选方式: Drizzle ORM
+### 直接执行 SQL（示例）
 
 ```bash
-# 仅在 MCP 不可用时使用
-DATABASE_URL="postgresql://postgres:密码@db.emfhfxayynshmgkxdccb.supabase.co:5432/postgres" \
+psql "$DATABASE_URL" -c "SELECT * FROM topics ORDER BY like_count DESC LIMIT 10"
+```
+
+### Drizzle ORM（可选）
+
+```bash
 npx tsx -e "
 import { db, schema } from './src/server/db';
 const result = await db.select().from(schema.topics).limit(10);

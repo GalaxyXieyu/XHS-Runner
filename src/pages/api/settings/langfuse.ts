@@ -1,11 +1,12 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { supabase } from '@/server/supabase';
+import { getDatabase } from '@/server/db';
 import { clearLangfuseCache, isLangfuseEnabled } from '@/server/services/langfuseService';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const db = getDatabase();
   if (req.method === 'GET') {
     try {
-      const { data } = await supabase
+      const { data } = await db
         .from('extension_services')
         .select('id, name, api_key, endpoint, config_json, is_enabled')
         .eq('service_type', 'langfuse')
@@ -40,7 +41,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     try {
       // 检查是否已存在配置
-      const { data: existing } = await supabase
+      const { data: existing } = await db
         .from('extension_services')
         .select('id')
         .eq('service_type', 'langfuse')
@@ -58,12 +59,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
       if (existing) {
-        await supabase
+        await db
           .from('extension_services')
           .update(updateData)
           .eq('service_type', 'langfuse');
       } else {
-        await supabase.from('extension_services').insert({
+        await db.from('extension_services').insert({
           service_type: 'langfuse',
           name: 'Langfuse',
           api_key: secretKey || '',

@@ -4,7 +4,9 @@ import { AgentState, type AgentType } from "../state/agentState";
 import { compressContext, safeSliceMessages } from "../utils";
 import { getAgentPrompt } from "../../services/promptManager";
 import { isHttpUrl, uploadBase64ToSuperbed, generateImageWithReference } from "../../services/xhs/integration/imageProvider";
+import { storeAsset } from "../../services/xhs/integration/assetStore";
 import { getSetting } from "../../settings";
+import { db, schema } from "../../db";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -41,6 +43,7 @@ export async function imageAgentNode(state: typeof AgentState.State, model: Chat
 
   const results: any[] = [];
   const generatedPaths: string[] = [];
+  const generatedAssetIds: number[] = [];
 
   for (let i = 0; i < plans.length; i++) {
     const plan = plans[i];
@@ -57,15 +60,44 @@ export async function imageAgentNode(state: typeof AgentState.State, model: Chat
         aspectRatio: "3:4",
       });
 
-      const outputDir = path.join(process.cwd(), "public", "generated");
-      if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
+      // Generate filename and store asset to database
       const filename = `img_${Date.now()}_${sequence}.png`;
-      const imagePath = path.join(outputDir, filename);
-      fs.writeFileSync(imagePath, result.imageBuffer);
 
-      console.log(`[imageAgentNode] 第 ${i + 1} 张成功 (${Math.round(result.imageBuffer.length / 1024)}KB)`);
-      results.push({ sequence, role, success: true, path: imagePath });
-      generatedPaths.push(imagePath);
+      console.log(`[imageAgentNode] 正在保存第 ${i + 1} 张到数据库...`);
+      const asset = await storeAsset({
+        type: 'image',
+        filename,
+        data: result.imageBuffer,
+        metadata: {
+          prompt,
+          sequence,
+          role,
+          provider,
+          aspectRatio: "3:4",
+          ...result.metadata,
+        },
+      });
+
+      console.log(`[imageAgentNode] 第 ${i + 1} 张成功保存 (asset_id=${asset.id}, ${Math.round(result.imageBuffer.length / 1024)}KB)`);
+
+      // Create creative_assets relationship if creativeId exists
+      if (state.creativeId) {
+        try {
+          await db.insert(schema.creativeAssets).values({
+            creativeId: state.creativeId,
+            assetId: asset.id,
+            sortOrder: sequence,
+          });
+          console.log(`[imageAgentNode] 已关联 creative_id=${state.creativeId} 和 asset_id=${asset.id}`);
+        } catch (err) {
+          // Ignore duplicate or constraint errors
+          console.warn(`[imageAgentNode] 关联失败 (可能已存在):`, err);
+        }
+      }
+
+      results.push({ sequence, role, success: true, path: asset.path, assetId: asset.id });
+      generatedPaths.push(asset.path);
+      generatedAssetIds.push(asset.id);
     } catch (error: any) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error(`[imageAgentNode] 第 ${i + 1} 张失败: ${errorMsg}`);

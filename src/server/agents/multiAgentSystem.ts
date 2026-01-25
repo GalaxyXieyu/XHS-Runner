@@ -57,7 +57,13 @@ export async function resumeWorkflow(
     Object.assign(updateState, modifiedStateOrUserResponse);
   }
 
-  return app.stream(updateState, config);
+  console.log("[resumeWorkflow] 恢复工作流, updateState:", updateState);
+
+  // 重要：LangGraph 的 interruptAfter 要求传递 null 来从中断点恢复
+  // 如果需要更新状态，应该先更新状态，然后传递 null 来恢复执行
+  // 但是目前 LangGraph 不支持在恢复时同时更新状态，所以我们直接传递 null
+  // TODO: 如果需要在恢复时更新状态，需要使用其他方法
+  return app.stream(null, config);
 }
 
 // 创建多 Agent 系统

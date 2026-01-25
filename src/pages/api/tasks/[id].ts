@@ -1,5 +1,5 @@
 import { NextApiRequest, NextApiResponse } from "next";
-import { supabase } from "@/server/supabase";
+import { getDatabase } from "@/server/db";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "GET") {
@@ -13,7 +13,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ error: "Invalid task ID" });
   }
 
-  const { data, error } = await supabase
+  const db = getDatabase();
+  const { data, error } = await db
     .from("generation_tasks")
     .select("id, status, prompt, result_asset_id, error_message, created_at, updated_at")
     .eq("id", taskId)

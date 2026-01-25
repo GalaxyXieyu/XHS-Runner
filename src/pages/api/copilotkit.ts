@@ -5,13 +5,14 @@ import {
   copilotRuntimeNextJSPagesRouterEndpoint,
 } from "@copilotkit/runtime";
 import OpenAI from "openai";
-import { supabase } from "@/server/supabase";
+import { getDatabase } from "@/server/db";
 import { getTagStats, getTopTitles, getLatestTrendReport } from "@/server/services/xhs/analytics/insightService";
 import { enqueueGeneration } from "@/server/services/xhs/llm/generationQueue";
 
 // 获取 LLM 配置用于 CopilotKit
 async function getLLMConfig() {
-  const { data } = await supabase
+  const db = getDatabase();
+  const { data } = await db
     .from("llm_providers")
     .select("base_url, api_key, model_name")
     .eq("is_default", true)
@@ -34,6 +35,7 @@ async function getLLMConfig() {
 }
 
 const handler = async (req: NextApiRequest, res: NextApiResponse) => {
+  const db = getDatabase();
   const llmConfig = await getLLMConfig();
 
   const openai = new OpenAI({
@@ -54,7 +56,7 @@ const handler = async (req: NextApiRequest, res: NextApiResponse) => {
           { name: "limit", type: "number", description: "返回数量，默认10" },
         ],
         handler: async ({ query, themeId, limit = 10 }: { query: string; themeId?: number; limit?: number }) => {
-          let dbQuery = supabase
+          let dbQuery = db
             .from("topics")
             .select("id, title, desc, like_count, collect_count, comment_count")
             .ilike("title", `%${query}%`)

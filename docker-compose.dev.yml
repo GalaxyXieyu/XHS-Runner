@@ -1,0 +1,60 @@
+# 本地开发环境 Docker Compose
+# 使用：docker-compose -f docker-compose.dev.yml up -d
+#
+# 或者如果你已经有自己的 PostgreSQL 容器，
+# 可以直接修改 .env.local 中的 DATABASE_URL 指向你的容器
+
+version: '3.8'
+
+services:
+  # PostgreSQL 数据库
+  postgres:
+    image: postgres:15-alpine
+    container_name: xhs-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: xhs_generator
+      POSTGRES_USER: xhs_admin
+      POSTGRES_PASSWORD: xhs_dev_password
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=en_US.UTF-8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # 初始化脚本（可选）
+      - ./scripts/migrate-db/init-db.sh:/docker-entrypoint-initdb.d/01-init.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U xhs_admin -d xhs_generator"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - xhs-network
+
+  # PgAdmin（可选，用于数据库管理）
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: xhs-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@xhs.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - xhs-network
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+
+networks:
+  xhs-network:
+    driver: bridge
