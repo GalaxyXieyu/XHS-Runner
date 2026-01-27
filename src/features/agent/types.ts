@@ -7,7 +7,7 @@ export interface AskUserOption {
 }
 
 export interface AgentEvent {
-  type: 'agent_start' | 'agent_end' | 'tool_call' | 'tool_result' | 'message' | 'ask_user' | 'workflow_paused' | 'confirmation_required' | 'intent_detected' | 'content_type_detected' | 'supervisor_decision' | 'state_update';
+  type: 'agent_start' | 'agent_end' | 'tool_call' | 'tool_result' | 'message' | 'ask_user' | 'workflow_paused' | 'confirmation_required' | 'intent_detected' | 'content_type_detected' | 'supervisor_decision' | 'state_update' | 'image_progress' | 'content_update' | 'workflow_progress';
   agent?: string;
   tool?: string;
   content: string;
@@ -42,6 +42,19 @@ export interface AgentEvent {
   reason?: string;
   // 状态更新相关
   changes?: string;
+  // 图片进度相关 (新增)
+  taskId?: number;
+  status?: 'queued' | 'generating' | 'complete' | 'failed';
+  progress?: number;
+  url?: string;
+  errorMessage?: string;
+  // 内容更新相关 (新增)
+  title?: string;
+  body?: string;
+  tags?: string[];
+  // 工作流进度相关 (新增)
+  phase?: string;
+  currentAgent?: string;
 }
 
 export interface ChatMessage {

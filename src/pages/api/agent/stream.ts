@@ -98,6 +98,39 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
   };
 
+  // Enhanced event senders for real-time progress tracking
+  const sendImageProgress = (taskId: number, status: string, progress: number, url?: string, errorMessage?: string) => {
+    sendEvent({
+      type: 'image_progress',
+      taskId,
+      status,
+      progress,
+      url,
+      errorMessage,
+      timestamp: Date.now(),
+    } as any);
+  };
+
+  const sendContentUpdate = (title?: string, body?: string, tags?: string[]) => {
+    sendEvent({
+      type: 'content_update',
+      title,
+      body,
+      tags,
+      timestamp: Date.now(),
+    } as any);
+  };
+
+  const sendWorkflowProgress = (phase: string, progress: number, currentAgent: string) => {
+    sendEvent({
+      type: 'workflow_progress',
+      phase,
+      progress,
+      currentAgent,
+      timestamp: Date.now(),
+    } as any);
+  };
+
   // 创建 Langfuse trace
   const trace = await createTrace('agent-stream', {
     message,
@@ -312,6 +345,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 try {
                   const parsed = parseWriterContent(msg.content);
                   writerContent = parsed; // 保存用于 HITL
+
+                  // Send content update event for real-time UI updates
+                  sendContentUpdate(parsed.title, parsed.body, parsed.tags);
+
                   const creative = await createCreative({
                     themeId,
                     title: parsed.title,
@@ -361,9 +398,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           }
           if (nodeName === "image_planner_agent" && output.imagePlans?.length > 0) {
             stateChanges.push(`✅ 图片规划完成 (${output.imagePlans.length}张)`);
+            // Send initial image progress events (queued status)
+            output.imagePlans.forEach((plan: any, index: number) => {
+              sendImageProgress(index + 1, 'queued', 0);
+            });
           }
-          if (nodeName === "image_agent" && output.imagesComplete) {
-            stateChanges.push("✅ 图片生成完成");
+          if (nodeName === "image_agent") {
+            if (output.imagesComplete) {
+              stateChanges.push("✅ 图片生成完成");
+              // Send completion events for all images
+              if (output.generatedImages?.length > 0) {
+                output.generatedImages.forEach((img: any, index: number) => {
+                  sendImageProgress(index + 1, 'complete', 1, img.url);
+                });
+              }
+            } else if (output.imagePlans?.length > 0) {
+              // Send generating status for images in progress
+              output.imagePlans.forEach((plan: any, index: number) => {
+                const progress = output.generatedImages?.length > index ? 1 : 0.5;
+                const status = output.generatedImages?.length > index ? 'complete' : 'generating';
+                const url = output.generatedImages?.[index]?.url;
+                sendImageProgress(index + 1, status, progress, url);
+              });
+            }
           }
           if (nodeName === "review_agent" && output.reviewFeedback?.approved) {
             stateChanges.push("✅ 审核通过 - 流程结束");

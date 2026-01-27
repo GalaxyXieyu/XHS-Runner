@@ -199,27 +199,8 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
     eventsEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [events]);
 
-  // 轮询图片任务状态
-  useEffect(() => {
-    const pendingTasks = imageTasks.filter(t => t.id > 0 && (t.status === "queued" || t.status === "generating"));
-    if (pendingTasks.length === 0) return;
-
-    const pollInterval = setInterval(async () => {
-      for (const task of pendingTasks) {
-        try {
-          const res = await fetch(`/api/tasks/${task.id}`);
-          if (res.ok) {
-            const data = await res.json();
-            setImageTasks(prev => prev.map(t =>
-              t.id === task.id ? { ...t, status: data.status, assetId: data.assetId, errorMessage: data.errorMessage } : t
-            ));
-          }
-        } catch {}
-      }
-    }, 2000);
-
-    return () => clearInterval(pollInterval);
-  }, [imageTasks]);
+  // Note: Polling has been removed - image progress now comes from SSE events
+  // The useAgentStreaming hook handles real-time updates via enhanced SSE events
 
   const handleSubmit = async () => {
     if (!requirement.trim() || isStreaming) return;
@@ -308,9 +289,21 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
 
               // 处理 confirmation_required 事件 - 显示确认卡片
               if (event.type === "confirmation_required" && event.threadId) {
+                console.log("[Frontend] 收到 confirmation_required 事件:", {
+                  type: event.confirmationType,
+                  threadId: event.threadId,
+                  dataKeys: event.data ? Object.keys(event.data) : null,
+                  currentMessagesLength: messages.length,
+                });
+
                 setMessages((prev) => {
                   const newMessages = [...prev];
                   const lastMsg = newMessages[newMessages.length - 1];
+
+                  console.log("[Frontend] 设置 confirmation，最后一条消息:", {
+                    role: lastMsg?.role,
+                    hasContent: !!lastMsg?.content,
+                  });
 
                   // 添加或更新最后一条消息，附加确认卡片
                   if (lastMsg?.role === "assistant") {
@@ -319,9 +312,10 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
                       data: event.data,
                       threadId: event.threadId,
                     };
+                    console.log("[Frontend] confirmation 已添加到现有 assistant 消息");
                   } else {
-                    newMessages.push({
-                      role: "assistant",
+                    const newMsg = {
+                      role: "assistant" as const,
                       content: "",
                       events: [...collectedEvents],
                       confirmation: {
@@ -329,7 +323,9 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
                         data: event.data,
                         threadId: event.threadId,
                       },
-                    });
+                    };
+                    newMessages.push(newMsg);
+                    console.log("[Frontend] 创建了新的 assistant 消息并添加 confirmation");
                   }
 
                   return newMessages;
@@ -338,8 +334,69 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
 
               // 处理 workflow_paused 事件
               if (event.type === "workflow_paused") {
+                console.log("[Frontend] 收到 workflow_paused 事件，设置 isStreaming = false");
                 setIsStreaming(false);
                 setStreamPhase("");
+              }
+
+              // 处理 image_progress 事件 - 实时更新图片生成进度
+              if (event.type === "image_progress") {
+                const imgEvent = event as any;
+                setImageTasks(prev => {
+                  const existingIndex = prev.findIndex(t => t.id === imgEvent.taskId);
+                  if (existingIndex >= 0) {
+                    // Update existing task
+                    const updated = [...prev];
+                    updated[existingIndex] = {
+                      ...updated[existingIndex],
+                      status: imgEvent.status,
+                      ...(imgEvent.url && { assetId: imgEvent.taskId }), // Simplified for now
+                      ...(imgEvent.errorMessage && { errorMessage: imgEvent.errorMessage }),
+                    };
+                    return updated;
+                  } else {
+                    // Add new task
+                    return [...prev, {
+                      id: imgEvent.taskId,
+                      prompt: '', // Will be filled from image_planner_agent
+                      status: imgEvent.status,
+                      ...(imgEvent.errorMessage && { errorMessage: imgEvent.errorMessage }),
+                    }];
+                  }
+                });
+              }
+
+              // 处理 content_update 事件 - 实时更新内容
+              if (event.type === "content_update") {
+                const contentEvent = event as any;
+                if (contentEvent.title || contentEvent.body || contentEvent.tags) {
+                  // Update the assistant message with the new content
+                  setMessages((prev) => {
+                    const newMessages = [...prev];
+                    const lastMsg = newMessages[newMessages.length - 1];
+                    if (lastMsg?.role === "assistant") {
+                      // Format content for display
+                      let formattedContent = "";
+                      if (contentEvent.title) {
+                        formattedContent += `标题: ${contentEvent.title}\n\n`;
+                      }
+                      if (contentEvent.body) {
+                        formattedContent += contentEvent.body;
+                      }
+                      if (contentEvent.tags && contentEvent.tags.length > 0) {
+                        formattedContent += `\n\n标签: ${contentEvent.tags.map((t: string) => `#${t}`).join(" ")}`;
+                      }
+                      lastMsg.content = formattedContent;
+                    }
+                    return newMessages;
+                  });
+                }
+              }
+
+              // 处理 workflow_progress 事件 - 更新工作流进度
+              if (event.type === "workflow_progress") {
+                const progressEvent = event as any;
+                setStreamPhase(progressEvent.phase || "处理中...");
               }
             } catch { }
           }
@@ -1219,7 +1276,18 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
                         )}
 
                         {/* 确认卡片 */}
-                        {msg.confirmation && !isStreaming && (
+                        {(() => {
+                          const shouldShow = msg.confirmation && !isStreaming;
+                          if (msg.confirmation) {
+                            console.log("[Frontend] 检查确认卡片渲染:", {
+                              hasConfirmation: !!msg.confirmation,
+                              isStreaming,
+                              shouldShow,
+                              idx,
+                            });
+                          }
+                          return shouldShow;
+                        })() && (
                           <div className="mt-3">
                             <ConfirmationCard
                               type={msg.confirmation.type}
