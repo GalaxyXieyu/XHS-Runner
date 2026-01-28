@@ -1410,18 +1410,6 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
                               tavily_search: "联网搜索",
                             };
 
-                            const getEventIcon = () => {
-                              switch (event.type) {
-                                case "agent_start": return "🚀";
-                                case "agent_end": return "✅";
-                                case "tool_call": return "🔧";
-                                case "tool_result": return "📊";
-                                case "message": return "💬";
-                                case "supervisor_decision": return "🎯";
-                                default: return "•";
-                              }
-                            };
-
                             // 获取显示名称
                             const rawName = event.tool || event.agent || "";
                             const displayName = nameMap[rawName] || rawName;
@@ -1429,7 +1417,6 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
                             return (
                               <div key={i} className="px-3 py-2 hover:bg-gray-50 transition-colors">
                                 <div className="flex items-start gap-2">
-                                  <span className="text-sm">{getEventIcon()}</span>
                                   <div className="flex-1 min-w-0">
                                     <div className="text-xs text-gray-600 break-words">
                                       {event.content || event.type}

@@ -247,7 +247,7 @@ export async function imagePlannerNode(state: typeof AgentState.State, model: Ch
   // 创建包含 JSON 格式的消息（用于 HITL 提取）
   const plansJson = JSON.stringify(plans, null, 2);
   const summaryMessage = new AIMessage(
-    `✅ 图片规划完成\n\n` +
+    `图片规划完成\n\n` +
     `共规划 ${plans.length} 张图片：${plans.map(p => p.role).join('、')}\n` +
     `风格：${colorPalette} / ${mood}\n\n` +
     `\`\`\`json\n${plansJson}\n\`\`\``

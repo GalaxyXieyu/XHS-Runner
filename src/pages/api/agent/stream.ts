@@ -394,10 +394,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           // 显示关键状态变化
           const stateChanges: string[] = [];
           if (nodeName === "writer_agent" && output.contentComplete) {
-            stateChanges.push("✅ 内容创作完成");
+            stateChanges.push("内容创作完成");
           }
           if (nodeName === "image_planner_agent" && output.imagePlans?.length > 0) {
-            stateChanges.push(`✅ 图片规划完成 (${output.imagePlans.length}张)`);
+            stateChanges.push(`图片规划完成 (${output.imagePlans.length}张)`);
             // Send initial image progress events (queued status)
             output.imagePlans.forEach((plan: any, index: number) => {
               sendImageProgress(index + 1, 'queued', 0);
@@ -405,7 +405,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           }
           if (nodeName === "image_agent") {
             if (output.imagesComplete) {
-              stateChanges.push("✅ 图片生成完成");
+              stateChanges.push("图片生成完成");
               // Send completion events for all images using generatedImagePaths
               if (output.generatedImagePaths?.length > 0) {
                 output.generatedImagePaths.forEach((path: string, index: number) => {
@@ -433,7 +433,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             }
           }
           if (nodeName === "review_agent" && output.reviewFeedback?.approved) {
-            stateChanges.push("✅ 审核通过 - 流程结束");
+            stateChanges.push("审核通过 - 流程结束");
           }
 
           if (stateChanges.length > 0) {
