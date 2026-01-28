@@ -24,7 +24,7 @@ log_error() {
 }
 
 # 服务器配置
-SERVER_HOST="38.76.195.125"
+SERVER_HOST="38.76.197.25"
 SERVER_USER="root"
 SSH_KEY_PATH="$HOME/.ssh/xhs_deploy"
 SSH_CONFIG_PATH="$HOME/.ssh/config"

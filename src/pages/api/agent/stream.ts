@@ -406,19 +406,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           if (nodeName === "image_agent") {
             if (output.imagesComplete) {
               stateChanges.push("✅ 图片生成完成");
-              // Send completion events for all images
-              if (output.generatedImages?.length > 0) {
-                output.generatedImages.forEach((img: any, index: number) => {
-                  sendImageProgress(index + 1, 'complete', 1, img.url);
+              // Send completion events for all images using generatedImagePaths
+              if (output.generatedImagePaths?.length > 0) {
+                output.generatedImagePaths.forEach((path: string, index: number) => {
+                  // Extract asset ID from path (format: /api/assets/123)
+                  const assetIdMatch = path.match(/\/api\/assets\/(\d+)/);
+                  const assetId = assetIdMatch ? assetIdMatch[1] : path;
+                  sendImageProgress(index + 1, 'complete', 1, assetId);
                 });
               }
             } else if (output.imagePlans?.length > 0) {
               // Send generating status for images in progress
               output.imagePlans.forEach((plan: any, index: number) => {
-                const progress = output.generatedImages?.length > index ? 1 : 0.5;
-                const status = output.generatedImages?.length > index ? 'complete' : 'generating';
-                const url = output.generatedImages?.[index]?.url;
-                sendImageProgress(index + 1, status, progress, url);
+                const currentCount = output.generatedImagePaths?.length || 0;
+                const progress = currentCount > index ? 1 : 0.5;
+                const status = currentCount > index ? 'complete' : 'generating';
+                if (currentCount > index && output.generatedImagePaths?.[index]) {
+                  const path = output.generatedImagePaths[index];
+                  const assetIdMatch = path.match(/\/api\/assets\/(\d+)/);
+                  const assetId = assetIdMatch ? assetIdMatch[1] : path;
+                  sendImageProgress(index + 1, status, progress, assetId);
+                } else {
+                  sendImageProgress(index + 1, status, progress);
+                }
               });
             }
           }

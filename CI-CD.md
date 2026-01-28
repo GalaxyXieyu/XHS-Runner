@@ -16,10 +16,10 @@ GitHub Push → GitHub Actions 构建打包 → SCP 上传 → 服务器解压 �
 
 ```bash
 # 从本地上传脚本到服务器
-scp scripts/init-server.sh root@38.76.195.125:/root/
+scp scripts/init-server.sh root@38.76.197.25:/root/
 
 # SSH 连接到服务器
-ssh root@38.76.195.125
+ssh root@38.76.197.25
 
 # 运行初始化脚本
 chmod +x /root/init-server.sh
@@ -38,7 +38,7 @@ chmod +x /root/init-server.sh
 
 如果生产服务器未安装 Postgres，可运行：
 ```bash
-ssh root@38.76.195.125 "bash -s" < scripts/migrate-db/setup-postgres.sh
+ssh root@38.76.197.25 "bash -s" < scripts/migrate-db/setup-postgres.sh
 ```
 
 ### 1.3 配置 SSH 密钥认证
@@ -48,17 +48,17 @@ ssh root@38.76.195.125 "bash -s" < scripts/migrate-db/setup-postgres.sh
 ssh-keygen -t ed25519 -C "your_email@example.com" -f ~/.ssh/xhs_deploy
 
 # 上传公钥到服务器
-ssh-copy-id -i ~/.ssh/xhs_deploy.pub root@38.76.195.125
+ssh-copy-id -i ~/.ssh/xhs_deploy.pub root@38.76.197.25
 
 # 测试密钥登录
-ssh -i ~/.ssh/xhs_deploy root@38.76.195.125
+ssh -i ~/.ssh/xhs_deploy root@38.76.197.25
 ```
 
 ### 1.4 创建部署目录
 
 ```bash
 # SSH 连接到服务器
-ssh root@38.76.195.125
+ssh root@38.76.197.25
 
 # 创建目录（用于解压构建产物）
 mkdir -p /var/www/xhs-generator
@@ -116,11 +116,11 @@ npx tsx scripts/migrate-db/import-database.ts --file backups/supabase-export-xxx
 ./scripts/package-standalone.sh
 
 # 上传并解压
-scp dist/xhs-generator-standalone.tar.gz root@38.76.195.125:/tmp/
-ssh root@38.76.195.125 "mkdir -p /var/www/xhs-generator && tar -xzf /tmp/xhs-generator-standalone.tar.gz -C /var/www/xhs-generator"
+scp dist/xhs-generator-standalone.tar.gz root@38.76.197.25:/tmp/
+ssh root@38.76.197.25 "mkdir -p /var/www/xhs-generator && tar -xzf /tmp/xhs-generator-standalone.tar.gz -C /var/www/xhs-generator"
 
 # 启动应用
-ssh root@38.76.195.125 "pm2 restart xhs-generator || pm2 start /var/www/xhs-generator/ecosystem.config.js && pm2 save"
+ssh root@38.76.197.25 "pm2 restart xhs-generator || pm2 start /var/www/xhs-generator/ecosystem.config.js && pm2 save"
 ```
 
 ## 二、配置 GitHub Actions
@@ -134,7 +134,7 @@ ssh root@38.76.195.125 "pm2 restart xhs-generator || pm2 start /var/www/xhs-gene
 
 | Secret Name | Value | 说明 |
 |-------------|-------|------|
-| `SERVER_HOST` | `38.76.195.125` | 服务器 IP |
+| `SERVER_HOST` | `38.76.197.25` | 服务器 IP |
 | `SERVER_USER` | `root` | SSH 用户名 |
 | `SSH_PRIVATE_KEY` | `私钥内容` | SSH 私钥（~/.ssh/xhs_deploy） |
 | `DATABASE_URL` | `postgresql://...` | 数据库连接字符串 |
@@ -182,7 +182,7 @@ git push origin main
 
 ```bash
 # SSH 连接到服务器
-ssh root@38.76.195.125
+ssh root@38.76.197.25
 
 # 查看应用状态
 pm2 status
@@ -203,7 +203,7 @@ sudo tail -f /var/log/nginx/xhs-generator-access.log
 
 GitHub Actions 会在部署后自动进行健康检查：
 ```bash
-curl -f http://38.76.195.125
+curl -f http://38.76.197.25
 ```
 
 ### 4.2 日志查看
@@ -281,7 +281,7 @@ cat /var/www/xhs-generator/.env.production
 
 ```bash
 # SSH 连接到服务器
-ssh root@38.76.195.125
+ssh root@38.76.197.25
 
 cd /var/www/xhs-generator
 
@@ -331,20 +331,20 @@ git reset --hard <commit-hash>
 
 ```bash
 # 服务器初始化
-scp scripts/init-server.sh root@38.76.195.125:/root/
-ssh root@38.76.195.125 "chmod +x /root/init-server.sh && /root/init-server.sh"
+scp scripts/init-server.sh root@38.76.197.25:/root/
+ssh root@38.76.197.25 "chmod +x /root/init-server.sh && /root/init-server.sh"
 
 # 手动部署
-ssh root@38.76.195.125 "cd /var/www/xhs-generator && ./scripts/deploy.sh"
+ssh root@38.76.197.25 "cd /var/www/xhs-generator && ./scripts/deploy.sh"
 
 # 查看日志
-ssh root@38.76.195.125 "pm2 logs xhs-generator --lines 50"
+ssh root@38.76.197.25 "pm2 logs xhs-generator --lines 50"
 
 # 重启应用
-ssh root@38.76.195.125 "pm2 restart xhs-generator"
+ssh root@38.76.197.25 "pm2 restart xhs-generator"
 
 # 查看状态
-ssh root@38.76.195.125 "pm2 status && systemctl status nginx"
+ssh root@38.76.197.25 "pm2 status && systemctl status nginx"
 ```
 
 ## 十、下一步优化

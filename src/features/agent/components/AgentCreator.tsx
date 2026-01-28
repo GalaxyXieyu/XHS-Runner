@@ -51,6 +51,22 @@ interface ParsedContent {
   tags: string[];
 }
 
+// 从 URL 中提取 asset ID
+function extractAssetId(url: string): number {
+  // URL format: /api/assets/123 or full URL with asset ID
+  const match = url.match(/\/api\/assets\/(\d+)/);
+  if (match) {
+    return parseInt(match[1], 10);
+  }
+  // If it's just a number string, parse it directly
+  const numMatch = url.match(/^\d+$/);
+  if (numMatch) {
+    return parseInt(url, 10);
+  }
+  // Fallback: try to parse as number
+  return parseInt(url, 10) || 0;
+}
+
 function parseCreativeContent(content: string): ParsedContent | null {
   // 检测是否是创作内容（包含标题和标签标记）
   if (!content.includes("标题") || !content.includes("标签")) return null;
@@ -349,8 +365,8 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
                     const updated = [...prev];
                     updated[existingIndex] = {
                       ...updated[existingIndex],
-                      status: imgEvent.status,
-                      ...(imgEvent.url && { assetId: imgEvent.taskId }), // Simplified for now
+                      status: imgEvent.status === 'complete' ? 'done' : imgEvent.status,
+                      ...(imgEvent.url && { assetId: extractAssetId(imgEvent.url) }),
                       ...(imgEvent.errorMessage && { errorMessage: imgEvent.errorMessage }),
                     };
                     return updated;
@@ -359,7 +375,8 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
                     return [...prev, {
                       id: imgEvent.taskId,
                       prompt: '', // Will be filled from image_planner_agent
-                      status: imgEvent.status,
+                      status: imgEvent.status === 'complete' ? 'done' : imgEvent.status,
+                      ...(imgEvent.url && { assetId: extractAssetId(imgEvent.url) }),
                       ...(imgEvent.errorMessage && { errorMessage: imgEvent.errorMessage }),
                     }];
                   }
@@ -1299,8 +1316,8 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
                           </div>
                         )}
 
+                        {/* 普通文本回复 - 只在没有研究内容和解析内容时显示 */}
                         {!researchContent && msg.content && !parsed && (
-                          /* 普通文本回复（仅当没有研究内容和创作内容时显示） */
                           <div className="bg-gray-50 rounded-xl px-4 py-3">
                             <div className="text-xs text-gray-700 leading-relaxed whitespace-pre-wrap">{msg.content}</div>
                           </div>

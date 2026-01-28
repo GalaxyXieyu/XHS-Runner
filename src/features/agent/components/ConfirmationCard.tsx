@@ -8,7 +8,13 @@ interface ConfirmationCardProps {
     content?: string;
     body?: string; // 兼容字段
     tags?: string[];
-    plans?: Array<{ prompt: string; aspectRatio: string }>;
+    plans?: Array<{
+      prompt: string;
+      aspectRatio: string;
+      role?: string;
+      description?: string;
+      sequence?: number;
+    }>;
   };
   threadId: string;
   onConfirm: (threadId: string, approved: boolean, feedback?: string) => void;
