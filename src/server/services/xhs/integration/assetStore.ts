@@ -1,14 +1,19 @@
-import fs from 'fs';
-import path from 'path';
-import { getDatabase } from '../../../db';
+import { getStorageService } from '../../storage';
 import { resolveUserDataPath } from '../../../runtime/userDataPath';
 
 const ASSETS_DIR = 'assets';
 
+/**
+ * @deprecated Use getStorageService() instead
+ */
 export function getAssetsPath() {
   return resolveUserDataPath(ASSETS_DIR);
 }
 
+/**
+ * 存储资源文件
+ * 使用统一的存储服务（支持本地存储和 MinIO）
+ */
 export async function storeAsset({
   type,
   filename,
@@ -20,24 +25,16 @@ export async function storeAsset({
   data: Buffer;
   metadata?: Record<string, any> | null;
 }) {
-  const db = getDatabase();
-  const assetsPath = getAssetsPath();
-  fs.mkdirSync(assetsPath, { recursive: true });
-  const filePath = path.join(assetsPath, filename);
-  fs.writeFileSync(filePath, data);
+  const storageService = getStorageService();
 
-  const { data: inserted, error } = await db
-    .from('assets')
-    .insert({
-      type,
-      path: filePath,
-      metadata: metadata ? JSON.stringify(metadata) : null,
-    })
-    .select('id, path')
-    .single();
-  if (error) throw error;
+  const result = await storageService.storeAsset(data, filename, {
+    assetType: type,
+    metadata: metadata || undefined,
+  });
+
   return {
-    id: inserted.id,
-    path: inserted.path,
+    id: result.id,
+    path: result.path,
+    url: result.url,
   };
 }

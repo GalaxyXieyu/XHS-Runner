@@ -5,6 +5,8 @@ import { eq } from 'drizzle-orm';
 import { ensureInit } from '@/server/nextApi/init';
 import { db, schema } from '@/server/db';
 import { resolveUserDataPath } from '@/server/runtime/userDataPath';
+import { loadStorageConfig } from '@/server/services/storage/config';
+import { StorageService } from '@/server/services/storage/StorageService';
 
 function guessContentType(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
@@ -45,9 +47,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(404).json({ error: 'Asset not found' });
   }
 
-  const absolutePath = path.resolve(asset.path);
+  const storageConfig = await loadStorageConfig();
+  const storageService = StorageService.reinitialize(storageConfig);
+
+  if (storageConfig.type === 'minio') {
+    try {
+      const url = await storageService.getUrl(asset.path);
+      res.setHeader('Cache-Control', 'no-store');
+      res.writeHead(302, { Location: url });
+      return res.end();
+    } catch (error) {
+      console.error('[assets] Failed to get MinIO URL:', error);
+      return res.status(502).json({ error: 'Failed to fetch asset URL' });
+    }
+  }
+
+  const basePath = storageConfig.local?.basePath || resolveUserDataPath('assets');
+  const rawPath = path.isAbsolute(asset.path) ? asset.path : path.join(basePath, asset.path);
+  const absolutePath = path.resolve(rawPath);
+  const resolvedBasePath = path.resolve(basePath);
   // 允许访问的目录列表
   const allowedDirs = [
+    resolvedBasePath,
     path.resolve(resolveUserDataPath('assets')),
     path.resolve(process.cwd(), 'assets'),
   ];
@@ -83,4 +104,3 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   });
   stream.pipe(res);
 }
-
