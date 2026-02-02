@@ -136,6 +136,17 @@ export function InsightTab({ theme }: InsightTabProps) {
 
   const buildImageProxySrc = useCallback((url?: string | null, referer?: string | null) => {
     if (!url) return null;
+    try {
+      const parsed = new URL(url);
+      const hostname = parsed.hostname.toLowerCase();
+      const isXhsHost = hostname === 'xhscdn.com'
+        || hostname.endsWith('.xhscdn.com')
+        || hostname === 'xiaohongshu.com'
+        || hostname.endsWith('.xiaohongshu.com');
+      if (!isXhsHost) return url;
+    } catch {
+      return url;
+    }
     const qs = new URLSearchParams({ url });
     if (referer) qs.set('referer', referer);
     return `/api/image?${qs.toString()}`;

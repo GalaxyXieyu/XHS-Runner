@@ -1,10 +1,13 @@
 import { getDatabase } from '../../../db';
 import { resolveUserDataPath } from '../../../runtime/userDataPath';
+import { loadStorageConfig } from '../../storage/config';
+import { StorageService } from '../../storage/StorageService';
 import { createHash } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
 const CACHE_SUBDIR = ['assets', 'images'];
+const STORAGE_SUBDIR = 'xhs-capture';
 const DOWNLOAD_TIMEOUT_MS = 30_000;
 const MAX_BYTES = 15 * 1024 * 1024;
 const DEFAULT_REFERER = 'https://www.xiaohongshu.com/explore';
@@ -25,6 +28,35 @@ function guessExtensionFromUrl(url: string): string {
   const match = lower.match(/\.(jpg|jpeg|png|gif|webp|bmp)(?:$|[?#])/);
   if (match) return match[1] === 'jpeg' ? 'jpg' : match[1];
   return 'webp';
+}
+
+function guessContentTypeFromExt(ext: string): string {
+  switch (ext.toLowerCase()) {
+    case 'jpg':
+    case 'jpeg':
+      return 'image/jpeg';
+    case 'png':
+      return 'image/png';
+    case 'gif':
+      return 'image/gif';
+    case 'webp':
+      return 'image/webp';
+    case 'bmp':
+      return 'image/bmp';
+    default:
+      return 'application/octet-stream';
+  }
+}
+
+function buildStorageObject(originalUrl: string): { filename: string; objectPath: string; ext: string } {
+  const key = sha256(originalUrl);
+  const ext = guessExtensionFromUrl(originalUrl);
+  const filename = `${key}.${ext}`;
+  return {
+    filename,
+    objectPath: `${STORAGE_SUBDIR}/${filename}`,
+    ext,
+  };
 }
 
 function buildLocalPath(originalUrl: string): string {
@@ -131,6 +163,18 @@ export async function processImageDownloadQueue(batchSize = BATCH_SIZE): Promise
   const db = getDatabase();
   const cacheDir = getCacheDir();
 
+  let useMinio = false;
+  let storageService: StorageService | null = null;
+  try {
+    const storageConfig = await loadStorageConfig();
+    if (storageConfig.type === 'minio' && storageConfig.minio) {
+      storageService = StorageService.reinitialize(storageConfig);
+      useMinio = true;
+    }
+  } catch (error) {
+    console.warn('[imageDownload] Failed to load storage config, fallback to local:', error);
+  }
+
   // 确保缓存目录存在
   if (!fs.existsSync(cacheDir)) {
     fs.mkdirSync(cacheDir, { recursive: true });
@@ -167,15 +211,33 @@ export async function processImageDownloadQueue(batchSize = BATCH_SIZE): Promise
       .eq('id', task.id);
 
     try {
+      let storedPath: string | null = null;
+      let storedUrl: string | null = null;
+
+      if (useMinio && storageService) {
+        const { objectPath } = buildStorageObject(task.original_url);
+        try {
+          const exists = await storageService.exists(objectPath);
+          if (exists) {
+            storedPath = objectPath;
+            storedUrl = await storageService.getUrl(objectPath);
+          }
+        } catch (error) {
+          console.warn('[imageDownload] Failed to check MinIO object, will re-upload:', error);
+        }
+      }
+
       const localPath = buildLocalPath(task.original_url);
 
       // 如果文件已存在，直接标记完成
-      if (fs.existsSync(localPath)) {
+      if (!storedUrl && fs.existsSync(localPath)) {
+        storedPath = localPath;
+        storedUrl = localPath;
         await db
           .from('image_download_queue')
           .update({
             status: 'completed',
-            local_path: localPath,
+            local_path: storedPath,
             updated_at: new Date().toISOString(),
           })
           .eq('id', task.id);
@@ -183,26 +245,48 @@ export async function processImageDownloadQueue(batchSize = BATCH_SIZE): Promise
         continue;
       }
 
-      // 下载图片
-      const buffer = await downloadImage(task.original_url, DEFAULT_REFERER);
+      if (!storedUrl) {
+        // 下载图片
+        const buffer = await downloadImage(task.original_url, DEFAULT_REFERER);
 
-      // 写入文件
-      const tmpPath = `${localPath}.tmp`;
-      fs.writeFileSync(tmpPath, buffer);
-      fs.renameSync(tmpPath, localPath);
+        if (useMinio && storageService) {
+          const { filename, objectPath, ext } = buildStorageObject(task.original_url);
+          await storageService.store(buffer, filename, {
+            subdir: STORAGE_SUBDIR,
+            contentType: guessContentTypeFromExt(ext),
+            metadata: {
+              'xhs-origin-url': task.original_url,
+              'xhs-topic-id': String(task.topic_id),
+            },
+          });
+          storedPath = objectPath;
+          storedUrl = await storageService.getUrl(objectPath);
+        } else {
+          storedPath = localPath;
+          storedUrl = localPath;
+          // 写入文件
+          const tmpPath = `${localPath}.tmp`;
+          fs.writeFileSync(tmpPath, buffer);
+          fs.renameSync(tmpPath, localPath);
+        }
+      }
+
+      if (!storedUrl || !storedPath) {
+        throw new Error('Stored url/path missing after download');
+      }
 
       // 更新队列状态
       await db
         .from('image_download_queue')
         .update({
           status: 'completed',
-          local_path: localPath,
+          local_path: storedPath,
           updated_at: new Date().toISOString(),
         })
         .eq('id', task.id);
 
       // 更新 topics 表中的 URL
-      await updateTopicImageUrl(task.topic_id, task.image_type, task.image_index, localPath);
+      await updateTopicImageUrl(task.topic_id, task.image_type, task.image_index, storedUrl);
 
       console.log(`[imageDownload] Downloaded: ${task.original_url.slice(0, 50)}...`);
       success++;
@@ -234,14 +318,14 @@ async function updateTopicImageUrl(
   topicId: number,
   imageType: string,
   imageIndex: number,
-  localPath: string
+  storedUrl: string
 ): Promise<void> {
   const db = getDatabase();
 
   if (imageType === 'cover') {
     await db
       .from('topics')
-      .update({ cover_url: localPath })
+      .update({ cover_url: storedUrl })
       .eq('id', topicId);
   } else if (imageType === 'media') {
     // 获取当前的 media_urls
@@ -262,7 +346,7 @@ async function updateTopicImageUrl(
       }
 
       if (Array.isArray(mediaUrls) && imageIndex < mediaUrls.length) {
-        mediaUrls[imageIndex] = localPath;
+        mediaUrls[imageIndex] = storedUrl;
         await db
           .from('topics')
           .update({ media_urls: JSON.stringify(mediaUrls) })

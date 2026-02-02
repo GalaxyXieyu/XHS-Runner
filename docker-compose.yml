@@ -1,0 +1,360 @@
+# XHS Generator 完整开发环境
+# 包含：PostgreSQL, PgAdmin, ClickHouse, Redis, MinIO, Langfuse
+# 使用：docker-compose up -d
+#
+# 所有 Langfuse 组件均为自部署，不依赖公共服务
+
+version: '3.8'
+
+services:
+  # ============================================
+  # 核心数据库服务
+  # ============================================
+
+  # PostgreSQL 数据库（主应用 + Langfuse 共享）
+  postgres:
+    image: postgres:15-alpine
+    container_name: xhs-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: xhs_generator
+      POSTGRES_USER: xhs_admin
+      POSTGRES_PASSWORD: xhs_dev_password
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=en_US.UTF-8"
+    ports:
+      - "23010:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # 初始化脚本
+      - ./scripts/migrate-db/init-db.sh:/docker-entrypoint-initdb.d/01-init.sh:ro
+      - ./scripts/migrate-db/init-langfuse-db.sh:/docker-entrypoint-initdb.d/02-init-langfuse.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U xhs_admin -d xhs_generator"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - xhs-network
+
+  # PgAdmin（数据库管理工具）
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: xhs-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@xhs.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - xhs-network
+    depends_on:
+      - postgres
+
+  # ============================================
+  # Langfuse 依赖服务（全部自部署）
+  # ============================================
+
+  # ClickHouse（Langfuse V3 必需的分析数据库）
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3
+    container_name: xhs-clickhouse
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: langfuse
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: langfuse
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ports:
+      - "23020:8123"  # HTTP
+      - "23021:9000"  # Native
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - xhs-network
+
+  # Redis（缓存服务）
+  redis:
+    image: redis:7-alpine
+    container_name: xhs-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "23011:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - xhs-network
+
+  # MinIO（S3 兼容对象存储）
+  minio:
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    container_name: xhs-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "23030:9000"   # API
+      - "23031:9001"   # Console
+    volumes:
+      - minio_data:/minio_data
+    command: minio server /minio_data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - xhs-network
+
+  # ============================================
+  # Langfuse 服务
+  # ============================================
+
+  # Langfuse 主服务（Web UI + API）
+  langfuse-server:
+    image: langfuse/langfuse:latest
+    container_name: xhs-langfuse-server
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    ports:
+      - "23022:3000"
+    environment:
+      # PostgreSQL（使用 langfuse 数据库）
+      DATABASE_URL: postgresql://langfuse:langfuse_password@postgres:5432/langfuse
+
+      # ClickHouse
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse:langfuse@clickhouse:9000/langfuse
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: langfuse
+
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_AUTH: ""
+
+      # S3/MinIO 配置
+      LANGFUSE_S3_EVENT_UPLOAD_ENABLED: "true"
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_BATCH_EXPORT_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minioadmin
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: minioadmin
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+
+      # 应用配置
+      NEXTAUTH_URL: http://localhost:23022
+      NEXTAUTH_SECRET: TotCNj+RoDTnmgmCshUl669Vhz0S+UxiSuUbJesz3+0=
+      SALT: oJa9Dw2ONJDAnDm7HnxxP9x0GamRJFv5ksurmrfSNFY=
+      ENCRYPTION_KEY: 78c1e6a10981d269f6a90872e29b3908f651fcd5485d884c9f48fc83a461200b
+      TELEMETRY_ENABLED: "false"
+
+      # 允许的域名（CORS）
+      LANGFUSE_ALLOWED_ORIGINS: http://localhost:33001,http://localhost:3000
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://$(hostname -i):3000/api/public/health | grep -q OK"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - xhs-network
+
+  # Langfuse Worker（后台任务处理）
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3
+    container_name: xhs-langfuse-worker
+    restart: unless-stopped
+    depends_on:
+      langfuse-server:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:23023:3030"
+    environment:
+      # PostgreSQL
+      DATABASE_URL: postgresql://langfuse:langfuse_password@postgres:5432/langfuse
+
+      # ClickHouse
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse:langfuse@clickhouse:9000/langfuse
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: langfuse
+
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_AUTH: ""
+
+      # S3/MinIO 配置
+      LANGFUSE_S3_EVENT_UPLOAD_ENABLED: "true"
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_BATCH_EXPORT_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minioadmin
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: minioadmin
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+
+      # Auth
+      NEXTAUTH_SECRET: TotCNj+RoDTnmgmCshUl669Vhz0S+UxiSuUbJesz3+0=
+      SALT: oJa9Dw2ONJDAnDm7HnxxP9x0GamRJFv5ksurmrfSNFY=
+      ENCRYPTION_KEY: 78c1e6a10981d269f6a90872e29b3908f651fcd5485d884c9f48fc83a461200b
+    networks:
+      - xhs-network
+
+# ============================================
+# 数据卷
+# ============================================
+volumes:
+  postgres_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+  clickhouse_data:
+    driver: local
+  redis_data:
+    driver: local
+  minio_data:
+    driver: local
+
+# ============================================
+# 网络
+# ============================================
+networks:
+  xhs-network:
+    driver: bridge
+
+# ============================================
+# 使用说明
+# ============================================
+#
+# 1. 启动所有服务：
+#    docker-compose up -d
+#
+# 2. 启动特定服务：
+#    docker-compose up -d postgres pgadmin
+#    docker-compose up -d langfuse-server langfuse-worker
+#
+# 3. 查看日志：
+#    docker-compose logs -f
+#    docker-compose logs -f langfuse-server
+#
+# 4. 停止服务：
+#    docker-compose down
+#
+# 5. 完全清理（包括数据卷）：
+#    docker-compose down -v
+#
+# 6. 重启服务：
+#    docker-compose restart langfuse-server
+#
+# ============================================
+# 服务访问地址
+# ============================================
+#
+# PostgreSQL:
+#   - Host: localhost:23010
+#   - Database: xhs_generator (主应用) / langfuse (Langfuse)
+#   - User: xhs_admin / langfuse
+#
+# PgAdmin:
+#   - URL: http://localhost:5050
+#   - Email: admin@xhs.local
+#   - Password: admin
+#
+# Langfuse Web UI:
+#   - URL: http://localhost:23022
+#   - 首次访问需要注册账号
+#
+# MinIO Console:
+#   - URL: http://localhost:23031
+#   - Username: minioadmin
+#   - Password: minioadmin
+#   - 首次启动后需要创建 bucket: langfuse
+#
+# Redis:
+#   - Host: localhost:23011
+#
+# ClickHouse:
+#   - HTTP: localhost:23020
+#   - Native: localhost:23021
+#
+# ============================================
+# 首次启动步骤
+# ============================================
+#
+# 1. 启动所有服务：
+#    docker-compose up -d
+#
+# 2. 等待所有服务健康检查通过（约 30-60 秒）：
+#    docker-compose ps
+#
+# 3. 初始化 MinIO bucket：
+#    - 访问 http://localhost:23031
+#    - 登录：minioadmin / minioadmin
+#    - 点击 "Create Bucket"
+#    - 输入名称：langfuse
+#    - 点击 "Create"
+#
+# 4. 访问 Langfuse：
+#    - 打开 http://localhost:23022
+#    - 注册新账号
+#    - 创建项目并获取 API Key
+#
+# 5. 配置应用环境变量（.env.local）：
+#    DATABASE_URL=postgresql://xhs_admin:xhs_dev_password@localhost:23010/xhs_generator
+#    LANGFUSE_PUBLIC_KEY=pk-lf-xxx
+#    LANGFUSE_SECRET_KEY=sk-lf-xxx
+#    LANGFUSE_HOST=http://localhost:23022
+#
+# ============================================
+# 故障排查
+# ============================================
+#
+# 查看服务状态：
+#   docker-compose ps
+#
+# 查看特定服务日志：
+#   docker-compose logs -f langfuse-server
+#   docker-compose logs -f postgres
+#
+# 重启失败的服务：
+#   docker-compose restart langfuse-server
+#
+# 检查网络连接：
+#   docker-compose exec langfuse-server ping postgres
+#   docker-compose exec langfuse-server ping clickhouse
+#
+# 进入容器调试：
+#   docker-compose exec postgres psql -U xhs_admin -d xhs_generator
+#   docker-compose exec redis redis-cli
+#
+# ============================================

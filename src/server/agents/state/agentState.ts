@@ -95,6 +95,10 @@ export const AgentState = Annotation.Root({
     value: (x, y) => [...x, ...y],
     default: () => [],
   }),
+  generatedImageAssetIds: Annotation<number[]>({
+    value: (x, y) => [...x, ...y],
+    default: () => [],
+  }),
   iterationCount: Annotation<number>({
     value: (_, y) => y,
     default: () => 0,

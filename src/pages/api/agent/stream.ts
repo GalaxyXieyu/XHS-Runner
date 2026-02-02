@@ -4,7 +4,7 @@ import { INTERRUPT } from "@langchain/langgraph";
 import { createMultiAgentSystem } from "@/server/agents/multiAgentSystem";
 import { AgentEvent, AgentType } from "@/server/agents/state/agentState";
 import { createTrace, logGeneration, logSpan, flushLangfuse } from "@/server/services/langfuseService";
-import { createCreative } from "@/server/services/xhs/data/creativeService";
+import { createCreative, updateCreative } from "@/server/services/xhs/data/creativeService";
 import { v4 as uuidv4 } from "uuid";
 import type { AskUserInterrupt } from "@/server/agents/tools/askUserTool";
 import { detectIntent } from "@/server/agents/tools/intentTools";
@@ -185,6 +185,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // 重置图片生成计数（每次请求独立计数）
     resetImageToolCallCount();
 
+    // 提前创建 creative，确保后续图片能关联到同一条记录
+    if (themeId) {
+      try {
+        const creative = await createCreative({
+          themeId,
+          status: "draft",
+          model: "agent",
+          prompt: message,
+        });
+        creativeId = creative.id;
+      } catch (createError) {
+        console.error("Failed to precreate creative:", createError);
+      }
+    }
+
     const app = await createMultiAgentSystem(
       enableHITL ? { enableHITL: true, threadId } : undefined
     );
@@ -199,6 +214,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       imageGenProvider: provider,
       threadId: threadId || "",
       contentType: contentTypeDetection.type,
+      creativeId: creativeId ?? null,
     };
     if (refImages.length > 0) {
       initialState.referenceImages = refImages;
@@ -349,16 +365,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                   // Send content update event for real-time UI updates
                   sendContentUpdate(parsed.title, parsed.body, parsed.tags);
 
-                  const creative = await createCreative({
-                    themeId,
-                    title: parsed.title,
-                    content: parsed.body,
-                    tags: parsed.tags.join(","),
-                    status: "draft",
-                    model: "agent",
-                    prompt: message,
-                  });
-                  creativeId = creative.id;
+                  if (creativeId) {
+                    await updateCreative({
+                      id: creativeId,
+                      title: parsed.title,
+                      content: parsed.body,
+                      tags: parsed.tags.join(","),
+                      status: "draft",
+                      model: "agent",
+                      prompt: message,
+                    });
+                  } else {
+                    const creative = await createCreative({
+                      themeId,
+                      title: parsed.title,
+                      content: parsed.body,
+                      tags: parsed.tags.join(","),
+                      status: "draft",
+                      model: "agent",
+                      prompt: message,
+                    });
+                    creativeId = creative.id;
+                  }
                 } catch (saveError) {
                   console.error("Failed to save creative:", saveError);
                 }
@@ -407,7 +435,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             if (output.imagesComplete) {
               stateChanges.push("图片生成完成");
               // Send completion events for all images using generatedImagePaths
-              if (output.generatedImagePaths?.length > 0) {
+              if (output.generatedImageAssetIds?.length > 0) {
+                output.generatedImageAssetIds.forEach((assetId: number, index: number) => {
+                  sendImageProgress(index + 1, 'complete', 1, String(assetId));
+                });
+              } else if (output.generatedImagePaths?.length > 0) {
                 output.generatedImagePaths.forEach((path: string, index: number) => {
                   // Extract asset ID from path (format: /api/assets/123)
                   const assetIdMatch = path.match(/\/api\/assets\/(\d+)/);
@@ -418,10 +450,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             } else if (output.imagePlans?.length > 0) {
               // Send generating status for images in progress
               output.imagePlans.forEach((plan: any, index: number) => {
-                const currentCount = output.generatedImagePaths?.length || 0;
+                const currentCount = output.generatedImageAssetIds?.length || output.generatedImagePaths?.length || 0;
                 const progress = currentCount > index ? 1 : 0.5;
                 const status = currentCount > index ? 'complete' : 'generating';
-                if (currentCount > index && output.generatedImagePaths?.[index]) {
+                if (currentCount > index && output.generatedImageAssetIds?.[index]) {
+                  sendImageProgress(index + 1, status, progress, String(output.generatedImageAssetIds[index]));
+                } else if (currentCount > index && output.generatedImagePaths?.[index]) {
                   const path = output.generatedImagePaths[index];
                   const assetIdMatch = path.match(/\/api\/assets\/(\d+)/);
                   const assetId = assetIdMatch ? assetIdMatch[1] : path;

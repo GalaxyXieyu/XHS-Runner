@@ -2,7 +2,7 @@ import { INTERRUPT } from "@langchain/langgraph";
 import type { AgentEvent } from "@/server/agents/state/agentState";
 import type { AskUserInterrupt } from "@/server/agents/tools/askUserTool";
 import { logSpan, logGeneration } from "@/server/services/langfuseService";
-import { createCreative } from "@/server/services/xhs/data/creativeService";
+import { createCreative, updateCreative } from "@/server/services/xhs/data/creativeService";
 import { logAgent } from "@/server/agents/utils";
 import type { AgentType } from "@/server/agents/state/agentState";
 
@@ -71,6 +71,7 @@ export interface StreamProcessorOptions {
   enableHITL?: boolean;
   onCreativeCreated?: (creativeId: number) => void;
   onImagePlansExtracted?: (plans: any[]) => void;
+  creativeId?: number;
 }
 
 /**
@@ -81,7 +82,7 @@ export async function* processAgentStream(
   stream: AsyncIterable<any>,
   options: StreamProcessorOptions = {}
 ): AsyncGenerator<AgentEvent, void, unknown> {
-  const { themeId, traceId, trajId, threadId, enableHITL, onCreativeCreated, onImagePlansExtracted } = options;
+  const { themeId, traceId, trajId, threadId, enableHITL, onCreativeCreated, onImagePlansExtracted, creativeId } = options;
 
   let writerContent: { title: string; body: string; tags: string[] } | null = null;
   let imagePlans: any[] = [];
@@ -217,17 +218,29 @@ export async function* processAgentStream(
               try {
                 const parsed = parseWriterContent(msg.content);
                 writerContent = parsed; // 保存用于 HITL
-                const creative = await createCreative({
-                  themeId,
-                  title: parsed.title,
-                  content: parsed.body,
-                  tags: parsed.tags.join(","),
-                  status: "draft",
-                  model: "agent",
-                  prompt: "", // 这里可以传入原始 prompt
-                });
-                if (onCreativeCreated) {
-                  onCreativeCreated(creative.id);
+                if (creativeId) {
+                  await updateCreative({
+                    id: creativeId,
+                    title: parsed.title,
+                    content: parsed.body,
+                    tags: parsed.tags.join(","),
+                    status: "draft",
+                    model: "agent",
+                    prompt: "", // 这里可以传入原始 prompt
+                  });
+                } else {
+                  const creative = await createCreative({
+                    themeId,
+                    title: parsed.title,
+                    content: parsed.body,
+                    tags: parsed.tags.join(","),
+                    status: "draft",
+                    model: "agent",
+                    prompt: "", // 这里可以传入原始 prompt
+                  });
+                  if (onCreativeCreated) {
+                    onCreativeCreated(creative.id);
+                  }
                 }
               } catch (saveError) {
                 console.error("Failed to save creative:", saveError);

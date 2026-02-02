@@ -2,9 +2,8 @@
  * Prompt Manager - 以 Langfuse 为主数据源的 prompt 管理服务
  *
  * 工作流程：
- * 1. 每次运行时从 Langfuse 拉取最新的 prompt
- * 2. 同步到本地数据库作为缓存
- * 3. 如果 Langfuse 不可用，使用数据库缓存
+ * 1. 从 Langfuse 拉取最新的 prompt
+ * 2. 如果 Langfuse 不可用，返回 null（调用方需要处理降级逻辑）
  *
  * 在 Langfuse 中管理 prompt：
  * - 创建 prompt 时使用 "xhs-agent-{agent_name}" 格式命名
@@ -12,7 +11,6 @@
  */
 
 import { getLangfuse } from "./langfuseService";
-import { query, queryOne, getPool } from "../pg";
 
 // Prompt 缓存
 const promptCache = new Map<string, { prompt: string; timestamp: number }>();
@@ -35,8 +33,6 @@ async function fetchFromLangfuse(agentName: string): Promise<string | null> {
     });
 
     if (prompt) {
-      // 同步到数据库
-      await syncToDatabase(agentName, promptName, prompt.prompt, prompt.version);
       return prompt.prompt;
     }
     return null;
@@ -47,58 +43,12 @@ async function fetchFromLangfuse(agentName: string): Promise<string | null> {
 }
 
 /**
- * 同步 prompt 到数据库
- */
-async function syncToDatabase(
-  agentName: string,
-  langfusePromptName: string,
-  systemPrompt: string,
-  version: number
-): Promise<void> {
-  const pool = getPool();
-  try {
-    await pool.query(
-      `INSERT INTO agent_prompts (agent_name, langfuse_prompt_name, system_prompt, version, last_synced_at, updated_at)
-       VALUES ($1, $2, $3, $4, NOW(), NOW())
-       ON CONFLICT (agent_name)
-       DO UPDATE SET
-         langfuse_prompt_name = EXCLUDED.langfuse_prompt_name,
-         system_prompt = EXCLUDED.system_prompt,
-         version = EXCLUDED.version,
-         last_synced_at = EXCLUDED.last_synced_at,
-         updated_at = EXCLUDED.updated_at`,
-      [agentName, langfusePromptName, systemPrompt, version]
-    );
-  } catch (error) {
-    console.error(`[PromptManager] Database sync error: ${agentName}`, error);
-  }
-}
-
-/**
- * 从数据库获取缓存的 prompt
- */
-async function fetchFromDatabase(agentName: string): Promise<string | null> {
-  try {
-    const data = await queryOne<{ system_prompt: string }>(
-      `SELECT system_prompt FROM agent_prompts
-       WHERE agent_name = $1 AND is_enabled = true`,
-      [agentName]
-    );
-    return data?.system_prompt || null;
-  } catch (error) {
-    console.error(`[PromptManager] Failed to fetch from database: ${agentName}`, error);
-    return null;
-  }
-}
-
-/**
  * 获取 Agent 的 system prompt
  *
  * 优先级：
  * 1. 内存缓存（5分钟内）
  * 2. Langfuse（主数据源）
- * 3. 数据库缓存（备用）
- * 4. null（调用方需要处理）
+ * 3. null（调用方需要处理降级逻辑，如使用 YAML 文件）
  */
 export async function getAgentPrompt(
   agentName: string,
@@ -111,14 +61,9 @@ export async function getAgentPrompt(
   }
 
   // 2. 从 Langfuse 获取
-  let prompt = await fetchFromLangfuse(agentName);
+  const prompt = await fetchFromLangfuse(agentName);
 
-  // 3. 如果 Langfuse 失败，从数据库获取
-  if (!prompt) {
-    prompt = await fetchFromDatabase(agentName);
-  }
-
-  // 4. 如果都失败，返回 null
+  // 3. 如果失败，返回 null（调用方会降级到 YAML 文件）
   if (!prompt) {
     return null;
   }
@@ -153,8 +98,7 @@ export async function uploadPromptToLangfuse(
   try {
     const langfuse = await getLangfuse();
     if (!langfuse) {
-      console.warn("[PromptManager] Langfuse not available, saving to database only");
-      await syncToDatabase(agentName, `xhs-agent-${agentName}`, systemPrompt, 1);
+      console.warn("[PromptManager] Langfuse not available");
       return false;
     }
 
@@ -167,9 +111,6 @@ export async function uploadPromptToLangfuse(
       isActive: isProduction,
       labels: isProduction ? ["production"] : ["development"],
     });
-
-    // 同步到数据库（version 使用 1，实际版本由 Langfuse 管理）
-    await syncToDatabase(agentName, promptName, systemPrompt, 1);
 
     return true;
   } catch (error) {
@@ -186,41 +127,5 @@ export function clearPromptCache(agentName?: string): void {
     promptCache.delete(agentName);
   } else {
     promptCache.clear();
-  }
-}
-
-/**
- * 获取所有已配置的 agent prompts
- */
-export async function getAllAgentPrompts(): Promise<Map<string, string>> {
-  const prompts = new Map<string, string>();
-
-  try {
-    const rows = await query<{ agent_name: string; system_prompt: string }>(
-      `SELECT agent_name, system_prompt FROM agent_prompts WHERE is_enabled = true`
-    );
-
-    for (const row of rows) {
-      prompts.set(row.agent_name, row.system_prompt);
-    }
-  } catch (error) {
-    console.error("[PromptManager] Failed to get all prompts", error);
-  }
-
-  return prompts;
-}
-
-/**
- * 列出所有已注册的 agent
- */
-export async function listAgents(): Promise<string[]> {
-  try {
-    const rows = await query<{ agent_name: string }>(
-      `SELECT agent_name FROM agent_prompts WHERE is_enabled = true`
-    );
-    return rows.map((row) => row.agent_name);
-  } catch (error) {
-    console.error("[PromptManager] Failed to list agents", error);
-    return [];
   }
 }

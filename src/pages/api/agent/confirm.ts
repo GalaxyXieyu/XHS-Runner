@@ -4,6 +4,7 @@ import { ImagePlan, AgentEvent } from "@/server/agents/state/agentState";
 import { db, schema } from "@/server/db";
 import type { UserResponse } from "@/server/agents/tools/askUserTool";
 import { processAgentStream } from "@/server/agents/utils/streamProcessor";
+import { getCheckpointer } from "@/server/agents/utils";
 import { flushLangfuse } from "@/server/services/langfuseService";
 
 interface ConfirmRequest {
@@ -42,6 +43,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: "threadId is required" });
     }
 
+    let creativeId: number | undefined;
+    try {
+      const checkpointer = await getCheckpointer();
+      const checkpoint = await checkpointer.get({ configurable: { thread_id: threadId } });
+      const stateCreativeId = checkpoint?.channel_values?.creativeId;
+      if (typeof stateCreativeId === "number") {
+        creativeId = stateCreativeId;
+      }
+    } catch (error) {
+      console.warn("[/api/agent/confirm] Failed to read checkpoint creativeId:", error);
+    }
+
     // 如果是 askUser 响应，直接用 userResponse 恢复
     if (userResponse) {
       console.log("[/api/agent/confirm] 处理 askUser 响应");
@@ -60,7 +73,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       console.log("[/api/agent/confirm] 开始处理 askUser 流");
       // 使用 processAgentStream 处理 LangGraph 流
-      for await (const event of processAgentStream(stream, { threadId, enableHITL: true })) {
+      for await (const event of processAgentStream(stream, { threadId, enableHITL: true, creativeId })) {
         sendEvent(res, event);
       }
 
@@ -129,7 +142,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     console.log("[/api/agent/confirm] 开始处理流");
     // 使用 processAgentStream 处理 LangGraph 流
-    for await (const event of processAgentStream(stream, { threadId, enableHITL: true })) {
+    for await (const event of processAgentStream(stream, { threadId, enableHITL: true, creativeId })) {
       sendEvent(res, event);
     }
 

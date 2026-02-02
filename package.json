@@ -16,7 +16,11 @@
     "pack": "npm run build:server && electron-builder --dir",
     "dist": "npm run build:server && electron-builder",
     "dist:mac": "npm run build:server && electron-builder --mac",
-    "dist:win": "npm run build:server && electron-builder --win"
+    "dist:win": "npm run build:server && electron-builder --win",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx scripts/migrate-db.ts",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.7",
@@ -70,6 +74,7 @@
     "jimp": "^1.6.0",
     "langfuse": "^3.38.6",
     "lucide-react": "^0.487.0",
+    "minio": "^8.0.6",
     "next": "14.2.5",
     "next-themes": "^0.4.6",
     "openai": "^6.16.0",
@@ -90,6 +95,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.18",
+    "@types/minio": "^7.1.0",
     "@types/node": "^20.10.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.1",
