@@ -13,3 +13,12 @@ issues/*
 !issues/*.csv
 src/lib/*.js
 .xhs-data/assets/
+/assets/*.png
+/assets/*.jpg
+/assets/*.webp
+
+# Backup files (may contain sensitive data)
+scripts/backups/
+*.sql
+*.dump
+backups/

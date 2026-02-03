@@ -59,7 +59,7 @@ export const AgentEventSchema = z.object({
   message: z.string().optional(),
   progress: z.number().min(0).max(1).optional(),
   timestamp: z.string(),
-  metadata: z.record(z.any()).optional(),
+  metadata: z.record(z.string(), z.any()).optional(),
 });
 export type AgentEvent = z.infer<typeof AgentEventSchema>;
 

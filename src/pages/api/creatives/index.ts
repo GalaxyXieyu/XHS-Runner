@@ -6,6 +6,28 @@ async function getCreativeService() {
   return getService('creativeService', () => import('@/server/services/xhs/data/creativeService'));
 }
 
+// 转换 ContentPackage 为前端期望的格式
+function transformContentPackage(pkg: any) {
+  const images = pkg.assets.map((asset: any) => `/api/assets/${asset.id}`);
+  return {
+    id: String(pkg.creative.id),
+    titles: [pkg.creative.title],
+    selectedTitleIndex: 0,
+    content: pkg.creative.content || '',
+    tags: pkg.creative.tags ? pkg.creative.tags.split(',').filter(Boolean) : [],
+    coverImage: images[0] || undefined,
+    images,
+    qualityScore: 0,
+    predictedMetrics: {
+      likes: 0,
+      collects: 0,
+      comments: 0,
+    },
+    status: pkg.creative.status,
+    createdAt: pkg.creative.createdAt,
+  };
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     const svc = await getCreativeService();
@@ -20,7 +42,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           limit: limit ? Number(limit) : 20,
           offset: offset ? Number(offset) : 0,
         });
-        return res.status(200).json(packages);
+        // 转换为前端期望的格式
+        const transformed = packages.map(transformContentPackage);
+        return res.status(200).json(transformed);
       }
 
       const creatives = await svc.listCreatives(themeId ? Number(themeId) : undefined);

@@ -191,6 +191,51 @@ WHERE agent_name = 'supervisor';
 
 > 推荐使用 Postgres + Drizzle。需要直接查询时可用 `psql` 或一次性脚本。
 
+### Schema 同步机制
+
+**快速命令**：修改 `schema.ts` 后运行
+```bash
+npm run db:sync
+```
+
+**工作原理**：
+1. 生成迁移文件（`drizzle-kit generate`）
+2. 应用迁移到数据库（通过 Docker PostgreSQL）
+3. 验证表结构
+
+**完整工作流程**：
+```bash
+# 1. 修改 schema
+vim src/server/db/schema.ts
+
+# 2. 同步到数据库
+npm run db:sync
+
+# 3. 重启应用（重要！）
+# 按 Ctrl+C 停止当前应用
+npm run dev  # 重新启动
+```
+
+**为什么需要重启？**
+- 数据库连接在应用启动时建立
+- Drizzle ORM 会缓存表结构信息
+- 新表需要重新建立连接才能被识别
+
+**故障排查**：
+```bash
+# 检查表是否存在
+docker-compose exec postgres psql -U xhs_admin -d xhs_generator -c "\dt table_name"
+
+# 检查表结构
+docker-compose exec postgres psql -U xhs_admin -d xhs_generator -c "\d table_name"
+
+# 如果 Docker 未运行
+docker-compose up -d postgres
+npm run db:sync
+```
+
+**详细开发流程**：参考 [docs/CODING_PIPELINE.md](docs/CODING_PIPELINE.md)
+
 ### 常用查询示例
 
 ```sql

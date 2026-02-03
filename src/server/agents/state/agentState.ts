@@ -146,9 +146,30 @@ export const AgentState = Annotation.Root({
 
 // Agent 执行事件类型
 export interface AgentEvent {
-  type: "agent_start" | "agent_end" | "tool_call" | "tool_result" | "message";
+  type:
+    | "agent_start"
+    | "agent_end"
+    | "tool_call"
+    | "tool_result"
+    | "message"
+    | "progress"
+    | "ask_user"
+    | "workflow_paused"
+    | "state_update"
+    | "image_progress"
+    | "content_update"
+    | "workflow_progress";
   agent?: string;
   tool?: string;
   content: string;
   timestamp: number;
+  // ask_user
+  question?: string;
+  options?: Array<{ id: string; label: string; description?: string; imageUrl?: string }>;
+  selectionType?: "single" | "multiple" | "none";
+  allowCustomInput?: boolean;
+  context?: Record<string, unknown>;
+  threadId?: string;
+  // 其他扩展字段
+  [key: string]: any;
 }

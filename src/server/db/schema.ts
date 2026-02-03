@@ -472,3 +472,60 @@ export const referenceImageAnalyses = pgTable('reference_image_analyses', {
 
 export type ReferenceImageAnalysis = typeof referenceImageAnalyses.$inferSelect;
 export type NewReferenceImageAnalysis = typeof referenceImageAnalyses.$inferInsert;
+
+// ==================== Image Download Queue ====================
+
+export const imageDownloadQueue = pgTable('image_download_queue', {
+  id: serial('id').primaryKey(),
+  topicId: integer('topic_id').notNull().references(() => topics.id, { onDelete: 'cascade' }),
+  imageType: text('image_type').notNull(), // 'cover' | 'media'
+  imageIndex: integer('image_index').notNull(),
+  originalUrl: text('original_url').notNull(),
+  status: text('status').notNull().default('pending'), // 'pending' | 'processing' | 'completed' | 'failed'
+  retryCount: integer('retry_count').notNull().default(0),
+  storedPath: text('stored_path'),
+  storedUrl: text('stored_url'),
+  errorMessage: text('error_message'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  uniqueTopicImage: unique().on(table.topicId, table.imageType, table.imageIndex),
+}));
+
+export type ImageDownloadQueue = typeof imageDownloadQueue.$inferSelect;
+export type NewImageDownloadQueue = typeof imageDownloadQueue.$inferInsert;
+
+// ==================== Conversation Tables ====================
+
+export const conversations = pgTable('conversations', {
+  id: serial('id').primaryKey(),
+  themeId: integer('theme_id').references(() => themes.id, { onDelete: 'set null' }),
+  threadId: text('thread_id').notNull().unique(), // LangGraph thread ID
+  title: text('title'), // 自动从首条消息提取
+  status: text('status').notNull().default('active'), // active | completed | archived
+  creativeId: integer('creative_id').references(() => creatives.id, { onDelete: 'set null' }),
+  metadata: jsonb('metadata'), // 存储配置（imageGenProvider 等）
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const conversationMessages = pgTable('conversation_messages', {
+  id: serial('id').primaryKey(),
+  conversationId: integer('conversation_id').notNull()
+    .references(() => conversations.id, { onDelete: 'cascade' }),
+  role: text('role').notNull(), // user | assistant | system
+  content: text('content').notNull(),
+  agent: text('agent'), // 哪个 agent 生成的
+  // HITL 交互数据
+  askUser: jsonb('ask_user'), // { question, options, selectionType, ... }
+  askUserResponse: jsonb('ask_user_response'), // { selectedIds, selectedLabels, customInput }
+  // Agent 事件（工具调用等）
+  events: jsonb('events'), // AgentEvent[]
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type Conversation = typeof conversations.$inferSelect;
+export type NewConversation = typeof conversations.$inferInsert;
+
+export type ConversationMessage = typeof conversationMessages.$inferSelect;
+export type NewConversationMessage = typeof conversationMessages.$inferInsert;

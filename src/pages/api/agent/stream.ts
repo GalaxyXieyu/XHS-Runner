@@ -10,7 +10,20 @@ import type { AskUserInterrupt } from "@/server/agents/tools/askUserTool";
 import { detectIntent } from "@/server/agents/tools/intentTools";
 import { resetImageToolCallCount } from "@/server/agents/routing";
 import { startTraj, endTraj, logAgent } from "@/server/agents/utils";
+import { registerProgressCallback, unregisterProgressCallback } from "@/server/agents/utils/progressEmitter";
 import { detectContentType } from "@/server/services/contentTypeDetector";
+import { db } from "@/server/db";
+import { conversations, conversationMessages } from "@/server/db/schema";
+import { eq } from "drizzle-orm";
+
+// 消息收集器类型
+interface CollectedMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  agent?: string;
+  askUser?: any;
+  events?: any[];
+}
 
 // 解析 writer_agent 生成的内容（支持 JSON 和纯文本两种格式）
 function parseWriterContent(content: string): { title: string; body: string; tags: string[] } {
@@ -96,6 +109,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (typeof (res as any).flush === "function") {
       (res as any).flush();
     }
+    // 收集事件用于持久化
+    collectedEvents.push(event);
   };
 
   // Enhanced event senders for real-time progress tracking
@@ -110,6 +125,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       timestamp: Date.now(),
     } as any);
   };
+
+  // 注册图片进度回调，用于 imageAgentNode 实时推送进度
+  const progressCallbackId = threadId || 'global';
+  registerProgressCallback(progressCallbackId, (event) => {
+    sendImageProgress(
+      event.taskId,
+      event.status,
+      event.progress,
+      event.assetId ? String(event.assetId) : event.url,
+      event.errorMessage
+    );
+  });
+
+  // 清理函数：在请求结束时取消注册回调
+  const cleanup = () => {
+    unregisterProgressCallback(progressCallbackId);
+  };
+
+  // 监听连接关闭事件，确保清理
+  res.on('close', cleanup);
 
   const sendContentUpdate = (title?: string, body?: string, tags?: string[]) => {
     sendEvent({
@@ -131,6 +166,37 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     } as any);
   };
 
+  // 保存 assistant 消息到数据库
+  const saveAssistantMessages = async (askUserData?: any) => {
+    if (!conversationId) return;
+    
+    try {
+      // 从收集的事件中提取 assistant 消息内容
+      const messageEvents = collectedEvents.filter(e => e.type === 'message' && e.content);
+      const content = messageEvents.map(e => e.content).join('\n\n') || '处理完成';
+      const lastAgent = messageEvents[messageEvents.length - 1]?.agent;
+      
+      await db.insert(conversationMessages).values({
+        conversationId,
+        role: 'assistant',
+        content,
+        agent: lastAgent || null,
+        askUser: askUserData || null,
+        events: collectedEvents.length > 0 ? collectedEvents : null,
+      });
+      
+      // 更新对话的 updatedAt 和 creativeId
+      await db.update(conversations)
+        .set({ 
+          updatedAt: new Date(),
+          creativeId: creativeId || null,
+        })
+        .where(eq(conversations.id, conversationId));
+    } catch (err) {
+      console.error('Failed to save assistant message:', err);
+    }
+  };
+
   // 创建 Langfuse trace
   const trace = await createTrace('agent-stream', {
     message,
@@ -142,15 +208,50 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   // 用于保存 creativeId
   let creativeId: number | undefined;
+  
+  // 对话持久化：创建 conversation 记录
+  let conversationId: number | undefined;
+  const collectedMessages: CollectedMessage[] = [];
+  const collectedEvents: any[] = [];
+  
+  if (threadId) {
+    try {
+      const [conversation] = await db
+        .insert(conversations)
+        .values({
+          themeId: themeId ? Number(themeId) : null,
+          threadId,
+          title: message.slice(0, 50) + (message.length > 50 ? '...' : ''),
+          metadata: { imageGenProvider: provider, referenceImages: refImages },
+          status: 'active',
+        })
+        .returning();
+      conversationId = conversation.id;
+      
+      // 立即保存用户消息
+      await db.insert(conversationMessages).values({
+        conversationId,
+        role: 'user',
+        content: message,
+      });
+    } catch (err) {
+      console.error('Failed to create conversation:', err);
+    }
+  }
 
-  sendEvent({
+  // 发送初始事件（包含 conversationId）
+  const initEvent: any = {
     type: "agent_start",
     agent: "supervisor",
     content: hasReferenceImage
       ? `开始处理请求 (${refImages.length}张参考图)...`
       : "开始处理请求...",
     timestamp: Date.now(),
-  });
+  };
+  if (conversationId) {
+    initEvent.conversationId = conversationId;
+  }
+  sendEvent(initEvent);
 
   // 开始轨迹记录
   const trajId = threadId || uuidv4();
@@ -230,6 +331,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     let lastNodeName = "";
     let writerContent: { title: string; body: string; tags: string[] } | null = null;
     let imagePlans: any[] = [];
+    let generatedAssetIds: number[] = [];
 
     for await (const chunk of stream) {
       // 检查是否有 interrupt (askUser 工具触发)
@@ -240,7 +342,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const interruptData = interrupts?.[0];
         if (interruptData?.value && typeof interruptData.value === "object" && (interruptData.value as AskUserInterrupt).type === "ask_user") {
           const askUserData = interruptData.value as AskUserInterrupt;
-          sendEvent({
+          const askUserEvent = {
             type: "ask_user",
             question: askUserData.question,
             options: askUserData.options,
@@ -249,12 +351,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             context: askUserData.context,
             threadId: threadId!,
             timestamp: askUserData.timestamp,
-          } as any);
+          };
+          sendEvent(askUserEvent as any);
           sendEvent({
             type: "workflow_paused",
             threadId: threadId!,
             timestamp: Date.now(),
           } as any);
+          // 保存 assistant 消息（包含 askUser 信息）
+          await saveAssistantMessages(askUserEvent);
           await flushLangfuse();
           res.end();
           return;
@@ -434,8 +539,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           if (nodeName === "image_agent") {
             if (output.imagesComplete) {
               stateChanges.push("图片生成完成");
-              // Send completion events for all images using generatedImagePaths
+              // 保存生成的图片 asset IDs
               if (output.generatedImageAssetIds?.length > 0) {
+                generatedAssetIds = output.generatedImageAssetIds;
                 output.generatedImageAssetIds.forEach((assetId: number, index: number) => {
                   sendImageProgress(index + 1, 'complete', 1, String(assetId));
                 });
@@ -445,6 +551,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                   const assetIdMatch = path.match(/\/api\/assets\/(\d+)/);
                   const assetId = assetIdMatch ? assetIdMatch[1] : path;
                   sendImageProgress(index + 1, 'complete', 1, assetId);
+                  // 保存 asset ID
+                  if (assetIdMatch) {
+                    generatedAssetIds.push(parseInt(assetIdMatch[1], 10));
+                  }
                 });
               }
             } else if (output.imagePlans?.length > 0) {
@@ -497,28 +607,48 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             }
 
             if (writerContent) {
-              res.write(`data: ${JSON.stringify({
-                type: "confirmation_required",
-                confirmationType: "content",
-                data: writerContent,
+              const writerAskUser = {
+                type: "ask_user",
+                question: "文案已生成，是否继续？",
+                options: [
+                  { id: "approve", label: "继续" },
+                  { id: "reject", label: "重生成（给建议）" },
+                ],
+                selectionType: "single",
+                allowCustomInput: true,
+                context: { __hitl: true, kind: "content", data: writerContent },
                 threadId,
                 timestamp: Date.now(),
-              })}\n\n`);
-              res.write(`data: ${JSON.stringify({ type: "workflow_paused", threadId, timestamp: Date.now() })}\n\n`);
+                content: "文案已生成，等待确认",
+              };
+              res.write(`data: ${JSON.stringify(writerAskUser)}\n\n`);
+              res.write(`data: ${JSON.stringify({ type: "workflow_paused", threadId, timestamp: Date.now(), content: "工作流已暂停，等待用户确认" })}\n\n`);
+              // 保存 assistant 消息
+              await saveAssistantMessages(writerAskUser);
               await flushLangfuse();
               res.end();
               return;
             }
           }
           if (nodeName === "image_planner_agent" && imagePlans.length > 0) {
-            res.write(`data: ${JSON.stringify({
-              type: "confirmation_required",
-              confirmationType: "image_plans",
-              data: imagePlans,
+            const imagePlanAskUser = {
+              type: "ask_user",
+              question: "图片规划已生成，是否继续生成图片？",
+              options: [
+                { id: "approve", label: "继续" },
+                { id: "reject", label: "重规划（给建议）" },
+              ],
+              selectionType: "single",
+              allowCustomInput: true,
+              context: { __hitl: true, kind: "image_plans", data: { plans: imagePlans } },
               threadId,
               timestamp: Date.now(),
-            })}\n\n`);
-            res.write(`data: ${JSON.stringify({ type: "workflow_paused", threadId, timestamp: Date.now() })}\n\n`);
+              content: "图片规划已生成，等待确认",
+            };
+            res.write(`data: ${JSON.stringify(imagePlanAskUser)}\n\n`);
+            res.write(`data: ${JSON.stringify({ type: "workflow_paused", threadId, timestamp: Date.now(), content: "工作流已暂停，等待用户确认" })}\n\n`);
+            // 保存 assistant 消息
+            await saveAssistantMessages(imagePlanAskUser);
             await flushLangfuse();
             res.end();
             return;
@@ -529,6 +659,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
+    // 发送最终的完整创作内容（供前端渲染最终结果卡片）
+    if (writerContent || generatedAssetIds.length > 0) {
+      sendEvent({
+        type: "workflow_complete",
+        content: writerContent ? `标题: ${writerContent.title}\n\n${writerContent.body}\n\n标签: ${writerContent.tags.map(t => `#${t}`).join(' ')}` : "",
+        title: writerContent?.title || "",
+        body: writerContent?.body || "",
+        tags: writerContent?.tags || [],
+        imageAssetIds: generatedAssetIds,
+        creativeId,
+        timestamp: Date.now(),
+      } as any);
+    }
+
+    // 保存 assistant 消息
+    await saveAssistantMessages();
+    
+    // 更新对话状态为完成
+    if (conversationId) {
+      await db.update(conversations)
+        .set({ status: 'completed', updatedAt: new Date() })
+        .where(eq(conversations.id, conversationId));
+    }
+    
     res.write(`data: [DONE]\n\n`);
     // 结束轨迹记录
     endTraj(trajId, true, { creative: creativeId, images: imagePlans.length });

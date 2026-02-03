@@ -86,6 +86,8 @@ export async function* processAgentStream(
 
   let writerContent: { title: string; body: string; tags: string[] } | null = null;
   let imagePlans: any[] = [];
+  let generatedAssetIds: number[] = [];
+  let imagesComplete = false;
 
   console.log("[processAgentStream] 开始处理流, enableHITL:", enableHITL);
 
@@ -194,6 +196,18 @@ export async function* processAgentStream(
             // 跳过包含内部路由信息的消息
             if (nodeName === "supervisor" || msg.content.includes("NEXT:") || msg.content.includes("REASON:")) continue;
 
+            // 检查是否是进度消息
+            const progressMatch = msg.content.match(/^\[PROGRESS\]\s*(.+)$/);
+            if (progressMatch) {
+              yield {
+                type: "progress",
+                agent: nodeName,
+                content: progressMatch[1],
+                timestamp: Date.now(),
+              };
+              continue;
+            }
+
             yield {
               type: "message",
               agent: nodeName,
@@ -271,6 +285,16 @@ export async function* processAgentStream(
         }
       }
 
+      // 捕获 image_agent 的输出
+      if (nodeName === "image_agent") {
+        if (output.imagesComplete) {
+          imagesComplete = true;
+        }
+        if (output.generatedImageAssetIds?.length > 0) {
+          generatedAssetIds = output.generatedImageAssetIds;
+        }
+      }
+
       yield {
         type: "agent_end",
         agent: nodeName,
@@ -304,21 +328,27 @@ export async function* processAgentStream(
           }
 
           if (writerContent) {
-            console.log("[processAgentStream] 发送 writer 确认请求");
+            console.log("[processAgentStream] 发送 writer 确认请求（ask_user）");
             yield {
-              type: "confirmation_required",
-              confirmationType: "content",
-              data: writerContent,
+              type: "ask_user",
+              question: "文案已生成，是否继续？",
+              options: [
+                { id: "approve", label: "继续" },
+                { id: "reject", label: "重生成（给建议）" },
+              ],
+              selectionType: "single",
+              allowCustomInput: true,
+              context: { __hitl: true, kind: "content", data: writerContent },
               threadId,
               timestamp: Date.now(),
-              content: "需要确认创作内容",
+              content: "文案已生成，等待确认",
             } as any;
 
             yield {
               type: "workflow_paused",
               threadId,
               timestamp: Date.now(),
-              content: "工作流已暂停，等待内容确认",
+              content: "工作流已暂停，等待用户确认",
             } as any;
 
             console.log("[processAgentStream] writer 确认请求已发送，停止处理");
@@ -329,19 +359,25 @@ export async function* processAgentStream(
         if (nodeName === "image_planner_agent" && imagePlans.length > 0) {
           console.log("[processAgentStream] image_planner_agent 完成，发送确认请求, imagePlans:", imagePlans.length);
           yield {
-            type: "confirmation_required",
-            confirmationType: "image_plans",
-            data: imagePlans,
+            type: "ask_user",
+            question: "图片规划已生成，是否继续生成图片？",
+            options: [
+              { id: "approve", label: "继续" },
+              { id: "reject", label: "重规划（给建议）" },
+            ],
+            selectionType: "single",
+            allowCustomInput: true,
+            context: { __hitl: true, kind: "image_plans", data: { plans: imagePlans } },
             threadId,
             timestamp: Date.now(),
-            content: "需要确认图片规划",
+            content: "图片规划已生成，等待确认",
           } as any;
 
           yield {
             type: "workflow_paused",
             threadId,
             timestamp: Date.now(),
-            content: "工作流已暂停，等待图片规划确认",
+            content: "工作流已暂停，等待用户确认",
           } as any;
 
           console.log("[processAgentStream] image_planner 确认请求已发送，停止处理");
@@ -349,5 +385,20 @@ export async function* processAgentStream(
         }
       }
     }
+  }
+
+  // 流处理完成，发送 workflow_complete 事件
+  if (writerContent || generatedAssetIds.length > 0) {
+    console.log("[processAgentStream] 发送 workflow_complete 事件");
+    yield {
+      type: "workflow_complete",
+      content: writerContent ? `标题: ${writerContent.title}\n\n${writerContent.body}\n\n标签: ${writerContent.tags.map(t => `#${t}`).join(' ')}` : "",
+      title: writerContent?.title || "",
+      body: writerContent?.body || "",
+      tags: writerContent?.tags || [],
+      imageAssetIds: generatedAssetIds,
+      creativeId,
+      timestamp: Date.now(),
+    } as any;
   }
 }

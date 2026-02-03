@@ -26,7 +26,7 @@ function guessContentType(filePath: string): string {
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'GET') {
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
@@ -50,15 +50,39 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const storageConfig = await loadStorageConfig();
   const storageService = StorageService.reinitialize(storageConfig);
 
+  // 使用代理模式：从存储服务读取内容后返回，而不是重定向
+  // 优点：
+  // 1. MinIO 只需内网访问，不暴露到公网
+  // 2. 统一鉴权控制
+  // 3. 前端无需知道存储后端细节
   if (storageConfig.type === 'minio') {
     try {
-      const url = await storageService.getUrl(asset.path);
-      res.setHeader('Cache-Control', 'no-store');
-      res.writeHead(302, { Location: url });
-      return res.end();
-    } catch (error) {
-      console.error('[assets] Failed to get MinIO URL:', error);
-      return res.status(502).json({ error: 'Failed to fetch asset URL' });
+      // HEAD 请求只返回 headers，不返回内容
+      if (req.method === 'HEAD') {
+        const exists = await storageService.exists(asset.path);
+        if (!exists) {
+          return res.status(404).end();
+        }
+        res.setHeader('Content-Type', guessContentType(asset.path));
+        res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+        return res.status(200).end();
+      }
+
+      // GET 请求返回完整内容
+      const buffer = await storageService.retrieve(asset.path);
+      res.setHeader('Content-Type', guessContentType(asset.path));
+      res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+      res.send(buffer);
+      return;
+    } catch (error: any) {
+      // 文件不存在时返回 404
+      if (error.code === 'NoSuchKey' || error.code === 'NotFound') {
+        console.warn(`[assets] Asset ${id} not found in MinIO: ${asset.path}`);
+        return res.status(404).json({ error: 'Asset file not found' });
+      }
+      // 其他错误返回 502
+      console.error('[assets] Failed to retrieve from MinIO:', error);
+      return res.status(502).json({ error: 'Failed to fetch asset' });
     }
   }
 

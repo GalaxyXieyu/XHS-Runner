@@ -29,6 +29,20 @@
       "when": 1770019574986,
       "tag": "0003_glossy_sandman",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1770027709107,
+      "tag": "0004_aspiring_mantis",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1770109002633,
+      "tag": "0005_ancient_goblin_queen",
+      "breakpoints": true
     }
   ]
 }

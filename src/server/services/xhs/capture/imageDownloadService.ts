@@ -1,22 +1,14 @@
 import { getDatabase } from '../../../db';
-import { resolveUserDataPath } from '../../../runtime/userDataPath';
 import { loadStorageConfig } from '../../storage/config';
 import { StorageService } from '../../storage/StorageService';
 import { createHash } from 'crypto';
-import fs from 'fs';
-import path from 'path';
 
-const CACHE_SUBDIR = ['assets', 'images'];
 const STORAGE_SUBDIR = 'xhs-capture';
 const DOWNLOAD_TIMEOUT_MS = 30_000;
 const MAX_BYTES = 15 * 1024 * 1024;
 const DEFAULT_REFERER = 'https://www.xiaohongshu.com/explore';
 const MAX_RETRY = 3;
 const BATCH_SIZE = 10;
-
-function getCacheDir(): string {
-  return resolveUserDataPath(...CACHE_SUBDIR);
-}
 
 function sha256(input: string): string {
   return createHash('sha256').update(input).digest('hex');
@@ -57,12 +49,6 @@ function buildStorageObject(originalUrl: string): { filename: string; objectPath
     objectPath: `${STORAGE_SUBDIR}/${filename}`,
     ext,
   };
-}
-
-function buildLocalPath(originalUrl: string): string {
-  const key = sha256(originalUrl);
-  const ext = guessExtensionFromUrl(originalUrl);
-  return path.join(getCacheDir(), `${key}.${ext}`);
 }
 
 async function downloadImage(url: string, referer: string): Promise<Buffer> {
@@ -161,23 +147,21 @@ export async function processImageDownloadQueue(batchSize = BATCH_SIZE): Promise
   failed: number;
 }> {
   const db = getDatabase();
-  const cacheDir = getCacheDir();
 
-  let useMinio = false;
-  let storageService: StorageService | null = null;
+  // 加载并验证 MinIO 配置
+  let storageService: StorageService;
   try {
     const storageConfig = await loadStorageConfig();
-    if (storageConfig.type === 'minio' && storageConfig.minio) {
-      storageService = StorageService.reinitialize(storageConfig);
-      useMinio = true;
+    if (storageConfig.type !== 'minio' || !storageConfig.minio) {
+      throw new Error(
+        'MinIO storage is not configured. Please set STORAGE_TYPE=minio and configure MinIO credentials in environment variables or database settings.'
+      );
     }
-  } catch (error) {
-    console.warn('[imageDownload] Failed to load storage config, fallback to local:', error);
-  }
-
-  // 确保缓存目录存在
-  if (!fs.existsSync(cacheDir)) {
-    fs.mkdirSync(cacheDir, { recursive: true });
+    storageService = StorageService.reinitialize(storageConfig);
+    console.log('[imageDownload] MinIO storage initialized successfully');
+  } catch (error: any) {
+    console.error('[imageDownload] MinIO configuration error:', error.message);
+    throw new Error(`MinIO storage is required but not configured: ${error.message}`);
   }
 
   // 获取待处理的任务
@@ -211,46 +195,24 @@ export async function processImageDownloadQueue(batchSize = BATCH_SIZE): Promise
       .eq('id', task.id);
 
     try {
-      let storedPath: string | null = null;
-      let storedUrl: string | null = null;
+      let storedPath: string;
+      let storedUrl: string;
 
-      if (useMinio && storageService) {
-        const { objectPath } = buildStorageObject(task.original_url);
-        try {
-          const exists = await storageService.exists(objectPath);
-          if (exists) {
-            storedPath = objectPath;
-            storedUrl = await storageService.getUrl(objectPath);
-          }
-        } catch (error) {
-          console.warn('[imageDownload] Failed to check MinIO object, will re-upload:', error);
-        }
-      }
+      const { objectPath } = buildStorageObject(task.original_url);
 
-      const localPath = buildLocalPath(task.original_url);
+      // 检查 MinIO 中是否已存在
+      try {
+        const exists = await storageService.exists(objectPath);
+        if (exists) {
+          storedPath = objectPath;
+          storedUrl = await storageService.getUrl(objectPath);
+          console.log(`[imageDownload] Image already exists in MinIO: ${objectPath}`);
+        } else {
+          // 下载图片到内存
+          const buffer = await downloadImage(task.original_url, DEFAULT_REFERER);
 
-      // 如果文件已存在，直接标记完成
-      if (!storedUrl && fs.existsSync(localPath)) {
-        storedPath = localPath;
-        storedUrl = localPath;
-        await db
-          .from('image_download_queue')
-          .update({
-            status: 'completed',
-            local_path: storedPath,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', task.id);
-        success++;
-        continue;
-      }
-
-      if (!storedUrl) {
-        // 下载图片
-        const buffer = await downloadImage(task.original_url, DEFAULT_REFERER);
-
-        if (useMinio && storageService) {
-          const { filename, objectPath, ext } = buildStorageObject(task.original_url);
+          // 上传到 MinIO
+          const { filename, ext } = buildStorageObject(task.original_url);
           await storageService.store(buffer, filename, {
             subdir: STORAGE_SUBDIR,
             contentType: guessContentTypeFromExt(ext),
@@ -259,20 +221,13 @@ export async function processImageDownloadQueue(batchSize = BATCH_SIZE): Promise
               'xhs-topic-id': String(task.topic_id),
             },
           });
+
           storedPath = objectPath;
           storedUrl = await storageService.getUrl(objectPath);
-        } else {
-          storedPath = localPath;
-          storedUrl = localPath;
-          // 写入文件
-          const tmpPath = `${localPath}.tmp`;
-          fs.writeFileSync(tmpPath, buffer);
-          fs.renameSync(tmpPath, localPath);
+          console.log(`[imageDownload] Uploaded to MinIO: ${objectPath}`);
         }
-      }
-
-      if (!storedUrl || !storedPath) {
-        throw new Error('Stored url/path missing after download');
+      } catch (error: any) {
+        throw new Error(`MinIO operation failed: ${error.message}`);
       }
 
       // 更新队列状态
@@ -280,7 +235,8 @@ export async function processImageDownloadQueue(batchSize = BATCH_SIZE): Promise
         .from('image_download_queue')
         .update({
           status: 'completed',
-          local_path: storedPath,
+          stored_path: storedPath,
+          stored_url: storedUrl,
           updated_at: new Date().toISOString(),
         })
         .eq('id', task.id);
@@ -288,10 +244,10 @@ export async function processImageDownloadQueue(batchSize = BATCH_SIZE): Promise
       // 更新 topics 表中的 URL
       await updateTopicImageUrl(task.topic_id, task.image_type, task.image_index, storedUrl);
 
-      console.log(`[imageDownload] Downloaded: ${task.original_url.slice(0, 50)}...`);
+      console.log(`[imageDownload] Completed: ${task.original_url.slice(0, 50)}...`);
       success++;
     } catch (error: any) {
-      console.error(`[imageDownload] Failed to download ${task.id}:`, error.message);
+      console.error(`[imageDownload] Failed to process task ${task.id}:`, error.message);
 
       await db
         .from('image_download_queue')
@@ -313,7 +269,7 @@ export async function processImageDownloadQueue(batchSize = BATCH_SIZE): Promise
   return { processed: tasks.length, success, failed };
 }
 
-// 更新 topics 表中的图片 URL 为本地路径
+// 更新 topics 表中的图片 URL 为 MinIO URL
 async function updateTopicImageUrl(
   topicId: number,
   imageType: string,

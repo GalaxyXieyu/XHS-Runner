@@ -7,7 +7,7 @@ export interface AskUserOption {
 }
 
 export interface AgentEvent {
-  type: 'agent_start' | 'agent_end' | 'tool_call' | 'tool_result' | 'message' | 'ask_user' | 'workflow_paused' | 'confirmation_required' | 'intent_detected' | 'content_type_detected' | 'supervisor_decision' | 'state_update' | 'image_progress' | 'content_update' | 'workflow_progress';
+  type: 'agent_start' | 'agent_end' | 'tool_call' | 'tool_result' | 'message' | 'progress' | 'ask_user' | 'workflow_paused' | 'intent_detected' | 'content_type_detected' | 'supervisor_decision' | 'state_update' | 'image_progress' | 'content_update' | 'workflow_progress' | 'workflow_complete';
   agent?: string;
   tool?: string;
   content: string;
@@ -22,8 +22,7 @@ export interface AgentEvent {
   allowCustomInput?: boolean;
   context?: Record<string, unknown>;
   threadId?: string;
-  // 内容确认相关
-  confirmationType?: 'content' | 'image_plans';
+  // HITL 上下文/数据（通过 ask_user 复用）
   data?: {
     title?: string;
     content?: string;
@@ -55,6 +54,9 @@ export interface AgentEvent {
   // 工作流进度相关 (新增)
   phase?: string;
   currentAgent?: string;
+  // 工作流完成相关 (新增)
+  imageAssetIds?: number[];
+  creativeId?: number;
 }
 
 export interface ChatMessage {
@@ -62,10 +64,20 @@ export interface ChatMessage {
   content: string;
   agent?: string;
   events?: AgentEvent[];
-  confirmation?: {
-    type: 'content' | 'image_plans';
-    data: any;
-    threadId: string;
+  // HITL 交互信息
+  askUser?: {
+    question: string;
+    options: AskUserOption[];
+    selectionType: 'single' | 'multiple' | 'none';
+    allowCustomInput: boolean;
+    isHITL?: boolean; // 是否为 HITL 确认（内容/图片确认）
+    data?: any; // HITL 上下文数据
+  };
+  // 用户对 HITL 的响应
+  askUserResponse?: {
+    selectedIds: string[];
+    selectedLabels: string[];
+    customInput?: string;
   };
 }
 
@@ -85,6 +97,7 @@ export interface AskUserDialogState {
   selectionType: 'single' | 'multiple' | 'none';
   allowCustomInput: boolean;
   threadId: string;
+  context?: Record<string, unknown>;
   selectedIds: string[];
   customInput: string;
 }

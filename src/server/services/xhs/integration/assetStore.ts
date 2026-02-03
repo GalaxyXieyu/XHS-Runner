@@ -1,4 +1,5 @@
-import { getStorageService } from '../../storage';
+import { StorageService } from '../../storage/StorageService';
+import { loadStorageConfig } from '../../storage/config';
 import { resolveUserDataPath } from '../../../runtime/userDataPath';
 
 const ASSETS_DIR = 'assets';
@@ -25,7 +26,9 @@ export async function storeAsset({
   data: Buffer;
   metadata?: Record<string, any> | null;
 }) {
-  const storageService = getStorageService();
+  const storageConfig = await loadStorageConfig();
+  // 与 /api/assets 使用同一配置，避免存储与读取不一致
+  const storageService = StorageService.reinitialize(storageConfig);
 
   const result = await storageService.storeAsset(data, filename, {
     assetType: type,

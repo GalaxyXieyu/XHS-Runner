@@ -1,4 +1,4 @@
-import { HumanMessage } from "@langchain/core/messages";
+import { HumanMessage, AIMessage } from "@langchain/core/messages";
 import { ChatOpenAI } from "@langchain/openai";
 import { AgentState, type AgentType } from "../state/agentState";
 import { compressContext, safeSliceMessages } from "../utils";
@@ -7,6 +7,7 @@ import { isHttpUrl, uploadBase64ToSuperbed, generateImageWithReference } from ".
 import { storeAsset } from "../../services/xhs/integration/assetStore";
 import { getSetting } from "../../settings";
 import { db, schema } from "../../db";
+import { emitImageProgress } from "../utils/progressEmitter";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -44,15 +45,31 @@ export async function imageAgentNode(state: typeof AgentState.State, model: Chat
   const results: any[] = [];
   const generatedPaths: string[] = [];
   const generatedAssetIds: number[] = [];
+  const messages: any[] = [];
+
+  // 获取 threadId 用于发送进度事件
+  const threadId = state.threadId || 'global';
 
   for (let i = 0; i < plans.length; i++) {
     const plan = plans[i];
     const prompt = optimizedPrompts[i] || plan.prompt || plan.description;
     const sequence = plan.sequence;
     const role = plan.role;
+    const taskId = i + 1; // 1-based task ID
 
     try {
-      console.log(`[imageAgentNode] 生成第 ${i + 1}/${plans.length} 张 (seq=${sequence}, role=${role})`);
+      console.log(`[imageAgentNode] 生成第 ${taskId}/${plans.length} 张 (seq=${sequence}, role=${role})`);
+
+      // 添加进度消息
+      messages.push(new AIMessage(`[PROGRESS] 正在生成第 ${taskId}/${plans.length} 张图片 (${role})...`));
+
+      // 发送 generating 状态
+      emitImageProgress(threadId, {
+        taskId,
+        status: 'generating',
+        progress: 0.3,
+      });
+
       const result = await generateImageWithReference({
         prompt,
         referenceImageUrls: processedRefImageUrls,
@@ -63,7 +80,7 @@ export async function imageAgentNode(state: typeof AgentState.State, model: Chat
       // Generate filename and store asset to database
       const filename = `img_${Date.now()}_${sequence}.png`;
 
-      console.log(`[imageAgentNode] 正在保存第 ${i + 1} 张到数据库...`);
+      console.log(`[imageAgentNode] 正在保存第 ${taskId} 张到数据库...`);
       const asset = await storeAsset({
         type: 'image',
         filename,
@@ -78,7 +95,7 @@ export async function imageAgentNode(state: typeof AgentState.State, model: Chat
         },
       });
 
-      console.log(`[imageAgentNode] 第 ${i + 1} 张成功保存 (asset_id=${asset.id}, ${Math.round(result.imageBuffer.length / 1024)}KB)`);
+      console.log(`[imageAgentNode] 第 ${taskId} 张成功保存 (asset_id=${asset.id}, ${Math.round(result.imageBuffer.length / 1024)}KB)`);
 
       // Create creative_assets relationship if creativeId exists
       if (state.creativeId) {
@@ -95,13 +112,36 @@ export async function imageAgentNode(state: typeof AgentState.State, model: Chat
         }
       }
 
-      results.push({ sequence, role, success: true, path: asset.path, assetId: asset.id });
-      generatedPaths.push(asset.path);
+      results.push({ sequence, role, success: true, path: asset.url, assetId: asset.id });
+      generatedPaths.push(asset.url);
       generatedAssetIds.push(asset.id);
+
+      // 添加成功消息
+      messages.push(new AIMessage(`[PROGRESS] 第 ${taskId}/${plans.length} 张图片生成成功`));
+
+      // 发送 complete 状态（实时推送到前端）
+      emitImageProgress(threadId, {
+        taskId,
+        status: 'complete',
+        progress: 1,
+        assetId: asset.id,
+        url: `/api/assets/${asset.id}`,
+      });
     } catch (error: any) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      console.error(`[imageAgentNode] 第 ${i + 1} 张失败: ${errorMsg}`);
+      console.error(`[imageAgentNode] 第 ${taskId} 张失败: ${errorMsg}`);
       results.push({ sequence, role, success: false, error: errorMsg });
+
+      // 添加失败消息
+      messages.push(new AIMessage(`[PROGRESS] 第 ${taskId}/${plans.length} 张图片生成失败: ${errorMsg}`));
+
+      // 发送 failed 状态
+      emitImageProgress(threadId, {
+        taskId,
+        status: 'failed',
+        progress: 0,
+        errorMessage: errorMsg,
+      });
     }
   }
 
@@ -109,8 +149,11 @@ export async function imageAgentNode(state: typeof AgentState.State, model: Chat
   const message = `批量生成完成: ${successCount}/${plans.length} 成功`;
   console.log(`[imageAgentNode] ${message}`);
 
+  // 添加最终完成消息
+  messages.push(new AIMessage(message));
+
   return {
-    messages: [new HumanMessage(message)],
+    messages,
     currentAgent: "image_agent" as AgentType,
     reviewFeedback: null,
     generatedImagePaths: [...(state.generatedImagePaths || []), ...generatedPaths],
