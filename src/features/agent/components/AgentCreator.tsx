@@ -59,6 +59,7 @@ interface AgentCreatorProps {
   theme: Theme;
   themes?: Theme[];
   onClose?: () => void;
+  initialRequirement?: string;
 }
 
 const styleOptions: { key: StyleKey; name: string }[] = [
@@ -84,7 +85,7 @@ const agentProgressMap: Record<string, number> = {
   review_agent: 95,
 };
 
-export function AgentCreator({ theme }: AgentCreatorProps) {
+export function AgentCreator({ theme, initialRequirement }: AgentCreatorProps) {
   // 基础状态
   const [requirement, setRequirement] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -167,6 +168,13 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
   useEffect(() => {
     fetchPackages();
   }, [fetchPackages]);
+
+  // Allow other screens (e.g. scheduled ideas) to pre-fill the requirement.
+  useEffect(() => {
+    if (typeof initialRequirement === "string" && initialRequirement.trim()) {
+      setRequirement(initialRequirement.trim());
+    }
+  }, [initialRequirement]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
