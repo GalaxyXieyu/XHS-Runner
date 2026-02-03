@@ -130,6 +130,10 @@ export function GenerationSection({
   const [scheduledIdeaLoading, setScheduledIdeaLoading] = useState(false);
   const [scheduledIdeaError, setScheduledIdeaError] = useState<string | null>(null);
   const [scheduledIdeaSelected, setScheduledIdeaSelected] = useState<string | null>(null);
+  const [scheduledIdeaAutoRun, setScheduledIdeaAutoRun] = useState(false);
+
+  const [taskSaving, setTaskSaving] = useState(false);
+  const [taskSaveError, setTaskSaveError] = useState<string>('');
 
   const loadScheduledIdeaTasks = useCallback(async () => {
     setScheduledIdeaLoading(true);
@@ -148,6 +152,62 @@ export function GenerationSection({
       setScheduledIdeaLoading(false);
     }
   }, [theme.id]);
+
+  const parseScheduleText = (raw: string):
+    | { schedule_type: 'cron'; cron_expression: string }
+    | { schedule_type: 'interval'; interval_minutes: number }
+    | null => {
+    const text = (raw || '').trim();
+    if (!text) return null;
+
+    const mDaily = text.match(/^每日\s*(\d{1,2})\s*:\s*(\d{2})$/);
+    if (mDaily) {
+      const hh = Number(mDaily[1]);
+      const mm = Number(mDaily[2]);
+      if (Number.isFinite(hh) && Number.isFinite(mm) && hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59) {
+        return { schedule_type: 'cron', cron_expression: `${mm} ${hh} * * *` };
+      }
+      return null;
+    }
+
+    const mapDow = (token: string) => {
+      const t = token.trim();
+      if (/^[1-7]$/.test(t)) return Number(t) % 7; // 7 -> 0 (Sun)
+      const zh = { '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '日': 0, '天': 0 } as const;
+      const v = (zh as any)[t];
+      return typeof v === 'number' ? v : null;
+    };
+
+    const mWeekly = text.match(/^每周\s*([1-7一二三四五六日天])\s*(\d{1,2})\s*:\s*(\d{2})$/);
+    if (mWeekly) {
+      const dow = mapDow(mWeekly[1]);
+      const hh = Number(mWeekly[2]);
+      const mm = Number(mWeekly[3]);
+      if (
+        dow !== null &&
+        Number.isFinite(hh) &&
+        Number.isFinite(mm) &&
+        hh >= 0 &&
+        hh <= 23 &&
+        mm >= 0 &&
+        mm <= 59
+      ) {
+        return { schedule_type: 'cron', cron_expression: `${mm} ${hh} * * ${dow}` };
+      }
+      return null;
+    }
+
+    // 兜底：如果用户输入的是纯数字，则认为是 interval minutes。
+    const mInterval = text.match(/^(\d{1,4})\s*(分钟|min|m)?$/i);
+    if (mInterval) {
+      const minutes = Number(mInterval[1]);
+      if (Number.isFinite(minutes) && minutes > 0 && minutes <= 24 * 60) {
+        return { schedule_type: 'interval', interval_minutes: minutes };
+      }
+    }
+
+    return null;
+  };
 
   useEffect(() => {
     if (generateMode === 'scheduled') {
@@ -221,7 +281,12 @@ export function GenerationSection({
           <AgentCreator
             theme={theme}
             initialRequirement={scheduledIdeaSelected || undefined}
-            onClose={() => setGenerateMode('oneClick')}
+            autoRunInitialRequirement={scheduledIdeaAutoRun}
+            onClose={() => {
+              setScheduledIdeaAutoRun(false);
+              setScheduledIdeaSelected(null);
+              setGenerateMode('oneClick');
+            }}
           />
         </div>
       ) : (
@@ -721,6 +786,92 @@ export function GenerationSection({
 
             {generateMode === 'scheduled' && (
               <div className="space-y-3">
+                <div className="rounded-xl border border-gray-200 bg-white p-4">
+                  <div className="flex items-center justify-between gap-3 mb-3">
+                    <div>
+                      <div className="text-sm font-medium text-gray-900">今日 ideas</div>
+                      <div className="text-xs text-gray-500 mt-0.5">来自 daily_generate（最近 7 天里筛出今天的记录）</div>
+                    </div>
+                    <button
+                      onClick={() => loadScheduledIdeaTasks()}
+                      className="px-2.5 py-1 text-xs rounded bg-gray-100 text-gray-700 hover:bg-gray-200"
+                      disabled={scheduledIdeaLoading}
+                    >
+                      {scheduledIdeaLoading ? '刷新中...' : '刷新'}
+                    </button>
+                  </div>
+
+                  {scheduledIdeaError ? (
+                    <div className="text-xs text-red-600 bg-red-50 border border-red-100 rounded p-2">
+                      {scheduledIdeaError}
+                    </div>
+                  ) : null}
+
+                  {(() => {
+                    const startOfToday = new Date();
+                    startOfToday.setHours(0, 0, 0, 0);
+                    const todayItems = scheduledIdeaTasks.filter((t) => {
+                      const created = new Date(t.created_at);
+                      return created >= startOfToday;
+                    });
+
+                    if (scheduledIdeaLoading && todayItems.length === 0) {
+                      return <div className="text-xs text-gray-500">加载中...</div>;
+                    }
+
+                    if (todayItems.length === 0) {
+                      return <div className="text-xs text-gray-500">今天还没有产出 ideas。</div>;
+                    }
+
+                    return (
+                      <div className="space-y-2">
+                        {todayItems.slice(0, 5).map((t) => (
+                          <div key={String(t.id)} className="border border-gray-200 rounded-lg p-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex-1 min-w-0">
+                                <div className="text-xs text-gray-500">#{t.id} · {new Date(t.created_at).toLocaleString('zh-CN')}</div>
+                                <div className="text-sm text-gray-900 mt-1 break-words">{t.prompt || '(空)'} </div>
+                              </div>
+                              <span className={`px-2 py-0.5 rounded text-xs ${t.status === 'done' ? 'bg-green-100 text-green-700' : t.status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                                {t.status === 'done' ? '已完成' : t.status === 'failed' ? '失败' : '进行中'}
+                              </span>
+                            </div>
+
+                            {t.error_message ? (
+                              <div className="text-xs text-red-600 mt-2">{t.error_message}</div>
+                            ) : null}
+
+                            <div className="flex gap-2 mt-3">
+                              <button
+                                className="flex-1 px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded hover:bg-blue-100"
+                                onClick={() => {
+                                  setScheduledIdeaSelected(t.prompt || '');
+                                  setScheduledIdeaAutoRun(false);
+                                  setGenerateMode('agent');
+                                }}
+                                disabled={!t.prompt}
+                              >
+                                Open in Agent
+                              </button>
+                              <button
+                                className="flex-1 px-2 py-1 text-xs bg-emerald-50 text-emerald-700 rounded hover:bg-emerald-100"
+                                onClick={() => {
+                                  setScheduledIdeaSelected(t.prompt || '');
+                                  setScheduledIdeaAutoRun(true);
+                                  setGenerateMode('agent');
+                                }}
+                                disabled={!t.prompt}
+                              >
+                                Rerun
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
+
                 <div className="flex items-center justify-between">
                   <div className="text-sm font-medium text-gray-700">定时任务列表</div>
                   <button
@@ -808,6 +959,11 @@ export function GenerationSection({
                   </div>
 
                   <div className="p-6 space-y-4">
+                    {taskSaveError ? (
+                      <div className="p-3 text-sm bg-red-50 text-red-700 border border-red-200 rounded-lg">
+                        {taskSaveError}
+                      </div>
+                    ) : null}
                     <div>
                       <label htmlFor="task-name" className="block text-sm font-medium text-gray-700 mb-2">
                         任务名称 <span className="text-red-500">*</span>
@@ -937,15 +1093,108 @@ export function GenerationSection({
                       取消
                     </button>
                     <button
-                      onClick={() => {
-                        // TODO: 保存任务逻辑
-                        setShowTaskForm(false);
-                        setEditingTask(null);
-                        loadJobs();
+                      onClick={async () => {
+                        const readValue = (id: string) => {
+                          const el = document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null;
+                          return el ? String((el as any).value ?? '').trim() : '';
+                        };
+
+                        setTaskSaveError('');
+
+                        const name = readValue('task-name');
+                        const scheduleText = readValue('task-schedule');
+                        const goal = readValue('task-goal') || 'collects';
+                        const outputCountRaw = readValue('task-output-count');
+                        const persona = readValue('task-persona');
+                        const tone = readValue('task-tone');
+                        const promptProfileId = readValue('task-prompt-profile') || '1';
+                        const imageModel = readValue('task-image-model') || 'nanobanana';
+                        const minQualityRaw = readValue('task-min-quality');
+
+                        if (!name) {
+                          setTaskSaveError('请填写任务名称');
+                          return;
+                        }
+
+                        const scheduleParsed = parseScheduleText(scheduleText);
+                        if (!scheduleParsed) {
+                          setTaskSaveError('执行计划格式不正确：例如“每日 09:00”或“每周一 09:00”（也支持直接填 30 表示每 30 分钟）');
+                          return;
+                        }
+
+                        const outputCount = Number(outputCountRaw || 5);
+                        if (!Number.isFinite(outputCount) || outputCount < 1 || outputCount > 20) {
+                          setTaskSaveError('生成数量需为 1-20');
+                          return;
+                        }
+
+                        const minQualityScore = Number(minQualityRaw || 70);
+                        if (!Number.isFinite(minQualityScore) || minQualityScore < 0 || minQualityScore > 100) {
+                          setTaskSaveError('最低质量分需为 0-100');
+                          return;
+                        }
+
+                        const isEnabled = editingTask ? editingTask.status === 'active' : true;
+
+                        const payload: any = {
+                          name,
+                          job_type: 'daily_generate',
+                          theme_id: theme.id,
+                          schedule_type: scheduleParsed.schedule_type,
+                          interval_minutes: scheduleParsed.schedule_type === 'interval' ? scheduleParsed.interval_minutes : null,
+                          cron_expression: scheduleParsed.schedule_type === 'cron' ? scheduleParsed.cron_expression : null,
+                          params: {
+                            goal,
+                            output_count: outputCount,
+                            persona,
+                            tone,
+                            prompt_profile_id: promptProfileId,
+                            image_model: imageModel,
+                            min_quality_score: minQualityScore,
+                          },
+                          is_enabled: isEnabled,
+                          priority: 5,
+                        };
+
+                        setTaskSaving(true);
+                        try {
+                          if (editingTask && editingTask.id !== 'new') {
+                            const res = await fetch(`/api/jobs/${editingTask.id}`, {
+                              method: 'PUT',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify(payload),
+                            });
+                            const data = await res.json().catch(() => ({}));
+                            if (!res.ok) throw new Error(data?.error || '更新定时任务失败');
+                          } else {
+                            const res = await fetch('/api/jobs', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify(payload),
+                            });
+                            const data = await res.json().catch(() => ({}));
+                            if (!res.ok) throw new Error(data?.error || '创建定时任务失败');
+                          }
+
+                          try {
+                            if (isEnabled) await (window as any).scheduler?.start?.();
+                          } catch (error) {
+                            console.error('启动调度器失败:', error);
+                          }
+
+                          setShowTaskForm(false);
+                          setEditingTask(null);
+                          loadJobs();
+                        } catch (err: any) {
+                          setTaskSaveError(err?.message || String(err));
+                        } finally {
+                          setTaskSaving(false);
+                        }
                       }}
-                      className="px-4 py-2 text-sm bg-red-500 text-white rounded-lg hover:bg-red-600"
+                      disabled={taskSaving}
+                      className={`px-4 py-2 text-sm bg-red-500 text-white rounded-lg hover:bg-red-600 ${taskSaving ? 'opacity-60 cursor-not-allowed' : ''}`}
                     >
-                      {editingTask ? '保存修改' : '创建任务'}
+                      {taskSaving ? '保存中...' : (editingTask ? '保存修改' : '创建任务')}
                     </button>
                   </div>
                 </div>

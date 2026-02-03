@@ -60,6 +60,7 @@ interface AgentCreatorProps {
   themes?: Theme[];
   onClose?: () => void;
   initialRequirement?: string;
+  autoRunInitialRequirement?: boolean;
 }
 
 const styleOptions: { key: StyleKey; name: string }[] = [
@@ -85,7 +86,7 @@ const agentProgressMap: Record<string, number> = {
   review_agent: 95,
 };
 
-export function AgentCreator({ theme, initialRequirement }: AgentCreatorProps) {
+export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirement }: AgentCreatorProps) {
   // 基础状态
   const [requirement, setRequirement] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -175,6 +176,8 @@ export function AgentCreator({ theme, initialRequirement }: AgentCreatorProps) {
       setRequirement(initialRequirement.trim());
     }
   }, [initialRequirement]);
+
+  const autoRunOnceRef = useRef<string | null>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -283,13 +286,12 @@ export function AgentCreator({ theme, initialRequirement }: AgentCreatorProps) {
     setAskUserDialog(createInitialAskUserState());
   }, []);
 
-  // 提交请求
-  const handleSubmit = async () => {
-    if (!requirement.trim() || isStreaming) return;
+  const submitMessage = useCallback(async (userMessage: string, source: string) => {
+    if (!userMessage.trim() || isStreaming) return;
 
-    const userMessage = requirement.trim();
+    const message = userMessage.trim();
     setRequirement("");
-    setMessages(prev => [...prev, { role: "user", content: userMessage }]);
+    setMessages(prev => [...prev, { role: "user", content: message }]);
     setEvents([]);
     setImageTasks([]);
     setWorkflowProgress(0);
@@ -301,25 +303,25 @@ export function AgentCreator({ theme, initialRequirement }: AgentCreatorProps) {
       const response = await fetch("/api/agent/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          message: userMessage, 
-          themeId: theme.id, 
-          imageGenProvider, 
-          enableHITL: true 
+        body: JSON.stringify({
+          message,
+          themeId: theme.id,
+          imageGenProvider,
+          enableHITL: true,
         }),
       });
 
-      await processSSEStream(response, createCallbacks(), { 
-        resetEvents: true, 
-        source: "handleSubmit" 
+      await processSSEStream(response, createCallbacks(), {
+        resetEvents: true,
+        source,
       });
     } catch (error) {
       console.error("Stream error:", error);
       const errorMessage = error instanceof Error ? error.message : "未知错误";
-      setMessages(prev => [...prev, { 
-        role: "assistant", 
-        content: errorMessage.includes("超时") 
-          ? `连接超时，请检查网络后重试。${errorMessage}` 
+      setMessages(prev => [...prev, {
+        role: "assistant",
+        content: errorMessage.includes("超时")
+          ? `连接超时，请检查网络后重试。${errorMessage}`
           : `连接错误：${errorMessage}。请重试。`
       }]);
     } finally {
@@ -327,6 +329,26 @@ export function AgentCreator({ theme, initialRequirement }: AgentCreatorProps) {
       setStreamPhase("");
       fetchPackages();
     }
+  }, [createCallbacks, fetchPackages, imageGenProvider, isStreaming, theme.id]);
+
+  // Optionally auto-run the pre-filled requirement (used by "Rerun" from scheduled ideas).
+  useEffect(() => {
+    const message = (initialRequirement || '').trim();
+    if (!autoRunInitialRequirement || !message) return;
+    if (isStreaming) return;
+    if (messages.length > 0) return;
+
+    if (autoRunOnceRef.current === message) return;
+    autoRunOnceRef.current = message;
+
+    // Fire-and-forget: submitMessage manages streaming state + UI.
+    submitMessage(message, 'autoRunInitialRequirement');
+  }, [autoRunInitialRequirement, initialRequirement, isStreaming, messages.length, submitMessage]);
+
+  // 提交请求
+  const handleSubmit = async () => {
+    if (!requirement.trim() || isStreaming) return;
+    await submitMessage(requirement, "handleSubmit");
   };
 
   // 提交 askUser 响应
