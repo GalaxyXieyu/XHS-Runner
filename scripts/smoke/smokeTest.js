@@ -3,12 +3,9 @@ const path = require('path');
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 
-function runTest(name, fn) {
+async function runTest(name, fn) {
   try {
-    const result = fn();
-    if (result && typeof result.then === 'function') {
-      throw new Error('Async test not supported');
-    }
+    await fn();
     process.stdout.write(`✔ ${name}\n`);
   } catch (error) {
     process.stdout.write(`✘ ${name}\n`);
@@ -32,54 +29,62 @@ function createMockRes() {
   };
 }
 
-runTest('api/health responds 200 on GET', () => {
-  const handler = require(path.join(repoRoot, 'src', 'pages', 'api', 'health.js'));
-  const req = { method: 'GET' };
-  const res = createMockRes();
+async function main() {
+  await runTest('api/health responds 200 on GET', async () => {
+    const handler = require(path.join(repoRoot, 'src', 'pages', 'api', 'health.js'));
+    const req = { method: 'GET' };
+    const res = createMockRes();
 
-  handler(req, res);
+    handler(req, res);
 
-  assert.strictEqual(res.statusCode, 200);
-  assert.ok(res.body && res.body.ok === true, 'expected ok=true');
-});
+    assert.strictEqual(res.statusCode, 200);
+    assert.ok(res.body && res.body.ok === true, 'expected ok=true');
+  });
 
-runTest('api/health rejects non-GET', () => {
-  const handler = require(path.join(repoRoot, 'src', 'pages', 'api', 'health.js'));
-  const req = { method: 'POST' };
-  const res = createMockRes();
+  await runTest('api/health rejects non-GET', async () => {
+    const handler = require(path.join(repoRoot, 'src', 'pages', 'api', 'health.js'));
+    const req = { method: 'POST' };
+    const res = createMockRes();
 
-  handler(req, res);
+    handler(req, res);
 
-  assert.strictEqual(res.statusCode, 405);
-  assert.ok(res.body && res.body.error, 'expected error message');
-});
+    assert.strictEqual(res.statusCode, 405);
+    assert.ok(res.body && res.body.error, 'expected error message');
+  });
 
-runTest('workflow transition rules are enforced', () => {
-  const workflow = require(path.join(
-    repoRoot,
-    'electron',
-    'server',
-    'services',
-    'xhs',
-    'workflow.js'
-  ));
+  await runTest('workflow transition rules are enforced', async () => {
+    const workflow = require(path.join(
+      repoRoot,
+      'electron',
+      'server',
+      'services',
+      'xhs',
+      'workflow.js'
+    ));
 
-  assert.strictEqual(workflow.canTransition('captured', 'generating'), true);
-  assert.strictEqual(workflow.canTransition('captured', 'published'), false);
-});
+    assert.strictEqual(workflow.canTransition('captured', 'generating'), true);
+    assert.strictEqual(workflow.canTransition('captured', 'published'), false);
+  });
 
-runTest('scheduler cron parser returns next run date', () => {
-  const cronParser = require(path.join(
-    repoRoot,
-    'electron',
-    'server',
-    'services',
-    'scheduler',
-    'cronParser.js'
-  ));
-  const now = new Date();
-  const next = cronParser.getNextRunTime('interval', 30, null, now);
+  await runTest('scheduler cron parser returns next run date', async () => {
+    const cronParser = require(path.join(
+      repoRoot,
+      'electron',
+      'server',
+      'services',
+      'scheduler',
+      'cronParser.js'
+    ));
+    const now = new Date();
+    const next = cronParser.getNextRunTime('interval', 30, null, now);
 
-  assert.ok(next instanceof Date);
-  assert.ok(next.getTime() > now.getTime(), 'expected next run time in future');
+    assert.ok(next instanceof Date);
+    assert.ok(next.getTime() > now.getTime(), 'expected next run time in future');
+  });
+}
+
+main().catch((err) => {
+  process.stdout.write(`✘ smoke suite crashed\n`);
+  process.stdout.write(`${err.stack || err.message}\n`);
+  process.exitCode = 1;
 });
