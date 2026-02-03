@@ -134,6 +134,7 @@ export function GenerationSection({
 
   const [taskSaving, setTaskSaving] = useState(false);
   const [taskSaveError, setTaskSaveError] = useState<string>('');
+  const [taskMutatingId, setTaskMutatingId] = useState<string | null>(null);
 
   const loadScheduledIdeaTasks = useCallback(async () => {
     setScheduledIdeaLoading(true);
@@ -919,15 +920,64 @@ export function GenerationSection({
                             setShowTaskForm(true);
                           }}
                           className="flex-1 px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded hover:bg-blue-100"
+                          disabled={taskMutatingId === task.id}
                         >
                           编辑
                         </button>
-                        <button className="flex-1 px-2 py-1 text-xs bg-yellow-50 text-yellow-700 rounded hover:bg-yellow-100">
-                          {task.status === 'active' ? '暂停' : '启动'}
+
+                        <button
+                          className="flex-1 px-2 py-1 text-xs bg-yellow-50 text-yellow-700 rounded hover:bg-yellow-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                          disabled={taskMutatingId === task.id}
+                          onClick={async () => {
+                            setTaskSaveError('');
+                            setTaskMutatingId(task.id);
+                            try {
+                              const res = await fetch(`/api/jobs/${task.id}/status`, {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ status: task.status === 'active' ? 'paused' : 'active' }),
+                              });
+                              const data = await res.json().catch(() => ({}));
+                              if (!res.ok) throw new Error(data?.error || '切换任务状态失败');
+
+                              try {
+                                await (window as any).scheduler?.start?.();
+                              } catch (error) {
+                                console.error('启动调度器失败:', error);
+                              }
+
+                              loadJobs();
+                            } catch (err: any) {
+                              setTaskSaveError(err?.message || String(err));
+                            } finally {
+                              setTaskMutatingId(null);
+                            }
+                          }}
+                        >
+                          {taskMutatingId === task.id ? '处理中...' : (task.status === 'active' ? '暂停' : '启动')}
                         </button>
+
                         <button
                           aria-label="删除任务"
-                          className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded"
+                          className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded disabled:opacity-60 disabled:cursor-not-allowed"
+                          disabled={taskMutatingId === task.id}
+                          onClick={async () => {
+                            if (!window.confirm(`确定删除任务「${task.name}」吗？`)) return;
+
+                            setTaskSaveError('');
+                            setTaskMutatingId(task.id);
+                            try {
+                              const res = await fetch(`/api/jobs/${task.id}`, { method: 'DELETE' });
+                              const data = await res.json().catch(() => ({}));
+                              if (!res.ok) throw new Error(data?.error || '删除任务失败');
+
+                              loadJobs();
+                            } catch (err: any) {
+                              setTaskSaveError(err?.message || String(err));
+                            } finally {
+                              setTaskMutatingId(null);
+                            }
+                          }}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
