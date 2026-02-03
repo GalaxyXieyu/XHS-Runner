@@ -23,6 +23,9 @@
   - Do NOT spam docs.
   - Keep docs categorized and minimal (avoid too many small/overlapping pages).
   - Prefer updating an existing doc over creating a new one.
+- Code size policy:
+  - Avoid giant files; prefer splitting modules/components.
+  - Review focus: keep individual files roughly <= 800 lines (unless strong justification).
 - Hourly status reports:
   - re-check this doc (requirements + global goal + docs policy)
   - update progress + next step
