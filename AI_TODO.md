@@ -38,13 +38,17 @@
 
 ## Planned Work Items (Draft)
 
-- [ ] P0: Wire scheduled generation task save/edit to backend (daily_generate job)
-  - [ ] API: create/update job + trigger + execution record
-  - [ ] UI: GenerationSection form save -> job create/update
+- [ ] P0: Daily generate pipeline (ideas -> agent -> drafts)
+  - [x] Backend: daily_generate creates ideas + runs agent + updates generation_tasks
+  - [~] UI: Generation scheduled view shows "today ideas" + actions (open in agent / rerun)
   - [ ] Tests: API first, then Chrome E2E flow
-- [ ] P0: Add/extend smoke tests for jobs/executions endpoints relevant to daily_generate
+- [ ] P0: Make smoke/API regression for daily_generate reliable
 - [ ] P1: Improve observability (execution result/error surfaced; minimal replay hooks)
-- [ ] P2: Capture -> auto trigger analysis (guarded by config + rate limiting)
+- [ ] P1: Split large files to keep <=800 lines (AgentCreator / GenerationSection)
+- [ ] P2: Publishing analytics (3rd tab) planning + business logic
+  - [ ] Define metrics model + snapshots cadence
+  - [ ] Define UI sections & filters
+  - [ ] Define data ingestion/update pipeline
 
 ## Status Log
 
