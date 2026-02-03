@@ -41,7 +41,11 @@ export class JobExecutor {
       return { success: false, error: `未知任务类型: ${job.job_type}`, duration_ms: 0 };
     }
 
-    const params: CaptureJobParams | DailyGenerateJobParams = job.params_json ? JSON.parse(job.params_json) : {};
+    // params_json 是 jsonb 类型，Drizzle 会自动反序列化为对象
+    // 如果是字符串则 parse，如果已经是对象则直接使用
+    const rawParams = job.params_json;
+    const params: CaptureJobParams | DailyGenerateJobParams = 
+      typeof rawParams === 'string' ? JSON.parse(rawParams) : (rawParams || {});
     const timeoutMs = params.timeoutMs || this.defaultTimeoutMs;
     const abortController = new AbortController();
 

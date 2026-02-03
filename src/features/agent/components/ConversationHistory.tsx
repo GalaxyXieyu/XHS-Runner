@@ -21,6 +21,8 @@ interface ConversationHistoryProps {
   currentConversationId: number | null;
   onSelect: (id: number) => void;
   onNewConversation: () => void;
+  /** 紧凑模式 - 只显示图标 */
+  compact?: boolean;
 }
 
 export function ConversationHistory({
@@ -28,6 +30,7 @@ export function ConversationHistory({
   currentConversationId,
   onSelect,
   onNewConversation,
+  compact = false,
 }: ConversationHistoryProps) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -126,18 +129,30 @@ export function ConversationHistory({
       {/* 触发按钮 */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full transition-colors ${
-          isOpen ? "bg-blue-50 text-blue-600" : "text-gray-500 hover:bg-gray-50"
-        }`}
+        className={compact
+          ? `p-2 rounded-xl transition-all ${
+              isOpen 
+                ? "bg-blue-100 text-blue-600" 
+                : "bg-white/90 backdrop-blur text-gray-500 hover:text-gray-700 hover:bg-gray-100 shadow-md shadow-gray-200/50 ring-1 ring-gray-100"
+            }`
+          : `flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full transition-colors ${
+              isOpen ? "bg-blue-50 text-blue-600" : "text-gray-500 hover:bg-gray-50"
+            }`
+        }
+        title="历史对话"
       >
-        <History className="w-3.5 h-3.5" />
-        <span>历史</span>
-        {conversations.length > 0 && (
-          <span className="px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs min-w-[18px] text-center">
-            {conversations.length}
-          </span>
+        <History className={compact ? "w-4 h-4" : "w-3.5 h-3.5"} />
+        {!compact && (
+          <>
+            <span>历史</span>
+            {conversations.length > 0 && (
+              <span className="px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs min-w-[18px] text-center">
+                {conversations.length}
+              </span>
+            )}
+            <ChevronDown className={`w-3 h-3 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+          </>
         )}
-        <ChevronDown className={`w-3 h-3 transition-transform ${isOpen ? "rotate-180" : ""}`} />
       </button>
 
       {/* 下拉菜单 */}

@@ -214,6 +214,8 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
   const applyScheduleFromJob = (job: any) => {
     const params = (() => {
       if (!job?.params_json) return {};
+      // 兼容 jsonb 类型（对象）和字符串类型
+      if (typeof job.params_json === 'object') return job.params_json;
       try {
         return JSON.parse(job.params_json);
       } catch (error) {

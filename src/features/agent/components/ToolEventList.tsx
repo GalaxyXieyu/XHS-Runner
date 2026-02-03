@@ -50,40 +50,73 @@ export function getDisplayName(rawName: string): string {
   return NAME_MAP[rawName] || rawName;
 }
 
-interface ToolEventItemProps {
-  event: AgentEvent;
+interface MergedToolEvent {
+  name: string;
+  displayName: string;
+  isComplete: boolean;
+  content?: string;
 }
 
-function ToolEventItem({ event }: ToolEventItemProps) {
-  const rawName = event.tool || event.agent || "";
-  const displayName = getDisplayName(rawName);
-  const isCall = event.type === "tool_call";
+/**
+ * 合并 tool_call 和 tool_result 事件
+ * 同一个工具只显示一个卡片，状态动态变化
+ */
+function mergeToolEvents(events: AgentEvent[]): MergedToolEvent[] {
+  const toolEvents = events.filter(e => e.type === "tool_call" || e.type === "tool_result");
+  const merged: MergedToolEvent[] = [];
+  const pendingCalls = new Map<string, number>(); // name -> index in merged
 
+  for (const event of toolEvents) {
+    const name = event.tool || event.agent || "";
+    
+    if (event.type === "tool_call") {
+      // 新的调用
+      const idx = merged.length;
+      merged.push({
+        name,
+        displayName: getDisplayName(name),
+        isComplete: false,
+        content: event.content,
+      });
+      pendingCalls.set(name, idx);
+    } else if (event.type === "tool_result") {
+      // 查找对应的调用并更新状态
+      const idx = pendingCalls.get(name);
+      if (idx !== undefined) {
+        merged[idx].isComplete = true;
+        pendingCalls.delete(name);
+      }
+    }
+  }
+
+  return merged;
+}
+
+interface ToolEventItemProps {
+  item: MergedToolEvent;
+}
+
+function ToolEventItem({ item }: ToolEventItemProps) {
   return (
     <div className="px-3 py-2 hover:bg-gray-50 transition-colors">
       <div className="flex items-center gap-2">
-        <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
-          isCall ? "bg-blue-100 text-blue-600" : "bg-green-100 text-green-600"
-        }`}>
-          {isCall ? "调用" : "结果"}
-        </span>
-        <span className="text-xs font-medium text-gray-700">
-          {displayName}
-        </span>
-        {!isCall && (
-          <span className="text-xs text-green-600 flex items-center gap-1">
+        {item.isComplete ? (
+          <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-green-100 text-green-600 flex items-center gap-1">
             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
             完成
           </span>
+        ) : (
+          <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-blue-100 text-blue-600 flex items-center gap-1">
+            <div className="w-2.5 h-2.5 border-2 border-blue-400 border-t-blue-600 rounded-full animate-spin" />
+            调用中
+          </span>
         )}
+        <span className="text-xs font-medium text-gray-700">
+          {item.displayName}
+        </span>
       </div>
-      {event.content && (
-        <div className="mt-1.5 text-xs text-gray-600 leading-relaxed line-clamp-3">
-          {event.content}
-        </div>
-      )}
     </div>
   );
 }
@@ -94,15 +127,15 @@ export interface ToolEventListProps {
 }
 
 export function ToolEventList({ events, maxHeight = "max-h-96" }: ToolEventListProps) {
-  const toolEvents = events.filter(e => e.type === "tool_call" || e.type === "tool_result");
+  const mergedEvents = mergeToolEvents(events);
   
-  if (toolEvents.length === 0) return null;
+  if (mergedEvents.length === 0) return null;
 
   return (
     <div className={`bg-white border-t border-gray-100 ${maxHeight} overflow-y-auto`}>
       <div className="divide-y divide-gray-50">
-        {toolEvents.map((event, i) => (
-          <ToolEventItem key={i} event={event} />
+        {mergedEvents.map((item, i) => (
+          <ToolEventItem key={i} item={item} />
         ))}
       </div>
     </div>
@@ -132,12 +165,11 @@ export function CollapsibleToolCard({
   phase,
   researchContent,
 }: CollapsibleToolCardProps) {
-  const toolEvents = events.filter(e => e.type === "tool_call" || e.type === "tool_result");
-  const latestEvent = toolEvents.length > 0 ? toolEvents[toolEvents.length - 1] : null;
-  const latestStepName = latestEvent
-    ? getDisplayName(latestEvent.tool || latestEvent.agent || "")
+  const mergedEvents = mergeToolEvents(events);
+  const latestItem = mergedEvents.length > 0 ? mergedEvents[mergedEvents.length - 1] : null;
+  const latestStatus = latestItem 
+    ? (latestItem.isComplete ? "完成" : "调用中") 
     : "";
-  const latestStepType = latestEvent?.type === "tool_call" ? "调用" : "完成";
 
   return (
     <div className="border border-gray-200 rounded-lg overflow-hidden">
@@ -153,16 +185,16 @@ export function CollapsibleToolCard({
         <span className="text-xs font-medium text-blue-700">{title}</span>
         
         {/* 显示最新步骤或阶段 */}
-        {(phase || latestStepName) && (
+        {(phase || latestItem) && (
           <span className="text-xs text-blue-500 ml-1">
-            · {phase || `${latestStepType} ${latestStepName}`}
+            · {phase || `${latestItem?.displayName} ${latestStatus}`}
           </span>
         )}
         
         {/* 显示步骤总数 */}
-        {toolEvents.length > 0 && (
+        {mergedEvents.length > 0 && (
           <span className="text-xs text-gray-400 ml-auto">
-            {toolEvents.length} 个步骤
+            {mergedEvents.length} 个步骤
           </span>
         )}
       </button>

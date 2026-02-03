@@ -96,7 +96,7 @@ function ImagePlanItem({ plan }: ImagePlanItemProps) {
           <span className="text-xs text-gray-500">· {plan.description}</span>
         )}
       </div>
-      <div className="text-xs text-gray-600 leading-relaxed line-clamp-3">
+      <div className="text-xs text-gray-600 leading-relaxed max-h-32 overflow-y-auto pr-1" style={{ scrollbarWidth: 'thin' }}>
         {plan.prompt}
       </div>
     </div>

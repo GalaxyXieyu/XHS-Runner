@@ -69,7 +69,10 @@ export default function CaptureScheduleModal({ themeId, themeName, isOpen, onClo
         setCronExpression(existingJob.cron_expression || '*/30 * * * *');
         setPriority(existingJob.priority);
         if (existingJob.params_json) {
-          const params = JSON.parse(existingJob.params_json);
+          // 兼容 jsonb 类型（对象）和字符串类型
+          const params = typeof existingJob.params_json === 'object' 
+            ? existingJob.params_json 
+            : JSON.parse(existingJob.params_json);
           setLimit(params.limit || 50);
         }
       }

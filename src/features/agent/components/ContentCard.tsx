@@ -25,28 +25,66 @@ export interface ContentCardProps {
 
 /**
  * 解析创作内容文本
+ * @param content 原始内容文本
+ * @param fallback 是否启用回退模式（当无法解析标准格式时，返回默认结构）
  */
-export function parseCreativeContent(content: string): ParsedContent | null {
-  if (!content.includes("标题") || !content.includes("标签")) return null;
+export function parseCreativeContent(content: string, fallback: boolean = false): ParsedContent | null {
+  if (!content || content.trim() === '') return null;
 
-  const titleMatch = content.match(/标题[：:]\s*(.+?)(?:\n|$)/);
-  const title = titleMatch?.[1]?.trim() || "";
+  // 尝试解析标准格式（包含 "标题" 和 "标签"）
+  if (content.includes("标题") && content.includes("标签")) {
+    const titleMatch = content.match(/标题[：:]\s*(.+?)(?:\n|$)/);
+    const title = titleMatch?.[1]?.trim() || "";
 
-  const tagMatch = content.match(/标签[：:]\s*(.+?)(?:\n|$)/);
-  const tagsStr = tagMatch?.[1] || "";
-  const tags = tagsStr.match(/#[\w\u4e00-\u9fa5]+/g)?.map(t => t.slice(1)) || [];
+    const tagMatch = content.match(/标签[：:]\s*(.+?)(?:\n|$)/);
+    const tagsStr = tagMatch?.[1] || "";
+    const tags = tagsStr.match(/#[\w\u4e00-\u9fa5]+/g)?.map(t => t.slice(1)) || [];
 
-  let body = content;
-  const titleIndex = content.indexOf(titleMatch?.[0] || "");
-  const tagIndex = content.indexOf(tagMatch?.[0] || "");
+    let body = content;
+    const titleIndex = content.indexOf(titleMatch?.[0] || "");
+    const tagIndex = content.indexOf(tagMatch?.[0] || "");
 
-  if (titleMatch && tagMatch) {
-    const startIdx = titleIndex + (titleMatch[0]?.length || 0);
-    body = content.slice(startIdx, tagIndex).trim();
+    if (titleMatch && tagMatch) {
+      const startIdx = titleIndex + (titleMatch[0]?.length || 0);
+      body = content.slice(startIdx, tagIndex).trim();
+    }
+
+    if (title) {
+      return { title, body, tags };
+    }
   }
 
-  if (!title) return null;
-  return { title, body, tags };
+  // 尝试解析仅包含标题的格式
+  if (content.includes("标题")) {
+    const titleMatch = content.match(/标题[：:]\s*(.+?)(?:\n|$)/);
+    const title = titleMatch?.[1]?.trim() || "";
+    if (title) {
+      const titleIndex = content.indexOf(titleMatch?.[0] || "");
+      const body = content.slice(titleIndex + (titleMatch[0]?.length || 0)).trim();
+      // 提取 hashtags
+      const tags = body.match(/#[\w\u4e00-\u9fa5]+/g)?.map(t => t.slice(1)) || [];
+      return { title, body, tags };
+    }
+  }
+
+  // 回退模式：当内容有一定长度但无法解析时，使用默认结构
+  if (fallback && content.trim().length > 10) {
+    // 尝试从第一行提取标题
+    const lines = content.trim().split('\n');
+    const firstLine = lines[0]?.trim() || "";
+    const restContent = lines.slice(1).join('\n').trim();
+    
+    // 提取 hashtags
+    const tags = content.match(/#[\w\u4e00-\u9fa5]+/g)?.map(t => t.slice(1)) || [];
+    
+    return {
+      title: firstLine.length > 50 ? firstLine.slice(0, 50) + "..." : firstLine || "AI 生成内容",
+      body: restContent || content,
+      tags,
+    };
+  }
+
+  return null;
 }
 
 export function ContentCard({

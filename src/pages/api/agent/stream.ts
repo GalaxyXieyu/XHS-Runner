@@ -72,11 +72,12 @@ function parseWriterContent(content: string): { title: string; body: string; tag
 function getAgentDisplayName(name: string): string {
   const names: Record<string, string> = {
     supervisor: "主管",
+    supervisor_route: "任务路由",
     research_agent: "研究专家",
     writer_agent: "创作专家",
-    style_analyzer_agent: "风格分析专家",
-    image_planner_agent: "图片规划专家",
-    image_agent: "图片生成专家",
+    style_analyzer_agent: "风格分析",
+    image_planner_agent: "图片规划",
+    image_agent: "图片生成",
     review_agent: "审核专家",
   };
   return names[name] || name;

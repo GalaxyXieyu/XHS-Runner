@@ -18,6 +18,24 @@ import { MaterialGallery } from "./MaterialGallery";
 import { HITLRequestMessage, HITLResponseMessage, isHITLRequest, InteractiveHITLBubble } from "./HITLMessage";
 import { ConversationHistory } from "./ConversationHistory";
 
+// Agent 名称中文映射
+const agentDisplayNames: Record<string, string> = {
+  supervisor: "主管",
+  supervisor_route: "任务路由",
+  research_agent: "研究专家",
+  writer_agent: "创作专家",
+  style_analyzer_agent: "风格分析",
+  image_planner_agent: "图片规划",
+  image_agent: "图片生成",
+  review_agent: "审核专家",
+  tools: "工具调用",
+};
+
+function getAgentDisplayName(name: string | undefined): string {
+  if (!name) return "";
+  return agentDisplayNames[name] || name;
+}
+
 // 类型定义
 type AspectRatio = "3:4" | "1:1" | "4:3";
 type ImageModel = "nanobanana" | "jimeng";
@@ -224,10 +242,10 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
     try {
       const res = await fetch(`/api/conversations/${id}`);
       if (!res.ok) throw new Error('Failed to load conversation');
-      
+
       const data = await res.json();
       setConversationId(data.id);
-      
+
       // 转换消息格式
       const loadedMessages: ChatMessage[] = data.messages.map((msg: any) => ({
         role: msg.role,
@@ -237,10 +255,11 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
         askUser: msg.askUser,
         askUserResponse: msg.askUserResponse,
       }));
-      
+
       setMessages(loadedMessages);
       setEvents([]);
       setImageTasks([]);
+      setAskUserDialog(createInitialAskUserState()); // 重置交互对话框状态
     } catch (error) {
       console.error('Failed to load conversation:', error);
     }
@@ -373,8 +392,11 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
       },
     ]);
 
-    // 重置事件列表，只显示继续后的新步骤
-    setEvents([]);
+    // 添加分隔事件，标记继续点
+    setEvents(prev => [...prev, { 
+      agent: "supervisor", 
+      content: "▸ 用户确认继续，开始下一阶段..." 
+    }]);
 
     try {
       setIsStreaming(true);
@@ -388,7 +410,8 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
 
       if (!res.ok) throw new Error("Failed to submit response");
 
-      await processSSEStream(res, createCallbacks(), { resetEvents: true, source: "handleAskUserSubmit" });
+      // resetEvents: false 保留之前的事件
+      await processSSEStream(res, createCallbacks(), { resetEvents: false, source: "handleAskUserSubmit" });
     } catch (error) {
       console.error("Confirm error:", error);
       const errorMessage = error instanceof Error ? error.message : "未知错误";
@@ -427,6 +450,9 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
     const imagePlannerEvents = msgEvents.filter(e => e.agent === "image_planner_agent" && e.type === "message");
     const workflowCompleteEvent = msgEvents.find(e => e.type === "workflow_complete") as AgentEvent | undefined;
 
+    // 判断是否为历史消息（非当前流式传输的消息）
+    const isHistoricalMessage = !isStreaming || idx < messages.length - 1;
+
     const researchContent = researchEvents.length > 0
       ? researchEvents[researchEvents.length - 1]?.content || ""
       : "";
@@ -445,15 +471,10 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
       parsed = parseCreativeContent(writerContent);
     }
 
-    // 如果有 workflow_complete 事件，使用其中的图片 asset IDs
-    const finalImageTasks = workflowCompleteEvent?.imageAssetIds?.length 
-      ? workflowCompleteEvent.imageAssetIds.map((assetId: number, i: number) => ({
-          id: i + 1,
-          prompt: "",
-          status: "done" as const,
-          assetId,
-        }))
-      : imageTasks;
+    // 对于历史消息，如果 parsed 为空但有 msg.content，尝试从 content 解析（启用回退模式）
+    if (!parsed && isHistoricalMessage && msg.content) {
+      parsed = parseCreativeContent(msg.content, true);
+    }
 
     const imagePlannerContent = imagePlannerEvents.map(e => e.content).join("\n");
     const parsedImagePlan = parseImagePlanContent(imagePlannerContent);
@@ -463,6 +484,28 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
     const isLastAssistantMessage = idx === messages.length - 1 || 
       (idx < messages.length - 1 && messages[idx + 1].role !== 'assistant');
     const isWorkflowComplete = !!workflowCompleteEvent;
+    const isHITLRequest = !!msg.askUser; // 是否是 HITL 请求消息
+
+    // 只有满足以下条件才显示图片：
+    // 1. workflow_complete 事件存在（最终结果）
+    // 2. 或者是最后一条 assistant 消息且正在流式传输（实时进度）
+    // 3. 或者是历史消息中的最后一条 assistant 消息，且不是 HITL 请求（已完成的工作流）
+    const shouldShowImages = isWorkflowComplete || 
+      (isCurrentlyStreaming && isLastAssistantMessage) ||
+      (isHistoricalMessage && isLastAssistantMessage && !isHITLRequest);
+
+    // 如果有 workflow_complete 事件，使用其中的图片 asset IDs
+    // 中间步骤（如 HITL 确认）不显示图片
+    const finalImageTasks = shouldShowImages
+      ? (workflowCompleteEvent?.imageAssetIds?.length 
+          ? workflowCompleteEvent.imageAssetIds.map((assetId: number, i: number) => ({
+              id: i + 1,
+              prompt: "",
+              status: "done" as const,
+              assetId,
+            }))
+          : imageTasks)
+      : [];
 
     return (
       <div className="space-y-3 max-w-[80%]">
@@ -493,8 +536,8 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
           <ImagePlanCard imagePlan={parsedImagePlan} />
         )}
 
-        {/* 普通文本回复 */}
-        {!researchContent && msg.content && !parsed && !parsedImagePlan && !isWorkflowComplete && (
+        {/* 普通文本回复 - 作为最终回退，移除 !isWorkflowComplete 限制以确保历史消息能正常显示 */}
+        {!researchContent && msg.content && !parsed && !parsedImagePlan && (
           <div className="bg-gray-50 rounded-xl px-4 py-3">
             <Markdown content={msg.content} className="text-xs text-gray-700" />
           </div>
@@ -515,10 +558,21 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
   };
 
   return (
-    <div className="h-full flex flex-col bg-white overflow-x-hidden">
+    <div className="h-full flex flex-col bg-white overflow-x-hidden relative">
       {/* 初始状态布局 */}
       {!hasMessages && (
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto relative">
+          {/* 右上角悬浮历史按钮 */}
+          <div className="absolute top-4 right-4 z-10">
+            <ConversationHistory
+              themeId={theme.id}
+              currentConversationId={conversationId}
+              onSelect={loadConversation}
+              onNewConversation={startNewConversation}
+              compact
+            />
+          </div>
+          
           {/* 上半部分：标题 + 输入框 */}
           <div className="min-h-[60vh] flex flex-col items-center justify-center px-6">
             <div className="text-center mb-8">
@@ -532,89 +586,122 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
 
             {/* 输入框区域 */}
             <div className="w-full max-w-3xl mx-auto">
-              <div className="flex items-center gap-4 rounded-2xl border border-gray-200 bg-white px-6 py-5 shadow-lg">
-                <button
-                  type="button"
-                  className="w-12 h-12 rounded-xl text-gray-400 hover:text-gray-600 hover:bg-gray-100 flex items-center justify-center transition-colors"
-                >
-                  <Paperclip className="w-6 h-6" />
-                </button>
-                <input
-                  type="text"
-                  value={requirement}
-                  onChange={(e) => setRequirement(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSubmit()}
-                  placeholder="描述你想创作的内容..."
-                  className="flex-1 text-lg text-gray-700 placeholder:text-gray-400 bg-transparent focus:outline-none"
-                  disabled={isStreaming}
-                />
-                <button
-                  onClick={handleSubmit}
-                  disabled={isStreaming || !requirement.trim()}
-                  className="w-12 h-12 rounded-xl bg-gray-900 text-white flex items-center justify-center hover:bg-gray-800 disabled:opacity-40 transition-colors"
-                >
-                  <Send className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* 模式切换和选项 */}
-              <div className="flex items-center gap-2 mt-3">
-                <button
-                  onClick={() => { setMode("agent"); setShowCustomForm(false); }}
-                  className={`flex items-center gap-1.5 px-4 py-2 text-sm rounded-full border transition-all ${
-                    mode === "agent"
-                      ? "bg-blue-50 border-blue-200 text-blue-600"
-                      : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
-                  }`}
-                >
-                  <Bot className="w-4 h-4" />
-                  Agent 模式
-                </button>
-                <button
-                  onClick={() => { setMode("custom"); setShowCustomForm(!showCustomForm); }}
-                  className={`flex items-center gap-1.5 px-4 py-2 text-sm rounded-full border transition-all ${
-                    mode === "custom"
-                      ? "bg-emerald-50 border-emerald-200 text-emerald-600"
-                      : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
-                  }`}
-                >
-                  <Wand2 className="w-4 h-4" />
-                  自定义
-                  {mode === "custom" && <ChevronDown className="w-3.5 h-3.5" />}
-                </button>
-
-                {/* 选项区 */}
-                <div className="ml-auto flex items-center gap-4">
-                  {/* 历史对话 */}
-                  <ConversationHistory
-                    themeId={theme.id}
-                    currentConversationId={conversationId}
-                    onSelect={loadConversation}
-                    onNewConversation={startNewConversation}
+              {/* 主输入框 - 增强设计感 */}
+              <div className="relative group">
+                {/* 装饰性渐变背景 */}
+                <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 rounded-[1.25rem] opacity-0 group-hover:opacity-100 blur transition duration-300" />
+                
+                {/* 输入框本体 */}
+                <div className="relative flex items-center gap-3 rounded-[1.25rem] border-2 border-gray-200 bg-white px-5 py-4 shadow-[0_8px_30px_rgb(0,0,0,0.08)] transition-all duration-300 hover:shadow-[0_8px_40px_rgb(0,0,0,0.12)] hover:border-gray-300">
+                  <button
+                    type="button"
+                    className="group/clip w-11 h-11 rounded-xl text-gray-400 hover:text-blue-600 hover:bg-blue-50 flex items-center justify-center transition-all duration-200"
+                  >
+                    <Paperclip className="w-5 h-5 group-hover/clip:rotate-12 transition-transform" />
+                  </button>
+                  
+                  <input
+                    type="text"
+                    value={requirement}
+                    onChange={(e) => setRequirement(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSubmit()}
+                    placeholder="描述你想创作的内容..."
+                    className="flex-1 text-base text-gray-700 placeholder:text-gray-400 bg-transparent focus:outline-none"
+                    disabled={isStreaming}
                   />
                   
-                  <label className="flex items-center gap-1.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={autoConfirm}
-                      onChange={(e) => setAutoConfirm(e.target.checked)}
-                      className="w-4 h-4 rounded border-gray-300 text-blue-500 focus:ring-blue-500/20"
-                    />
-                    <span className="text-xs text-gray-500">自动继续</span>
-                  </label>
-                  
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-gray-500">生图模型:</span>
-                    <select
-                      value={imageGenProvider}
-                      onChange={(e) => setImageGenProvider(e.target.value as 'gemini' | 'jimeng')}
-                      className="px-3 py-1.5 text-sm border border-gray-200 rounded-full bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                    >
-                      <option value="gemini">Gemini</option>
-                      <option value="jimeng">即梦</option>
-                    </select>
-                  </div>
+                  <button
+                    onClick={handleSubmit}
+                    disabled={isStreaming || !requirement.trim()}
+                    className="group/send w-11 h-11 rounded-xl bg-gradient-to-r from-gray-800 to-gray-900 text-white flex items-center justify-center hover:from-gray-900 hover:to-black disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200 shadow-md hover:shadow-lg hover:scale-105 active:scale-95"
+                  >
+                    <Send className="w-5 h-5 group-hover/send:translate-x-0.5 group-hover/send:-translate-y-0.5 transition-transform" />
+                  </button>
                 </div>
+              </div>
+
+              {/* 模式切换和选项 - 极简高级设计 */}
+              <div className="flex items-center justify-center gap-4 mt-6">
+                {/* 模式切换 - 极简 Tab 风格 */}
+                <div className="inline-flex items-center gap-1 p-1 bg-gray-100/80 backdrop-blur-sm rounded-[0.75rem]">
+                  <button
+                    onClick={() => { setMode("agent"); setShowCustomForm(false); }}
+                    className={`relative flex items-center gap-1.5 px-4 py-2.5 text-[13px] rounded-[0.625rem] font-medium transition-all duration-300 ${
+                      mode === "agent"
+                        ? "bg-white text-gray-900 shadow-sm"
+                        : "text-gray-500 hover:text-gray-700"
+                    }`}
+                  >
+                    <Bot className="w-[15px] h-[15px]" />
+                    <span>Agent</span>
+                  </button>
+                  <button
+                    onClick={() => { setMode("custom"); setShowCustomForm(!showCustomForm); }}
+                    className={`relative flex items-center gap-1.5 px-4 py-2.5 text-[13px] rounded-[0.625rem] font-medium transition-all duration-300 ${
+                      mode === "custom"
+                        ? "bg-white text-gray-900 shadow-sm"
+                        : "text-gray-500 hover:text-gray-700"
+                    }`}
+                  >
+                    <Wand2 className="w-[15px] h-[15px]" />
+                    <span>自定义</span>
+                  </button>
+                </div>
+
+                {/* 分隔线 */}
+                <div className="w-px h-6 bg-gray-200/60" />
+
+                {/* 生图模型 - 极简按钮组 */}
+                <div className="inline-flex items-center gap-1 p-1 bg-gray-100/80 backdrop-blur-sm rounded-[0.75rem]">
+                  <button
+                    onClick={() => setImageGenProvider('jimeng')}
+                    className={`flex items-center gap-1.5 px-4 py-2.5 text-[13px] rounded-[0.625rem] font-medium transition-all duration-300 ${
+                      imageGenProvider === 'jimeng'
+                        ? 'bg-white text-gray-900 shadow-sm'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    <span>即梦</span>
+                  </button>
+                  <button
+                    onClick={() => setImageGenProvider('gemini')}
+                    className={`flex items-center gap-1.5 px-4 py-2.5 text-[13px] rounded-[0.625rem] font-medium transition-all duration-300 ${
+                      imageGenProvider === 'gemini'
+                        ? 'bg-white text-gray-900 shadow-sm'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    <span>Gemini</span>
+                  </button>
+                </div>
+
+                {/* 分隔线 */}
+                <div className="w-px h-6 bg-gray-200/60" />
+
+                {/* 自动继续 - iOS Toggle 风格 */}
+                <button
+                  onClick={() => setAutoConfirm(!autoConfirm)}
+                  className="group flex items-center gap-2.5 px-4 py-2.5 rounded-[0.75rem] hover:bg-gray-50/80 transition-all duration-200"
+                >
+                  <div
+                    className={`relative w-9 h-5 rounded-full transition-all duration-300 ${
+                      autoConfirm
+                        ? 'bg-gradient-to-r from-blue-500 to-blue-600 shadow-inner'
+                        : 'bg-gray-200'
+                    }`}
+                  >
+                    <div
+                      className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow-sm transition-all duration-300 ${
+                        autoConfirm ? 'left-[1.125rem]' : 'left-0.5'
+                      }`}
+                    />
+                  </div>
+                  <span className={`text-[13px] font-medium transition-colors ${
+                    autoConfirm ? 'text-gray-700' : 'text-gray-500'
+                  }`}>
+                    自动继续
+                  </span>
+                </button>
               </div>
 
               {/* 自定义参数面板 */}
@@ -702,10 +789,6 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
                 </div>
               )}
             </div>
-
-            <div className="mt-6 text-xs text-gray-400">
-              当前主题：<span className="text-gray-500 font-medium">{theme.name}</span>
-            </div>
           </div>
 
           {/* 底部素材库预览 */}
@@ -722,16 +805,43 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
           {/* 进度条（streaming 时显示） */}
           {isStreaming && workflowProgress > 0 && (
             <div className="h-1 bg-gray-100">
-              <div 
+              <div
                 className="h-full bg-blue-500 transition-all duration-300"
                 style={{ width: `${workflowProgress}%` }}
               />
             </div>
           )}
 
+          {/* 右上角悬浮按钮组 - 默认低调，hover 显现 */}
+          <div className="absolute top-4 right-4 z-20 flex items-center gap-1.5 opacity-20 hover:opacity-100 transition-opacity duration-200">
+            {/* 历史对话按钮 */}
+            <ConversationHistory
+              themeId={theme.id}
+              currentConversationId={conversationId}
+              onSelect={loadConversation}
+              onNewConversation={startNewConversation}
+              compact
+            />
+
+            {/* 查看过程按钮 - 图标化 */}
+            <button
+              onClick={() => setShowEvents(!showEvents)}
+              className={`p-2 rounded-xl transition-all ${
+                showEvents
+                  ? "bg-orange-500 text-white hover:bg-orange-600 shadow-md"
+                  : "bg-white/90 backdrop-blur text-gray-500 hover:text-gray-700 hover:bg-gray-100 shadow-md shadow-gray-200/50 ring-1 ring-gray-100"
+              }`}
+              title={showEvents ? "隐藏过程" : "查看过程"}
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+              </svg>
+            </button>
+          </div>
+
           {/* 消息区域 */}
           <div className="flex-1 flex overflow-hidden">
-            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
+            <div className="flex-1 overflow-y-auto px-4 py-3 pb-24 space-y-4">
               {messages.map((msg, idx) => (
                 <div key={idx} className="space-y-3">
                   {/* 用户消息 */}
@@ -775,23 +885,23 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
               <div ref={messagesEndRef} />
             </div>
 
-            {/* 事件面板 */}
+            {/* 事件面板 - 限制高度，避免遮挡 */}
             {showEvents && (
-              <div className="w-80 border-l border-gray-100 bg-gray-50 flex flex-col">
-                <div className="px-4 py-3 border-b border-gray-100">
+              <div className="w-72 border-l border-gray-100 bg-gray-50/95 backdrop-blur-sm flex flex-col max-h-[calc(100vh-180px)] mb-20">
+                <div className="px-3 py-2.5 border-b border-gray-100 flex-shrink-0">
                   <h3 className="text-sm font-medium text-gray-800">执行过程</h3>
-                  <p className="text-xs text-gray-500">实时查看各专家状态</p>
+                  <p className="text-xs text-gray-400">实时查看各专家状态</p>
                 </div>
-                <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
                   {events.length === 0 && (
-                    <div className="text-center text-gray-400 text-sm py-8">等待执行...</div>
+                    <div className="text-center text-gray-400 text-xs py-6">等待执行...</div>
                   )}
                   {events.map((event, idx) => (
-                    <div key={idx} className={`p-2.5 rounded-xl text-xs ${getAgentColor(event.agent)}`}>
-                      <div className="flex items-center gap-2">
-                        {event.agent && <span className="font-medium">{event.agent}</span>}
+                    <div key={idx} className={`p-2 rounded-lg text-xs ${getAgentColor(event.agent)}`}>
+                      <div className="flex items-center gap-1.5">
+                        {event.agent && <span className="font-medium text-[11px]">{getAgentDisplayName(event.agent)}</span>}
                       </div>
-                      <div className="mt-1 text-gray-600 line-clamp-2">{event.content}</div>
+                      <div className="mt-0.5 text-gray-600 line-clamp-2 text-[11px]">{event.content}</div>
                     </div>
                   ))}
                   <div ref={eventsEndRef} />
@@ -800,34 +910,10 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
             )}
           </div>
 
-          {/* 底部输入框 */}
-          <div className="bg-white border-t border-gray-100 px-4 py-3">
-            <div className="max-w-3xl mx-auto">
-              {/* 工具栏 */}
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  {/* 历史对话 */}
-                  <ConversationHistory
-                    themeId={theme.id}
-                    currentConversationId={conversationId}
-                    onSelect={loadConversation}
-                    onNewConversation={startNewConversation}
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  {/* 查看过程 */}
-                  <button
-                    onClick={() => setShowEvents(!showEvents)}
-                    className={`px-2.5 py-1 text-xs rounded-full transition-colors ${
-                      showEvents ? "bg-orange-50 text-orange-600" : "text-gray-400 hover:text-gray-600 hover:bg-gray-50"
-                    }`}
-                  >
-                    {showEvents ? "隐藏过程" : "查看过程"}
-                  </button>
-                </div>
-              </div>
-              {/* 输入框 */}
-              <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-2.5">
+          {/* 悬浮输入框 */}
+          <div className="absolute bottom-0 left-0 right-0 px-4 pb-4 pointer-events-none">
+            <div className="max-w-3xl mx-auto pointer-events-auto">
+              <div className="flex items-center gap-3 rounded-2xl border border-gray-200 bg-white px-5 py-3.5 shadow-[0_8px_30px_rgb(0,0,0,0.12)] backdrop-blur-sm">
                 <input
                   type="text"
                   value={requirement}
@@ -840,7 +926,7 @@ export function AgentCreator({ theme }: AgentCreatorProps) {
                 <button
                   onClick={handleSubmit}
                   disabled={isStreaming || !requirement.trim()}
-                  className="w-8 h-8 rounded-lg bg-gray-900 text-white flex items-center justify-center hover:bg-gray-800 disabled:opacity-40 transition-colors"
+                  className="w-9 h-9 rounded-xl bg-gradient-to-r from-gray-800 to-gray-900 text-white flex items-center justify-center hover:from-gray-900 hover:to-black disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200 shadow-md hover:shadow-lg hover:scale-105 active:scale-95"
                 >
                   <Send className="w-4 h-4" />
                 </button>
