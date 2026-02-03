@@ -32,9 +32,9 @@ export function InteractiveHITLBubble({ state, onStateChange, onSubmit }: Intera
     if (state.selectionType === "single") {
       onStateChange({ ...state, selectedIds: [optionId] });
 
-      // 如果选择了"继续"（approve），直接提交
+      // 如果选择了"继续"（approve），延迟提交让用户看到选中效果
       if (optionId === "approve") {
-        setTimeout(() => onSubmit(), 100);
+        setTimeout(() => onSubmit(), 300);
       }
       // 如果选择了"重生成"（reject），显示反馈输入框
       else if (optionId === "reject") {

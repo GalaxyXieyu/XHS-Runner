@@ -662,6 +662,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // 发送最终的完整创作内容（供前端渲染最终结果卡片）
     if (writerContent || generatedAssetIds.length > 0) {
+      // 如果有 writerContent，更新 creative 记录
+      if (writerContent && creativeId) {
+        try {
+          await updateCreative({
+            id: creativeId,
+            title: writerContent.title,
+            content: writerContent.body,
+            tags: writerContent.tags.join(', '),
+          });
+          console.log(`[stream] Updated creative ${creativeId} with title, content, tags`);
+        } catch (error) {
+          console.error(`[stream] Failed to update creative ${creativeId}:`, error);
+        }
+      }
+
       sendEvent({
         type: "workflow_complete",
         content: writerContent ? `标题: ${writerContent.title}\n\n${writerContent.body}\n\n标签: ${writerContent.tags.map(t => `#${t}`).join(' ')}` : "",

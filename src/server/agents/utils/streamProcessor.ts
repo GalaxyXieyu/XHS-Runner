@@ -229,11 +229,12 @@ export async function* processAgentStream(
             }
 
             // 保存 writer_agent 生成的内容到数据库
-            if (nodeName === "writer_agent" && themeId) {
+            if (nodeName === "writer_agent") {
               try {
                 const parsed = parseWriterContent(msg.content);
                 writerContent = parsed; // 保存用于 HITL
                 if (creativeId) {
+                  // 如果有 creativeId，更新现有 creative
                   await updateCreative({
                     id: creativeId,
                     title: parsed.title,
@@ -243,7 +244,9 @@ export async function* processAgentStream(
                     model: "agent",
                     prompt: "", // 这里可以传入原始 prompt
                   });
-                } else {
+                  console.log(`[streamProcessor] Updated creative ${creativeId} with writer content`);
+                } else if (themeId) {
+                  // 如果没有 creativeId 但有 themeId，创建新 creative
                   const creative = await createCreative({
                     themeId,
                     title: parsed.title,
@@ -253,9 +256,12 @@ export async function* processAgentStream(
                     model: "agent",
                     prompt: "", // 这里可以传入原始 prompt
                   });
+                  console.log(`[streamProcessor] Created new creative ${creative.id} with writer content`);
                   if (onCreativeCreated) {
                     onCreativeCreated(creative.id);
                   }
+                } else {
+                  console.warn("[streamProcessor] writer_agent completed but no creativeId or themeId provided, cannot save");
                 }
               } catch (saveError) {
                 console.error("Failed to save creative:", saveError);
