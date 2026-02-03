@@ -194,7 +194,36 @@
 - 内容类型模板 → `src/server/services/contentTypeTemplateManager.ts`
 - Langfuse 追踪 → `src/server/services/langfuseService.ts`
 
-## 8. 参考文档
+## 8. 定时生成（Daily Generate）与 Agent 自动执行
+
+> 目标：每天自动产出 **5 条 idea**，并自动调用 Agent 流程生成草稿；用户在 Generation 页面优先看到结果与状态。
+
+### 8.1 输入 / 输出
+
+- 输入：`themeId` + 近 N 天抓取数据（聚类/标题/标签）+ 运营目标（goal）+ 可选 persona/tone。
+- 输出：
+  - `generation_tasks`：每条 idea 一条任务（queued/running/done/failed），用于“排队 + 可追踪”。
+  - `creatives(status=draft)`：Agent 生成后的草稿主记录（标题/正文/标签），关联图片资产。
+
+### 8.2 两段式流水线（idea → agent）
+
+1) **Idea 生成（轻量、可重复）**
+- 基于 clusters/topTitles/tags 组装成能直接喂给 `/api/agent/stream` 的一句话/两句话“想法”。
+- 去重原则：只要“不要完全一模一样”（默认用本地规范化 + 近似相似度；必要时再引入模型判断作为可选增强）。
+
+2) **Agent 执行（重、需排队/限流）**
+- 对每条 idea：创建 `generation_tasks`（queued）→ 标记 running → 运行多 Agent 流程 → 写回任务状态 + 落草稿。
+- 默认启用限流（低并发）与失败重试（依赖 scheduler/job executor 的重试框架），避免拖慢主应用。
+
+### 8.3 UI 放置（Generation 优先）
+
+- Generation → scheduled 模式下提供「今日自动 Ideas」面板：
+  - 展示最近 5 条 idea（可展开/复制）
+  - 展示状态（queued/running/done/failed）与错误信息
+  - 支持“一键重跑”“用这个 idea 打开 agent 模式”
+- Task Center 作为高级视图：查看历史、筛选、执行记录。
+
+## 9. 参考文档
 
 - `docs/reference/api-index.md`
 - `docs/reference/agent-state.md`
