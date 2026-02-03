@@ -19,8 +19,12 @@
 - Each feature point:
   - has its own commit(s)
   - includes a short self-review: redundancy? risk to main app?
+- Docs policy:
+  - Do NOT spam docs.
+  - Keep docs categorized and minimal (avoid too many small/overlapping pages).
+  - Prefer updating an existing doc over creating a new one.
 - Hourly status reports:
-  - re-check this doc (requirements + global goal)
+  - re-check this doc (requirements + global goal + docs policy)
   - update progress + next step
   - call out any risk/regression
 
