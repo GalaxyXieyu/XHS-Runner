@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import {
   AlertCircle,
@@ -21,6 +21,16 @@ import { AgentCreator } from '@/features/agent/components/AgentCreator';
 import { ContentResultCard } from '@/features/material-library/components/ContentResultCard';
 import type { ContentPackage } from '@/features/material-library/types';
 import type { AutoTask } from '@/features/task-management/types';
+
+type ScheduledIdeaTask = {
+  id: number;
+  status: string;
+  prompt: string | null;
+  model?: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+};
 
 type IdeaConfig = {
   idea: string;
@@ -116,6 +126,35 @@ export function GenerationSection({
   setMainTab,
   setEditingPackage,
 }: GenerationSectionProps) {
+  const [scheduledIdeaTasks, setScheduledIdeaTasks] = useState<ScheduledIdeaTask[]>([]);
+  const [scheduledIdeaLoading, setScheduledIdeaLoading] = useState(false);
+  const [scheduledIdeaError, setScheduledIdeaError] = useState<string | null>(null);
+  const [scheduledIdeaSelected, setScheduledIdeaSelected] = useState<string | null>(null);
+
+  const loadScheduledIdeaTasks = useCallback(async () => {
+    setScheduledIdeaLoading(true);
+    setScheduledIdeaError(null);
+    try {
+      const res = await fetch(`/api/tasks?themeId=${theme.id}&limit=20&time_range=7d`);
+      const data = await res.json().catch(() => []);
+      const items: ScheduledIdeaTask[] = Array.isArray(data) ? data : [];
+      // Daily-generate ideas are stored with model='agent' (prompt is the idea text).
+      const filtered = items.filter((t: any) => t && t.model === 'agent');
+      setScheduledIdeaTasks(filtered.slice(0, 5));
+    } catch (err: any) {
+      setScheduledIdeaError(err?.message || String(err));
+      setScheduledIdeaTasks([]);
+    } finally {
+      setScheduledIdeaLoading(false);
+    }
+  }, [theme.id]);
+
+  useEffect(() => {
+    if (generateMode === 'scheduled') {
+      loadScheduledIdeaTasks();
+    }
+  }, [generateMode, loadScheduledIdeaTasks]);
+
   const ideaResultPackage = useMemo(() => {
     if (!ideaContentPackage?.creative) return null;
     const creative = ideaContentPackage.creative;
@@ -181,6 +220,7 @@ export function GenerationSection({
         <div className="flex-1 overflow-hidden">
           <AgentCreator
             theme={theme}
+            initialRequirement={scheduledIdeaSelected || undefined}
             onClose={() => setGenerateMode('oneClick')}
           />
         </div>

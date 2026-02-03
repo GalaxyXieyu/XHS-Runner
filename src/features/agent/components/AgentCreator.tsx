@@ -402,9 +402,11 @@ export function AgentCreator({ theme, initialRequirement }: AgentCreatorProps) {
 
     // 添加分隔事件，标记继续点
     setEvents(prev => [...prev, { 
+      type: "message",
       agent: "supervisor", 
-      content: "▸ 用户确认继续，开始下一阶段..." 
-    }]);
+      content: "▸ 用户确认继续，开始下一阶段...",
+      timestamp: Date.now(),
+    } as any]);
 
     try {
       setIsStreaming(true);
