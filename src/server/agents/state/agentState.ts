@@ -142,6 +142,15 @@ export const AgentState = Annotation.Root({
     value: (_, y) => y,
     default: () => "product",
   }),
+  // 生成的内容（统一在流程结束时入库）
+  generatedContent: Annotation<{
+    title: string;
+    body: string;
+    tags: string[];
+  } | null>({
+    value: (_, y) => y,
+    default: () => null,
+  }),
 });
 
 // Agent 执行事件类型

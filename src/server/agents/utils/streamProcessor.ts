@@ -5,49 +5,13 @@ import { logSpan, logGeneration } from "@/server/services/langfuseService";
 import { createCreative, updateCreative } from "@/server/services/xhs/data/creativeService";
 import { logAgent } from "@/server/agents/utils";
 import type { AgentType } from "@/server/agents/state/agentState";
+import { parseWriterContent } from "./contentParser";
+import { db, schema } from "@/server/db";
 
-// 解析 writer_agent 生成的内容（支持 JSON 和纯文本两种格式）
-function parseWriterContent(content: string): { title: string; body: string; tags: string[] } {
-  // 尝试解析 JSON 格式（writer_agent prompt 要求的格式）
-  try {
-    // 提取 JSON 部分（可能被包裹在 markdown 代码块中）
-    const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/) || content.match(/(\{[\s\S]*"title"[\s\S]*\})/);
-    const jsonStr = jsonMatch ? jsonMatch[1].trim() : content.trim();
-
-    // 尝试解析 JSON
-    if (jsonStr.startsWith('{')) {
-      const parsed = JSON.parse(jsonStr);
-      if (parsed.title) {
-        return {
-          title: parsed.title,
-          body: parsed.content || parsed.body || "",
-          tags: Array.isArray(parsed.tags)
-            ? parsed.tags.map((t: string) => t.replace(/^#/, ''))
-            : [],
-        };
-      }
-    }
-  } catch {
-    // JSON 解析失败，继续尝试纯文本格式
-  }
-
-  // 回退到纯文本格式解析
-  const titleMatch = content.match(/标题[：:]\s*(.+?)(?:\n|$)/);
-  const title = titleMatch?.[1]?.trim() || "AI 生成内容";
-
-  const tagMatch = content.match(/标签[：:]\s*(.+?)(?:\n|$)/);
-  const tagsStr = tagMatch?.[1] || "";
-  const tags = tagsStr.match(/#[\w\u4e00-\u9fa5]+/g)?.map(t => t.slice(1)) || [];
-
-  let body = content;
-  if (titleMatch) {
-    body = content.slice(content.indexOf(titleMatch[0]) + titleMatch[0].length);
-  }
-  if (tagMatch) {
-    body = body.slice(0, body.indexOf(tagMatch[0])).trim();
-  }
-
-  return { title, body: body.trim() || content, tags };
+// 解析 writer_agent 生成的内容已移至 contentParser.ts
+// 保留此函数用于兼容 HITL 确认时解析消息内容
+function parseWriterContentFallback(content: string): { title: string; body: string; tags: string[] } {
+  return parseWriterContent(content);
 }
 
 function getAgentDisplayName(name: string): string {
@@ -73,6 +37,8 @@ export interface StreamProcessorOptions {
   onCreativeCreated?: (creativeId: number) => void;
   onImagePlansExtracted?: (plans: any[]) => void;
   creativeId?: number;
+  // 恢复流程时传入之前保存的内容
+  previousGeneratedContent?: { title: string; body: string; tags: string[] } | null;
 }
 
 /**
@@ -83,12 +49,14 @@ export async function* processAgentStream(
   stream: AsyncIterable<any>,
   options: StreamProcessorOptions = {}
 ): AsyncGenerator<AgentEvent, void, unknown> {
-  const { themeId, traceId, trajId, threadId, enableHITL, onCreativeCreated, onImagePlansExtracted, creativeId } = options;
+  const { themeId, traceId, trajId, threadId, enableHITL, onCreativeCreated, onImagePlansExtracted, creativeId, previousGeneratedContent } = options;
 
-  let writerContent: { title: string; body: string; tags: string[] } | null = null;
+  // 从节点输出收集 generatedContent（持久化在 state 中）
+  // 如果是恢复流程，使用之前保存的内容
+  let generatedContent: { title: string; body: string; tags: string[] } | null = previousGeneratedContent || null;
   let imagePlans: any[] = [];
   let generatedAssetIds: number[] = [];
-  let imagesComplete = false;
+  let finalCreativeId = creativeId; // 可能在流程中创建
 
   console.log("[processAgentStream] 开始处理流, enableHITL:", enableHITL);
 
@@ -228,46 +196,6 @@ export async function* processAgentStream(
               });
             }
 
-            // 保存 writer_agent 生成的内容到数据库
-            if (nodeName === "writer_agent") {
-              try {
-                const parsed = parseWriterContent(msg.content);
-                writerContent = parsed; // 保存用于 HITL
-                if (creativeId) {
-                  // 如果有 creativeId，更新现有 creative
-                  await updateCreative({
-                    id: creativeId,
-                    title: parsed.title,
-                    content: parsed.body,
-                    tags: parsed.tags.join(","),
-                    status: "draft",
-                    model: "agent",
-                    prompt: "", // 这里可以传入原始 prompt
-                  });
-                  console.log(`[streamProcessor] Updated creative ${creativeId} with writer content`);
-                } else if (themeId) {
-                  // 如果没有 creativeId 但有 themeId，创建新 creative
-                  const creative = await createCreative({
-                    themeId,
-                    title: parsed.title,
-                    content: parsed.body,
-                    tags: parsed.tags.join(","),
-                    status: "draft",
-                    model: "agent",
-                    prompt: "", // 这里可以传入原始 prompt
-                  });
-                  console.log(`[streamProcessor] Created new creative ${creative.id} with writer content`);
-                  if (onCreativeCreated) {
-                    onCreativeCreated(creative.id);
-                  }
-                } else {
-                  console.warn("[streamProcessor] writer_agent completed but no creativeId or themeId provided, cannot save");
-                }
-              } catch (saveError) {
-                console.error("Failed to save creative:", saveError);
-              }
-            }
-
             // 捕获 image_planner_agent 的输出用于 HITL
             if (nodeName === "image_planner_agent") {
               console.log("[processAgentStream] 捕获 image_planner_agent 输出");
@@ -292,13 +220,17 @@ export async function* processAgentStream(
         }
       }
 
+      // 从节点输出捕获 generatedContent（writer_agent 返回）
+      if (nodeName === "writer_agent" && output.generatedContent) {
+        generatedContent = output.generatedContent;
+        console.log("[processAgentStream] 从 writer_agent 节点输出获取 generatedContent:", generatedContent?.title?.slice(0, 50));
+      }
+
       // 捕获 image_agent 的输出
       if (nodeName === "image_agent") {
-        if (output.imagesComplete) {
-          imagesComplete = true;
-        }
         if (output.generatedImageAssetIds?.length > 0) {
           generatedAssetIds = output.generatedImageAssetIds;
+          console.log("[processAgentStream] 从 image_agent 获取 generatedAssetIds:", generatedAssetIds.length);
         }
       }
 
@@ -321,20 +253,20 @@ export async function* processAgentStream(
 
         if (nodeName === "writer_agent") {
           console.log("[processAgentStream] writer_agent 完成，检查是否需要确认");
-          // 如果 writerContent 未设置，尝试从最后一条消息中解析
-          if (!writerContent && output.messages?.length > 0) {
+          // 优先使用节点输出的 generatedContent，否则尝试从消息中解析
+          if (!generatedContent && output.messages?.length > 0) {
             const lastMsg = output.messages[output.messages.length - 1];
             const content = typeof lastMsg.content === "string" ? lastMsg.content : "";
             if (content) {
               try {
-                writerContent = parseWriterContent(content);
+                generatedContent = parseWriterContent(content);
               } catch (e) {
                 console.error("Failed to parse writer content for HITL:", e);
               }
             }
           }
 
-          if (writerContent) {
+          if (generatedContent) {
             console.log("[processAgentStream] 发送 writer 确认请求（ask_user）");
             yield {
               type: "ask_user",
@@ -345,7 +277,7 @@ export async function* processAgentStream(
               ],
               selectionType: "single",
               allowCustomInput: true,
-              context: { __hitl: true, kind: "content", data: writerContent },
+              context: { __hitl: true, kind: "content", data: generatedContent },
               threadId,
               timestamp: Date.now(),
               content: "文案已生成，等待确认",
@@ -394,17 +326,75 @@ export async function* processAgentStream(
     }
   }
 
-  // 流处理完成，发送 workflow_complete 事件
-  if (writerContent || generatedAssetIds.length > 0) {
+  // 流处理完成，统一入库并发送 workflow_complete 事件
+  console.log("[processAgentStream] 流处理完成, generatedContent:", !!generatedContent, "generatedAssetIds:", generatedAssetIds.length);
+
+  if (generatedContent || generatedAssetIds.length > 0) {
+    // 统一入库
+    try {
+      if (finalCreativeId) {
+        // 更新现有 creative
+        if (generatedContent) {
+          await updateCreative({
+            id: finalCreativeId,
+            title: generatedContent.title,
+            content: generatedContent.body,
+            tags: generatedContent.tags.join(","),
+            status: "draft",
+            model: "agent",
+            prompt: "",
+          });
+          console.log(`[streamProcessor] Updated creative ${finalCreativeId}`);
+        }
+      } else if (themeId && generatedContent) {
+        // 创建新 creative
+        const creative = await createCreative({
+          themeId,
+          title: generatedContent.title,
+          content: generatedContent.body,
+          tags: generatedContent.tags.join(","),
+          status: "draft",
+          model: "agent",
+          prompt: "",
+        });
+        finalCreativeId = creative.id;
+        console.log(`[streamProcessor] Created new creative ${creative.id}`);
+        if (onCreativeCreated) {
+          onCreativeCreated(creative.id);
+        }
+      }
+
+      // 关联图片（如果有 creativeId 和 assetIds）
+      if (finalCreativeId && generatedAssetIds.length > 0) {
+        for (let i = 0; i < generatedAssetIds.length; i++) {
+          const assetId = generatedAssetIds[i];
+          try {
+            await db.insert(schema.creativeAssets).values({
+              creativeId: finalCreativeId,
+              assetId,
+              sortOrder: i,
+            });
+            console.log(`[streamProcessor] Linked asset ${assetId} to creative ${finalCreativeId}`);
+          } catch (linkError) {
+            // 可能已存在关联，忽略
+            console.warn(`[streamProcessor] Failed to link asset ${assetId}:`, linkError);
+          }
+        }
+      }
+    } catch (saveError) {
+      console.error("[streamProcessor] Failed to save creative:", saveError);
+    }
+
+    // 发送 workflow_complete 事件
     console.log("[processAgentStream] 发送 workflow_complete 事件");
     yield {
       type: "workflow_complete",
-      content: writerContent ? `标题: ${writerContent.title}\n\n${writerContent.body}\n\n标签: ${writerContent.tags.map(t => `#${t}`).join(' ')}` : "",
-      title: writerContent?.title || "",
-      body: writerContent?.body || "",
-      tags: writerContent?.tags || [],
+      content: generatedContent ? `标题: ${generatedContent.title}\n\n${generatedContent.body}\n\n标签: ${generatedContent.tags.map(t => `#${t}`).join(' ')}` : "",
+      title: generatedContent?.title || "",
+      body: generatedContent?.body || "",
+      tags: generatedContent?.tags || [],
       imageAssetIds: generatedAssetIds,
-      creativeId,
+      creativeId: finalCreativeId,
       timestamp: Date.now(),
     } as any;
   }

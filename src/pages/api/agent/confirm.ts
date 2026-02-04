@@ -116,8 +116,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // 查找对应的 conversation
     const conversationId = await findConversationByThreadId(threadId);
     const collectedEvents: any[] = [];
-    
+
     let creativeId: number | undefined;
+    let previousGeneratedContent: { title: string; body: string; tags: string[] } | null = null;
+
     try {
       const checkpointer = await getCheckpointer();
       const checkpoint = await checkpointer.get({ configurable: { thread_id: threadId } });
@@ -125,8 +127,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (typeof stateCreativeId === "number") {
         creativeId = stateCreativeId;
       }
+      // 读取之前保存的 generatedContent
+      const stateGeneratedContent = checkpoint?.channel_values?.generatedContent;
+      if (stateGeneratedContent && typeof stateGeneratedContent === "object") {
+        previousGeneratedContent = stateGeneratedContent as { title: string; body: string; tags: string[] };
+        console.log("[/api/agent/confirm] 从 checkpoint 读取 generatedContent:", previousGeneratedContent?.title?.slice(0, 50));
+      }
     } catch (error) {
-      console.warn("[/api/agent/confirm] Failed to read checkpoint creativeId:", error);
+      console.warn("[/api/agent/confirm] Failed to read checkpoint:", error);
     }
 
     // 注册图片进度回调
@@ -190,7 +198,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       console.log("[/api/agent/confirm] 开始处理 askUser 流");
       // 使用 processAgentStream 处理 LangGraph 流
       let lastAskUser: any = null;
-      for await (const event of processAgentStream(stream, { threadId, enableHITL: true, creativeId })) {
+      for await (const event of processAgentStream(stream, { threadId, enableHITL: true, creativeId, previousGeneratedContent })) {
         sendEvent(res, event, collectedEvents);
         // 捕获 ask_user 事件
         if (event.type === 'ask_user') {
@@ -292,7 +300,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     console.log("[/api/agent/confirm] 开始处理流");
     // 使用 processAgentStream 处理 LangGraph 流
     let lastAskUser: any = null;
-    for await (const event of processAgentStream(stream, { threadId, enableHITL: true, creativeId })) {
+    for await (const event of processAgentStream(stream, { threadId, enableHITL: true, creativeId, previousGeneratedContent })) {
       sendEvent(res, event, collectedEvents);
       // 捕获 ask_user 事件
       if (event.type === 'ask_user') {

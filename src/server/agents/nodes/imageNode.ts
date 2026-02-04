@@ -97,20 +97,8 @@ export async function imageAgentNode(state: typeof AgentState.State, model: Chat
 
       console.log(`[imageAgentNode] 第 ${taskId} 张成功保存 (asset_id=${asset.id}, ${Math.round(result.imageBuffer.length / 1024)}KB)`);
 
-      // Create creative_assets relationship if creativeId exists
-      if (state.creativeId) {
-        try {
-          await db.insert(schema.creativeAssets).values({
-            creativeId: state.creativeId,
-            assetId: asset.id,
-            sortOrder: sequence,
-          });
-          console.log(`[imageAgentNode] 已关联 creative_id=${state.creativeId} 和 asset_id=${asset.id}`);
-        } catch (err) {
-          // Ignore duplicate or constraint errors
-          console.warn(`[imageAgentNode] 关联失败 (可能已存在):`, err);
-        }
-      }
+      // 注意：creative_assets 关联已移至 streamProcessor 中统一处理
+      // 这样可以确保只有在流程完全成功后才创建关联
 
       results.push({ sequence, role, success: true, path: asset.url, assetId: asset.id });
       generatedPaths.push(asset.url);
