@@ -98,12 +98,13 @@ function buildIdeasFromClusters(input: {
 }
 
 async function runAgentForIdea(params: { themeId: number; creativeId: number; idea: string }) {
-  // Keep scheduler build (tsconfig.server.json) lightweight by not bundling agents into electron/server.
-  // Next.js runtime can still load these modules.
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { createMultiAgentSystem } = require('../../../agents/multiAgentSystem') as any;
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { processAgentStream } = require('../../../agents/utils/streamProcessor') as any;
+  // 使用动态 import 来确保模块正确加载
+  const { createMultiAgentSystem } = await import('../../../agents/multiAgentSystem');
+  const { processAgentStream } = await import('../../../agents/utils/streamProcessor');
+
+  if (typeof createMultiAgentSystem !== 'function') {
+    throw new Error('createMultiAgentSystem not available after dynamic import');
+  }
 
   const app = await createMultiAgentSystem({ enableHITL: false });
 
@@ -166,6 +167,8 @@ export async function handleDailyGenerateJob(
 
   const db = getDatabase();
   let completed = 0;
+  let failed = 0;
+  let lastError: string | null = null;
 
   for (const item of ideas) {
     if (context.abortController.signal.aborted) {
@@ -224,12 +227,15 @@ export async function handleDailyGenerateJob(
 
       completed += 1;
     } catch (err: any) {
-      console.error(`[dailyGenerateJob] idea ${taskId} 执行失败:`, err?.message || err);
+      const errorMessage = err?.message || String(err);
+      console.error(`[dailyGenerateJob] idea ${taskId} 执行失败:`, errorMessage);
+      failed += 1;
+      lastError = errorMessage;
       await db
         .from('generation_tasks')
         .update({
           status: 'failed',
-          error_message: err?.message || String(err),
+          error_message: errorMessage,
           updated_at: new Date().toISOString(),
         })
         .eq('id', taskId);
@@ -237,5 +243,24 @@ export async function handleDailyGenerateJob(
     }
   }
 
-  return { success: true, inserted: completed, total: ideas.length, duration_ms: 0 };
+  if (completed === 0) {
+    return {
+      success: false,
+      inserted: completed,
+      total: ideas.length,
+      error: lastError || '全部执行失败',
+      duration_ms: 0,
+    };
+  }
+
+  const result: ExecutionResult = {
+    success: true,
+    inserted: completed,
+    total: ideas.length,
+    duration_ms: 0,
+  };
+  if (failed > 0) {
+    result.error = `部分失败：${failed}/${ideas.length}${lastError ? `，最后错误：${lastError}` : ''}`;
+  }
+  return result;
 }
