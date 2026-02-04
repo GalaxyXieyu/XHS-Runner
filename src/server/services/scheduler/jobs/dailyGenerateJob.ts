@@ -8,6 +8,9 @@ import { getClusterSummaries } from '../../xhs/llm/summaryService';
 import { createCreative } from '../../xhs/data/creativeService';
 import { getDatabase } from '../../../db';
 
+// 单个 idea 的超时时间（2 分钟）
+const PER_IDEA_TIMEOUT_MS = 120000;
+
 function resolveOutputCount(params: DailyGenerateJobParams) {
   return params.outputCount || params.output_count || 5;
 }
@@ -121,6 +124,16 @@ async function runAgentForIdea(params: { themeId: number; creativeId: number; id
   }
 }
 
+// 带超时的 Agent 执行
+async function runAgentWithTimeout(params: { themeId: number; creativeId: number; idea: string }): Promise<void> {
+  return Promise.race([
+    runAgentForIdea(params),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`Agent 执行超时（${PER_IDEA_TIMEOUT_MS / 1000}秒）`)), PER_IDEA_TIMEOUT_MS)
+    ),
+  ]);
+}
+
 export async function handleDailyGenerateJob(
   job: ScheduledJob,
   params: DailyGenerateJobParams,
@@ -197,7 +210,8 @@ export async function handleDailyGenerateJob(
         .update({ status: 'running', updated_at: new Date().toISOString() })
         .eq('id', taskId);
 
-      await runAgentForIdea({ themeId: job.theme_id, creativeId: creative.id, idea: item.idea });
+      // 使用带超时的 Agent 执行，单个 idea 失败不影响其他 idea
+      await runAgentWithTimeout({ themeId: job.theme_id, creativeId: creative.id, idea: item.idea });
 
       await db
         .from('generation_tasks')
@@ -210,6 +224,7 @@ export async function handleDailyGenerateJob(
 
       completed += 1;
     } catch (err: any) {
+      console.error(`[dailyGenerateJob] idea ${taskId} 执行失败:`, err?.message || err);
       await db
         .from('generation_tasks')
         .update({
@@ -218,6 +233,7 @@ export async function handleDailyGenerateJob(
           updated_at: new Date().toISOString(),
         })
         .eq('id', taskId);
+      // 继续处理下一个 idea，不中断整个任务
     }
   }
 

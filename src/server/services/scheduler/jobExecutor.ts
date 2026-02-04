@@ -1,7 +1,7 @@
 // 任务执行器 - 执行具体任务并处理超时/重试
 
 import { getDatabase } from '../../db';
-import { ScheduledJob, JobExecution, ExecutionResult, CaptureJobParams, DailyGenerateJobParams } from './types';
+import { ScheduledJob, JobExecution, ExecutionResult, CaptureJobParams, DailyGenerateJobParams, JOB_TYPE_TIMEOUTS } from './types';
 import { getRateLimiter } from './rateLimiter';
 
 export interface ExecutionContext {
@@ -44,9 +44,12 @@ export class JobExecutor {
     // params_json 是 jsonb 类型，Drizzle 会自动反序列化为对象
     // 如果是字符串则 parse，如果已经是对象则直接使用
     const rawParams = job.params_json;
-    const params: CaptureJobParams | DailyGenerateJobParams = 
+    const params: CaptureJobParams | DailyGenerateJobParams =
       typeof rawParams === 'string' ? JSON.parse(rawParams) : (rawParams || {});
-    const timeoutMs = params.timeoutMs || this.defaultTimeoutMs;
+    // 优先使用 params 中的超时，其次使用任务类型默认超时，最后使用全局默认
+    const timeoutMs = params.timeoutMs
+      || JOB_TYPE_TIMEOUTS[job.job_type]
+      || this.defaultTimeoutMs;
     const abortController = new AbortController();
 
     this.activeExecutions.set(execution.id, abortController);

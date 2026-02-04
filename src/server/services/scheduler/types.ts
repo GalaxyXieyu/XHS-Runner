@@ -128,6 +128,14 @@ export const DEFAULT_SCHEDULER_CONFIG: SchedulerConfig = {
   defaultTimeoutMs: 60000,
 };
 
+// 不同任务类型的默认超时配置
+// daily_generate 需要更长时间：5 个 idea × 2 分钟/个 = 10 分钟
+export const JOB_TYPE_TIMEOUTS: Record<JobType, number> = {
+  capture_theme: 120000,     // 2 分钟
+  capture_keyword: 60000,    // 1 分钟
+  daily_generate: 600000,    // 10 分钟
+};
+
 // ============ 速率限制配置 ============
 
 export interface RateLimitConfig {

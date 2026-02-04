@@ -22,6 +22,8 @@ import type { ContentPackage } from '@/features/material-library/types';
 import type { AutoTask } from '@/features/task-management/types';
 import { ScheduledIdeasPanel, type ScheduledIdeaTask } from './generation/ScheduledIdeasPanel';
 import { ScheduledJobCard } from './generation/ScheduledJobCard';
+import { TaskFormModal } from './generation/TaskFormModal';
+import { IdeaConfirmModal } from './generation/IdeaConfirmModal';
 
 // ScheduledIdeaTask moved to ./generation/ScheduledIdeasPanel
 
@@ -167,62 +169,6 @@ export function GenerationSection({
       return [];
     }
   }, []);
-
-  const parseScheduleText = (raw: string):
-    | { schedule_type: 'cron'; cron_expression: string }
-    | { schedule_type: 'interval'; interval_minutes: number }
-    | null => {
-    const text = (raw || '').trim();
-    if (!text) return null;
-
-    const mDaily = text.match(/^每日\s*(\d{1,2})\s*:\s*(\d{2})$/);
-    if (mDaily) {
-      const hh = Number(mDaily[1]);
-      const mm = Number(mDaily[2]);
-      if (Number.isFinite(hh) && Number.isFinite(mm) && hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59) {
-        return { schedule_type: 'cron', cron_expression: `${mm} ${hh} * * *` };
-      }
-      return null;
-    }
-
-    const mapDow = (token: string) => {
-      const t = token.trim();
-      if (/^[1-7]$/.test(t)) return Number(t) % 7; // 7 -> 0 (Sun)
-      const zh = { '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '日': 0, '天': 0 } as const;
-      const v = (zh as any)[t];
-      return typeof v === 'number' ? v : null;
-    };
-
-    const mWeekly = text.match(/^每周\s*([1-7一二三四五六日天])\s*(\d{1,2})\s*:\s*(\d{2})$/);
-    if (mWeekly) {
-      const dow = mapDow(mWeekly[1]);
-      const hh = Number(mWeekly[2]);
-      const mm = Number(mWeekly[3]);
-      if (
-        dow !== null &&
-        Number.isFinite(hh) &&
-        Number.isFinite(mm) &&
-        hh >= 0 &&
-        hh <= 23 &&
-        mm >= 0 &&
-        mm <= 59
-      ) {
-        return { schedule_type: 'cron', cron_expression: `${mm} ${hh} * * ${dow}` };
-      }
-      return null;
-    }
-
-    // 兜底：如果用户输入的是纯数字，则认为是 interval minutes。
-    const mInterval = text.match(/^(\d{1,4})\s*(分钟|min|m)?$/i);
-    if (mInterval) {
-      const minutes = Number(mInterval[1]);
-      if (Number.isFinite(minutes) && minutes > 0 && minutes <= 24 * 60) {
-        return { schedule_type: 'interval', interval_minutes: minutes };
-      }
-    }
-
-    return null;
-  };
 
   useEffect(() => {
     if (generateMode === 'scheduled') {
@@ -750,78 +696,16 @@ export function GenerationSection({
                   </div>
                 </div>
 
-                {showIdeaConfirmModal && (
-                  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                    <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4">
-                      <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-                        <h3 className="text-base font-medium text-gray-900">确认生成</h3>
-                        <button
-                          onClick={() => setShowIdeaConfirmModal(false)}
-                          aria-label="关闭"
-                          className="text-gray-400 hover:text-gray-600"
-                        >
-                          <X className="w-5 h-5" />
-                        </button>
-                      </div>
-
-                      <div className="p-6 space-y-4">
-                        <div className="grid grid-cols-3 gap-3 text-sm">
-                          <div className="p-3 bg-gray-50 rounded-lg">
-                            <div className="text-xs text-gray-500 mb-1">Prompts</div>
-                            <div className="font-medium">{sanitizeIdeaPromptsForConfirm().length} 条</div>
-                          </div>
-                          <div className="p-3 bg-gray-50 rounded-lg">
-                            <div className="text-xs text-gray-500 mb-1">模型</div>
-                            <div className="font-medium">{ideaConfig.model}</div>
-                          </div>
-                          <div className="p-3 bg-gray-50 rounded-lg">
-                            <div className="text-xs text-gray-500 mb-1">风格</div>
-                            <div className="font-medium">{resolveIdeaStyleKey() || 'cozy'}</div>
-                          </div>
-                        </div>
-
-                        <div>
-                          <div className="text-sm font-medium text-gray-700 mb-2">即将入队的 prompts（可返回继续编辑）</div>
-                          <div className="border border-gray-200 rounded-lg overflow-hidden">
-                            <div className="max-h-64 overflow-auto divide-y divide-gray-100">
-                              {sanitizeIdeaPromptsForConfirm().map((p, idx) => (
-                                <div key={idx} className="p-3 text-sm text-gray-800 whitespace-pre-wrap break-words">
-                                  <span className="text-xs text-gray-500 mr-2">#{idx + 1}</span>
-                                  {p}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-
-                        {ideaConfirmError && (
-                          <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-start gap-2">
-                            <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                            <div className="flex-1">{ideaConfirmError}</div>
-                          </div>
-                        )}
-
-                        <div className="flex items-center justify-end gap-2 pt-2">
-                          <button
-                            onClick={() => setShowIdeaConfirmModal(false)}
-                            disabled={ideaConfirming}
-                            className="px-4 py-2 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 disabled:opacity-60"
-                          >
-                            返回编辑
-                          </button>
-                          <button
-                            onClick={handleIdeaConfirm}
-                            disabled={ideaConfirming}
-                            className="px-4 py-2 text-sm bg-emerald-500 text-white rounded hover:bg-emerald-600 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
-                          >
-                            {ideaConfirming ? <Loader className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                            确认入队
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
+                <IdeaConfirmModal
+                  show={showIdeaConfirmModal}
+                  prompts={sanitizeIdeaPromptsForConfirm()}
+                  ideaConfig={ideaConfig}
+                  confirming={ideaConfirming}
+                  error={ideaConfirmError}
+                  resolveStyleKey={resolveIdeaStyleKey}
+                  onClose={() => setShowIdeaConfirmModal(false)}
+                  onConfirm={handleIdeaConfirm}
+                />
               </div>
             )}
 
@@ -945,267 +829,56 @@ export function GenerationSection({
             )}
 
             {/* 定时任务编辑弹窗 */}
-            {showTaskForm && (
-              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4">
-                  <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-                    <h3 className="text-base font-medium text-gray-900">
-                      {editingTask ? '编辑定时任务' : '新建定时任务'}
-                    </h3>
-                    <button
-                      onClick={() => {
-                        setShowTaskForm(false);
-                        setEditingTask(null);
-                      }}
-                      aria-label="关闭"
-                      className="text-gray-400 hover:text-gray-600"
-                    >
-                      <X className="w-5 h-5" />
-                    </button>
-                  </div>
+            <TaskFormModal
+              theme={theme}
+              editingTask={editingTask}
+              showTaskForm={showTaskForm}
+              taskSaving={taskSaving}
+              taskSaveError={taskSaveError}
+              promptProfiles={promptProfiles}
+              onClose={() => {
+                setShowTaskForm(false);
+                setEditingTask(null);
+              }}
+              onSave={async (payload) => {
+                setTaskSaving(true);
+                setTaskSaveError('');
+                try {
+                  if (editingTask && editingTask.id !== 'new') {
+                    const res = await fetch(`/api/jobs/${editingTask.id}`, {
+                      method: 'PUT',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(payload),
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) throw new Error(data?.error || '更新定时任务失败');
+                  } else {
+                    const res = await fetch('/api/jobs', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(payload),
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) throw new Error(data?.error || '创建定时任务失败');
+                  }
 
-                  <div className="p-6 space-y-4">
-                    {taskSaveError ? (
-                      <div className="p-3 text-sm bg-red-50 text-red-700 border border-red-200 rounded-lg">
-                        {taskSaveError}
-                      </div>
-                    ) : null}
-                    <div>
-                      <label htmlFor="task-name" className="block text-sm font-medium text-gray-700 mb-2">
-                        任务名称 <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        id="task-name"
-                        type="text"
-                        defaultValue={editingTask?.name || ''}
-                        placeholder="例如：防晒主题每日内容"
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                      />
-                    </div>
+                  try {
+                    if (payload.is_enabled) await (window as any).scheduler?.start?.();
+                  } catch (error) {
+                    console.error('启动调度器失败:', error);
+                  }
 
-                    <div>
-                      <label htmlFor="task-schedule" className="block text-sm font-medium text-gray-700 mb-2">
-                        执行计划 <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        id="task-schedule"
-                        type="text"
-                        defaultValue={editingTask?.schedule || '每日 09:00'}
-                        placeholder="例如：每日 09:00"
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                      />
-                      <div className="text-xs text-gray-500 mt-1">
-                        支持格式：每日 HH:MM、每周X HH:MM
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label htmlFor="task-goal" className="block text-sm font-medium text-gray-700 mb-2">内容目标</label>
-                        <select
-                          id="task-goal"
-                          defaultValue={editingTask?.config.goal || 'collects'}
-                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                        >
-                          <option value="collects">收藏优先</option>
-                          <option value="comments">评论优先</option>
-                          <option value="followers">涨粉优先</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label htmlFor="task-output-count" className="block text-sm font-medium text-gray-700 mb-2">生成数量</label>
-                        <input
-                          id="task-output-count"
-                          type="number"
-                          defaultValue={editingTask?.config.outputCount || 5}
-                          min={1}
-                          max={20}
-                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label htmlFor="task-persona" className="block text-sm font-medium text-gray-700 mb-2">目标受众</label>
-                      <input
-                        id="task-persona"
-                        type="text"
-                        defaultValue={editingTask?.config.persona || ''}
-                        placeholder="例如：学生党、职场女性"
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label htmlFor="task-tone" className="block text-sm font-medium text-gray-700 mb-2">内容语气</label>
-                      <input
-                        id="task-tone"
-                        type="text"
-                        defaultValue={editingTask?.config.tone || ''}
-                        placeholder="例如：干货/亲和"
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label htmlFor="task-prompt-profile" className="block text-sm font-medium text-gray-700 mb-2">提示词模板</label>
-                        <select
-                          id="task-prompt-profile"
-                          defaultValue={editingTask?.config.promptProfileId || '1'}
-                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                        >
-                          {promptProfiles.map(profile => (
-                            <option key={profile.id} value={profile.id}>{profile.name}</option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div>
-                        <label htmlFor="task-image-model" className="block text-sm font-medium text-gray-700 mb-2">图像模型</label>
-                        <select
-                          id="task-image-model"
-                          defaultValue={editingTask?.config.imageModel || 'nanobanana'}
-                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                        >
-                          <option value="nanobanana">Nanobanana</option>
-                          <option value="jimeng">即梦</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label htmlFor="task-min-quality" className="block text-sm font-medium text-gray-700 mb-2">最低质量分</label>
-                      <input
-                        id="task-min-quality"
-                        type="number"
-                        defaultValue={editingTask?.config.minQualityScore || 70}
-                        min={0}
-                        max={100}
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="sticky bottom-0 bg-gray-50 px-6 py-4 flex justify-end gap-3 border-t border-gray-200">
-                    <button
-                      onClick={() => {
-                        setShowTaskForm(false);
-                        setEditingTask(null);
-                      }}
-                      className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-200 rounded-lg"
-                    >
-                      取消
-                    </button>
-                    <button
-                      onClick={async () => {
-                        const readValue = (id: string) => {
-                          const el = document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null;
-                          return el ? String((el as any).value ?? '').trim() : '';
-                        };
-
-                        setTaskSaveError('');
-
-                        const name = readValue('task-name');
-                        const scheduleText = readValue('task-schedule');
-                        const goal = readValue('task-goal') || 'collects';
-                        const outputCountRaw = readValue('task-output-count');
-                        const persona = readValue('task-persona');
-                        const tone = readValue('task-tone');
-                        const promptProfileId = readValue('task-prompt-profile') || '1';
-                        const imageModel = readValue('task-image-model') || 'nanobanana';
-                        const minQualityRaw = readValue('task-min-quality');
-
-                        if (!name) {
-                          setTaskSaveError('请填写任务名称');
-                          return;
-                        }
-
-                        const scheduleParsed = parseScheduleText(scheduleText);
-                        if (!scheduleParsed) {
-                          setTaskSaveError('执行计划格式不正确：例如“每日 09:00”或“每周一 09:00”（也支持直接填 30 表示每 30 分钟）');
-                          return;
-                        }
-
-                        const outputCount = Number(outputCountRaw || 5);
-                        if (!Number.isFinite(outputCount) || outputCount < 1 || outputCount > 20) {
-                          setTaskSaveError('生成数量需为 1-20');
-                          return;
-                        }
-
-                        const minQualityScore = Number(minQualityRaw || 70);
-                        if (!Number.isFinite(minQualityScore) || minQualityScore < 0 || minQualityScore > 100) {
-                          setTaskSaveError('最低质量分需为 0-100');
-                          return;
-                        }
-
-                        const isEnabled = editingTask ? editingTask.status === 'active' : true;
-
-                        const payload: any = {
-                          name,
-                          job_type: 'daily_generate',
-                          theme_id: Number(theme.id),
-                          schedule_type: scheduleParsed.schedule_type,
-                          interval_minutes: scheduleParsed.schedule_type === 'interval' ? scheduleParsed.interval_minutes : null,
-                          cron_expression: scheduleParsed.schedule_type === 'cron' ? scheduleParsed.cron_expression : null,
-                          params: {
-                            goal,
-                            output_count: outputCount,
-                            persona,
-                            tone,
-                            prompt_profile_id: promptProfileId,
-                            image_model: imageModel,
-                            min_quality_score: minQualityScore,
-                          },
-                          is_enabled: isEnabled,
-                          priority: 5,
-                        };
-
-                        setTaskSaving(true);
-                        try {
-                          if (editingTask && editingTask.id !== 'new') {
-                            const res = await fetch(`/api/jobs/${editingTask.id}`, {
-                              method: 'PUT',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify(payload),
-                            });
-                            const data = await res.json().catch(() => ({}));
-                            if (!res.ok) throw new Error(data?.error || '更新定时任务失败');
-                          } else {
-                            const res = await fetch('/api/jobs', {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify(payload),
-                            });
-                            const data = await res.json().catch(() => ({}));
-                            if (!res.ok) throw new Error(data?.error || '创建定时任务失败');
-                          }
-
-                          try {
-                            if (isEnabled) await (window as any).scheduler?.start?.();
-                          } catch (error) {
-                            console.error('启动调度器失败:', error);
-                          }
-
-                          setShowTaskForm(false);
-                          setEditingTask(null);
-                          loadJobs();
-                        } catch (err: any) {
-                          setTaskSaveError(err?.message || String(err));
-                        } finally {
-                          setTaskSaving(false);
-                        }
-                      }}
-                      disabled={taskSaving}
-                      className={`px-4 py-2 text-sm bg-red-500 text-white rounded-lg hover:bg-red-600 ${taskSaving ? 'opacity-60 cursor-not-allowed' : ''}`}
-                    >
-                      {taskSaving ? '保存中...' : (editingTask ? '保存修改' : '创建任务')}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
+                  setShowTaskForm(false);
+                  setEditingTask(null);
+                  loadJobs();
+                } catch (err: any) {
+                  setTaskSaveError(err?.message || String(err));
+                  throw err;
+                } finally {
+                  setTaskSaving(false);
+                }
+              }}
+            />
           </div>
         </div>
       </div>

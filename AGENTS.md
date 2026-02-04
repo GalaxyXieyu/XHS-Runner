@@ -17,9 +17,14 @@ This repo is an Electron + Next.js app. The main process lives in `electron/` (I
 - TypeScript/JavaScript uses 2-space indentation, single quotes, and semicolons. Follow patterns in `src/pages/index.tsx` and `src/server/services/xhs/*.ts`.
 - Module files are camelCase (for example, `workflowService.ts`), and React component names are PascalCase.
 - Keep functions small and prefer explicit IPC calls over implicit globals.
+- **File size limit**: Keep individual files ≤ 800 lines unless strongly justified. Split large components into smaller ones.
 
 ## Testing Guidelines
-There is no automated test runner configured in `package.json` yet. For changes, run a manual smoke test with `npm run dev` and exercise the UI. If you add tests, create a `tests/` or `__tests__/` directory and wire a `npm test` script.
+- **Testing priority**: API tests first → Chrome UI/E2E → UX sanity check
+- **UX validation flow**: `npm run dev:next` → open `http://localhost:3000` → verify entry points + no confusing flows
+- Manual smoke test: run `npm run dev` and exercise the UI for changes
+- Each feature point requires its own commit with a short self-review (redundancy? risk to main app?)
+- If you add tests, create a `tests/` or `__tests__/` directory and wire a `npm test` script.
 
 ## Commit & Pull Request Guidelines
 - Commit messages use a ticket prefix: `[XHS-###] Short, imperative summary`.
