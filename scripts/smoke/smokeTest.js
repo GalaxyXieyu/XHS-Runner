@@ -106,6 +106,31 @@ async function main() {
     assert.strictEqual(out.schedule_type, 'interval');
     assert.strictEqual(out.interval_minutes, 30);
   });
+
+  await runTest('executions DTO normalization parses result_json', async () => {
+    const dto = require(path.join(
+      repoRoot,
+      'electron',
+      'server',
+      'services',
+      'scheduler',
+      'executionDto.js'
+    ));
+
+    const out = dto.normalizeExecutionRow({
+      id: 1,
+      job_id: 2,
+      status: 'success',
+      trigger_type: 'manual',
+      duration_ms: 10,
+      result_json: '{"total":3,"inserted":3}',
+      error_message: null,
+      created_at: new Date().toISOString(),
+    });
+
+    assert.ok(out.result_json);
+    assert.strictEqual(out.result_json.total, 3);
+  });
 }
 
 main().catch((err) => {
