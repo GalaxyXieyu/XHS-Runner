@@ -65,6 +65,15 @@ export function CreativeTab({
   const [internalGenerateMode, setInternalGenerateMode] = useState<'oneClick' | 'scheduled' | 'agent'>('agent');
   const generateMode = externalGenerateMode ?? internalGenerateMode;
   const setGenerateMode = onGenerateModeChange ?? setInternalGenerateMode;
+
+  const [lastNonAgentMode, setLastNonAgentMode] = useState<'oneClick' | 'scheduled'>(() =>
+    generateMode === 'scheduled' ? 'scheduled' : 'oneClick'
+  );
+
+  const setGenerateModeWithHistory = (mode: 'oneClick' | 'scheduled' | 'agent') => {
+    if (mode !== 'agent') setLastNonAgentMode(mode);
+    setGenerateMode(mode);
+  };
   const [taskStatusTab, setTaskStatusTab] = useState<'running' | 'completed' | 'failed'>('running');
   // UI 状态映射：
   // - 默认态：generateMode = oneClick 且 ideaCreativeId 为空
@@ -468,7 +477,8 @@ export function CreativeTab({
           <GenerationSection
             theme={theme}
             generateMode={generateMode}
-            setGenerateMode={setGenerateMode}
+            setGenerateMode={setGenerateModeWithHistory}
+            lastNonAgentMode={lastNonAgentMode}
             ideaCreativeId={ideaCreativeId}
             ideaTaskIds={ideaTaskIds}
             setIdeaCreativeId={setIdeaCreativeId}

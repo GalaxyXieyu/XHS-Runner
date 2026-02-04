@@ -42,6 +42,7 @@ interface GenerationSectionProps {
   theme: Theme;
   generateMode: 'oneClick' | 'scheduled' | 'agent';
   setGenerateMode: (mode: 'oneClick' | 'scheduled' | 'agent') => void;
+  lastNonAgentMode: 'oneClick' | 'scheduled';
   ideaCreativeId: number | null;
   ideaTaskIds: number[];
   setIdeaCreativeId: (id: number | null) => void;
@@ -83,6 +84,7 @@ export function GenerationSection({
   theme,
   generateMode,
   setGenerateMode,
+  lastNonAgentMode,
   ideaCreativeId,
   ideaTaskIds,
   setIdeaCreativeId,
@@ -295,7 +297,7 @@ export function GenerationSection({
             onClose={() => {
               setScheduledIdeaAutoRun(false);
               setScheduledIdeaSelected(null);
-              setGenerateMode('oneClick');
+              setGenerateMode(lastNonAgentMode);
             }}
           />
         </div>
@@ -1112,7 +1114,7 @@ export function GenerationSection({
                         const payload: any = {
                           name,
                           job_type: 'daily_generate',
-                          theme_id: theme.id,
+                          theme_id: Number(theme.id),
                           schedule_type: scheduleParsed.schedule_type,
                           interval_minutes: scheduleParsed.schedule_type === 'interval' ? scheduleParsed.interval_minutes : null,
                           cron_expression: scheduleParsed.schedule_type === 'cron' ? scheduleParsed.cron_expression : null,
