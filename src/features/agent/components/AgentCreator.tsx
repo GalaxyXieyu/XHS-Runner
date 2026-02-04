@@ -86,7 +86,7 @@ const agentProgressMap: Record<string, number> = {
   review_agent: 95,
 };
 
-export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirement }: AgentCreatorProps) {
+export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirement, onClose }: AgentCreatorProps) {
   // 基础状态
   const [requirement, setRequirement] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -594,8 +594,17 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
       {/* 初始状态布局 */}
       {!hasMessages && (
         <div className="flex-1 overflow-y-auto relative">
-          {/* 右上角悬浮历史按钮 */}
-          <div className="absolute top-4 right-4 z-10">
+          {/* 右上角悬浮按钮组 */}
+          <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
+            {onClose && (
+              <button
+                onClick={onClose}
+                className="w-9 h-9 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 flex items-center justify-center transition-colors shadow-sm"
+                title="返回"
+              >
+                <X className="w-4 h-4 text-gray-600" />
+              </button>
+            )}
             <ConversationHistory
               themeId={theme.id}
               currentConversationId={conversationId}

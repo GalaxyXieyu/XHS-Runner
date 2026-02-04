@@ -152,7 +152,7 @@ export function CreativeTab({
           outputCount: job.config?.output_count || 5,
           minQualityScore: job.config?.min_quality_score || 70,
         },
-        status: job.status === 'active' ? 'active' : 'paused',
+        status: job.is_enabled ? 'active' : 'paused',
         lastRunAt: job.last_run_at,
         nextRunAt: job.next_run_at || new Date().toISOString(),
         totalRuns: job.total_runs || 0,

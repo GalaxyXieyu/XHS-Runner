@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import {
   AlertCircle,
-  Calendar,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -21,16 +20,10 @@ import { AgentCreator } from '@/features/agent/components/AgentCreator';
 import { ContentResultCard } from '@/features/material-library/components/ContentResultCard';
 import type { ContentPackage } from '@/features/material-library/types';
 import type { AutoTask } from '@/features/task-management/types';
+import { ScheduledIdeasPanel, type ScheduledIdeaTask } from './generation/ScheduledIdeasPanel';
+import { ScheduledJobCard } from './generation/ScheduledJobCard';
 
-type ScheduledIdeaTask = {
-  id: number;
-  status: string;
-  prompt: string | null;
-  model?: string | null;
-  error_message: string | null;
-  created_at: string;
-  updated_at: string;
-};
+// ScheduledIdeaTask moved to ./generation/ScheduledIdeasPanel
 
 type IdeaConfig = {
   idea: string;
@@ -359,9 +352,19 @@ export function GenerationSection({
                       <div className="flex rounded-full border border-gray-200 bg-gray-50 p-1">
                         <button
                           onClick={() => setGenerateMode('oneClick')}
-                          className="px-3 py-1 text-xs rounded-full transition bg-white text-gray-900 shadow-sm"
+                          className={`px-3 py-1 text-xs rounded-full transition ${
+                            generateMode === 'oneClick'
+                              ? 'bg-white text-gray-900 shadow-sm'
+                              : 'text-gray-500 hover:text-gray-700'
+                          }`}
                         >
                           立即生成
+                        </button>
+                        <button
+                          onClick={() => setGenerateMode('scheduled')}
+                          className="px-3 py-1 text-xs rounded-full transition text-gray-500 hover:text-gray-700"
+                        >
+                          定时生成
                         </button>
                         <button
                           onClick={() => setGenerateMode('agent')}
@@ -803,91 +806,22 @@ export function GenerationSection({
 
             {generateMode === 'scheduled' && (
               <div className="space-y-3">
-                <div className="rounded-xl border border-gray-200 bg-white p-4">
-                  <div className="flex items-center justify-between gap-3 mb-3">
-                    <div>
-                      <div className="text-sm font-medium text-gray-900">今日 ideas</div>
-                      <div className="text-xs text-gray-500 mt-0.5">来自 daily_generate（最近 7 天里筛出今天的记录）</div>
-                    </div>
-                    <button
-                      onClick={() => loadScheduledIdeaTasks()}
-                      className="px-2.5 py-1 text-xs rounded bg-gray-100 text-gray-700 hover:bg-gray-200"
-                      disabled={scheduledIdeaLoading}
-                    >
-                      {scheduledIdeaLoading ? '刷新中...' : '刷新'}
-                    </button>
-                  </div>
-
-                  {scheduledIdeaError ? (
-                    <div className="text-xs text-red-600 bg-red-50 border border-red-100 rounded p-2">
-                      {scheduledIdeaError}
-                    </div>
-                  ) : null}
-
-                  {(() => {
-                    const startOfToday = new Date();
-                    startOfToday.setHours(0, 0, 0, 0);
-                    const todayItems = scheduledIdeaTasks.filter((t) => {
-                      const created = new Date(t.created_at);
-                      return created >= startOfToday;
-                    });
-
-                    if (scheduledIdeaLoading && todayItems.length === 0) {
-                      return <div className="text-xs text-gray-500">加载中...</div>;
-                    }
-
-                    if (todayItems.length === 0) {
-                      return <div className="text-xs text-gray-500">今天还没有产出 ideas。</div>;
-                    }
-
-                    return (
-                      <div className="space-y-2">
-                        {todayItems.slice(0, 5).map((t) => (
-                          <div key={String(t.id)} className="border border-gray-200 rounded-lg p-3">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="flex-1 min-w-0">
-                                <div className="text-xs text-gray-500">#{t.id} · {new Date(t.created_at).toLocaleString('zh-CN')}</div>
-                                <div className="text-sm text-gray-900 mt-1 break-words">{t.prompt || '(空)'} </div>
-                              </div>
-                              <span className={`px-2 py-0.5 rounded text-xs ${t.status === 'done' ? 'bg-green-100 text-green-700' : t.status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                                {t.status === 'done' ? '已完成' : t.status === 'failed' ? '失败' : '进行中'}
-                              </span>
-                            </div>
-
-                            {t.error_message ? (
-                              <div className="text-xs text-red-600 mt-2">{t.error_message}</div>
-                            ) : null}
-
-                            <div className="flex gap-2 mt-3">
-                              <button
-                                className="flex-1 px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded hover:bg-blue-100"
-                                onClick={() => {
-                                  setScheduledIdeaSelected(t.prompt || '');
-                                  setScheduledIdeaAutoRun(false);
-                                  setGenerateMode('agent');
-                                }}
-                                disabled={!t.prompt}
-                              >
-                                Open in Agent
-                              </button>
-                              <button
-                                className="flex-1 px-2 py-1 text-xs bg-emerald-50 text-emerald-700 rounded hover:bg-emerald-100"
-                                onClick={() => {
-                                  setScheduledIdeaSelected(t.prompt || '');
-                                  setScheduledIdeaAutoRun(true);
-                                  setGenerateMode('agent');
-                                }}
-                                disabled={!t.prompt}
-                              >
-                                Rerun
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    );
-                  })()}
-                </div>
+                <ScheduledIdeasPanel
+                  loading={scheduledIdeaLoading}
+                  error={scheduledIdeaError}
+                  items={scheduledIdeaTasks}
+                  onRefresh={() => loadScheduledIdeaTasks()}
+                  onOpenInAgent={(prompt) => {
+                    setScheduledIdeaSelected(prompt);
+                    setScheduledIdeaAutoRun(false);
+                    setGenerateMode('agent');
+                  }}
+                  onRerun={(prompt) => {
+                    setScheduledIdeaSelected(prompt);
+                    setScheduledIdeaAutoRun(true);
+                    setGenerateMode('agent');
+                  }}
+                />
 
                 <div className="flex items-center justify-between">
                   <div className="text-sm font-medium text-gray-700">定时任务列表</div>
@@ -908,156 +842,80 @@ export function GenerationSection({
                   </div>
                 ) : (
                   scheduledTasks.map(task => (
-                    <div key={task.id} className="p-4 border border-gray-200 rounded-lg">
-                      <div className="flex items-start justify-between mb-2">
-                        <div>
-                          <div className="text-sm font-medium text-gray-900 mb-1">{task.name}</div>
-                          <div className="text-xs text-gray-500 flex items-center gap-1">
-                            <Calendar className="w-3 h-3" />
-                            {task.schedule}
-                          </div>
-                        </div>
-                        <span className={`px-2 py-0.5 rounded text-xs ${task.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
-                          }`}>
-                          {task.status === 'active' ? '运行中' : '已暂停'}
-                        </span>
-                      </div>
+                    <ScheduledJobCard
+                      key={task.id}
+                      task={task}
+                      mutating={taskMutatingId === task.id}
+                      executions={jobExecutionsById[task.id] || []}
+                      executionsOpen={jobExecutionsOpenId === task.id}
+                      onEdit={() => {
+                        setEditingTask(task);
+                        setShowTaskForm(true);
+                      }}
+                      onTrigger={async () => {
+                        setTaskSaveError('');
+                        setTaskMutatingId(task.id);
+                        try {
+                          const res = await fetch(`/api/jobs/${task.id}/trigger`, { method: 'POST' });
+                          const data = await res.json().catch(() => ({}));
+                          if (!res.ok) throw new Error(data?.error || '触发执行失败');
 
-                      <div className="grid grid-cols-3 gap-2 text-xs text-gray-600 mb-3">
-                        <div>生成：{task.config.outputCount}个/次</div>
-                        <div>质量：≥{task.config.minQualityScore}</div>
-                        <div>成功率：{task.totalRuns > 0 ? Math.round((task.successfulRuns / task.totalRuns) * 100) : 0}%</div>
-                      </div>
+                          await loadJobExecutions(task.id);
+                          setJobExecutionsOpenId(task.id);
+                        } catch (err: any) {
+                          setTaskSaveError(err?.message || String(err));
+                        } finally {
+                          setTaskMutatingId(null);
+                        }
+                      }}
+                      onToggleStatus={async () => {
+                        setTaskSaveError('');
+                        setTaskMutatingId(task.id);
+                        try {
+                          const res = await fetch(`/api/jobs/${task.id}/status`, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ status: task.status === 'active' ? 'paused' : 'active' }),
+                          });
+                          const data = await res.json().catch(() => ({}));
+                          if (!res.ok) throw new Error(data?.error || '切换任务状态失败');
 
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => {
-                            setEditingTask(task);
-                            setShowTaskForm(true);
-                          }}
-                          className="flex-1 px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded hover:bg-blue-100"
-                          disabled={taskMutatingId === task.id}
-                        >
-                          编辑
-                        </button>
+                          try {
+                            await (window as any).scheduler?.start?.();
+                          } catch (error) {
+                            console.error('启动调度器失败:', error);
+                          }
 
-                        <button
-                          className="flex-1 px-2 py-1 text-xs bg-emerald-50 text-emerald-700 rounded hover:bg-emerald-100 disabled:opacity-60 disabled:cursor-not-allowed"
-                          disabled={taskMutatingId === task.id}
-                          onClick={async () => {
-                            setTaskSaveError('');
-                            setTaskMutatingId(task.id);
-                            try {
-                              const res = await fetch(`/api/jobs/${task.id}/trigger`, { method: 'POST' });
-                              const data = await res.json().catch(() => ({}));
-                              if (!res.ok) throw new Error(data?.error || '触发执行失败');
+                          loadJobs();
+                        } catch (err: any) {
+                          setTaskSaveError(err?.message || String(err));
+                        } finally {
+                          setTaskMutatingId(null);
+                        }
+                      }}
+                      onDelete={async () => {
+                        if (!window.confirm(`确定删除任务「${task.name}」吗？`)) return;
 
-                              await loadJobExecutions(task.id);
-                              setJobExecutionsOpenId(task.id);
-                            } catch (err: any) {
-                              setTaskSaveError(err?.message || String(err));
-                            } finally {
-                              setTaskMutatingId(null);
-                            }
-                          }}
-                        >
-                          {taskMutatingId === task.id ? '处理中...' : '立即执行'}
-                        </button>
+                        setTaskSaveError('');
+                        setTaskMutatingId(task.id);
+                        try {
+                          const res = await fetch(`/api/jobs/${task.id}`, { method: 'DELETE' });
+                          const data = await res.json().catch(() => ({}));
+                          if (!res.ok) throw new Error(data?.error || '删除任务失败');
 
-                        <button
-                          className="flex-1 px-2 py-1 text-xs bg-yellow-50 text-yellow-700 rounded hover:bg-yellow-100 disabled:opacity-60 disabled:cursor-not-allowed"
-                          disabled={taskMutatingId === task.id}
-                          onClick={async () => {
-                            setTaskSaveError('');
-                            setTaskMutatingId(task.id);
-                            try {
-                              const res = await fetch(`/api/jobs/${task.id}/status`, {
-                                method: 'PATCH',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ status: task.status === 'active' ? 'paused' : 'active' }),
-                              });
-                              const data = await res.json().catch(() => ({}));
-                              if (!res.ok) throw new Error(data?.error || '切换任务状态失败');
-
-                              try {
-                                await (window as any).scheduler?.start?.();
-                              } catch (error) {
-                                console.error('启动调度器失败:', error);
-                              }
-
-                              loadJobs();
-                            } catch (err: any) {
-                              setTaskSaveError(err?.message || String(err));
-                            } finally {
-                              setTaskMutatingId(null);
-                            }
-                          }}
-                        >
-                          {taskMutatingId === task.id ? '处理中...' : (task.status === 'active' ? '暂停' : '启动')}
-                        </button>
-
-                        <button
-                          aria-label="删除任务"
-                          className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded disabled:opacity-60 disabled:cursor-not-allowed"
-                          disabled={taskMutatingId === task.id}
-                          onClick={async () => {
-                            if (!window.confirm(`确定删除任务「${task.name}」吗？`)) return;
-
-                            setTaskSaveError('');
-                            setTaskMutatingId(task.id);
-                            try {
-                              const res = await fetch(`/api/jobs/${task.id}`, { method: 'DELETE' });
-                              const data = await res.json().catch(() => ({}));
-                              if (!res.ok) throw new Error(data?.error || '删除任务失败');
-
-                              loadJobs();
-                            } catch (err: any) {
-                              setTaskSaveError(err?.message || String(err));
-                            } finally {
-                              setTaskMutatingId(null);
-                            }
-                          }}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-
-                      <div className="mt-3">
-                        <button
-                          className="text-xs text-gray-500 hover:text-gray-700"
-                          onClick={async () => {
-                            const next = jobExecutionsOpenId === task.id ? null : task.id;
-                            setJobExecutionsOpenId(next);
-                            if (next) await loadJobExecutions(task.id);
-                          }}
-                        >
-                          {jobExecutionsOpenId === task.id ? '收起执行历史' : '查看执行历史'}
-                        </button>
-
-                        {jobExecutionsOpenId === task.id ? (
-                          <div className="mt-2 space-y-2">
-                            {(jobExecutionsById[task.id] || []).length === 0 ? (
-                              <div className="text-xs text-gray-400">暂无执行记录</div>
-                            ) : (
-                              (jobExecutionsById[task.id] || []).map((e: any) => (
-                                <div key={String(e.id)} className="text-xs border border-gray-200 rounded p-2">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-gray-700">#{e.id} · {String(e.trigger_type || '')}</span>
-                                    <span className={`px-2 py-0.5 rounded ${e.status === 'success' ? 'bg-green-100 text-green-700' : e.status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                                      {String(e.status)}
-                                    </span>
-                                  </div>
-                                  <div className="text-gray-500 mt-1">{e.created_at ? new Date(e.created_at).toLocaleString('zh-CN') : '-'}</div>
-                                  {e.error_message ? (
-                                    <div className="text-red-600 mt-1">{String(e.error_message)}</div>
-                                  ) : null}
-                                </div>
-                              ))
-                            )}
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
+                          loadJobs();
+                        } catch (err: any) {
+                          setTaskSaveError(err?.message || String(err));
+                        } finally {
+                          setTaskMutatingId(null);
+                        }
+                      }}
+                      onToggleExecutions={async () => {
+                        const next = jobExecutionsOpenId === task.id ? null : task.id;
+                        setJobExecutionsOpenId(next);
+                        if (next) await loadJobExecutions(task.id);
+                      }}
+                    />
                   ))
                 )}
               </div>
