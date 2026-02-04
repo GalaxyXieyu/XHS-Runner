@@ -62,6 +62,7 @@ export default function App() {
 
   // CreativeTab 子 tab 状态提升
   const [creativeMainTab, setCreativeMainTab] = useState<'generate' | 'library' | 'tasks'>('generate');
+  const [creativeGenerateMode, setCreativeGenerateMode] = useState<'oneClick' | 'scheduled' | 'agent'>('agent');
   // 素材库数量和运行中任务数量（由 CreativeTab 回调更新）
   const [libraryCount, setLibraryCount] = useState(0);
   const [runningTasksCount, setRunningTasksCount] = useState(0);
@@ -261,6 +262,16 @@ export default function App() {
           {/* 右侧按钮 - 仅在 creative 视图显示 */}
           {currentView === 'creative' && selectedTheme && (
             <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => {
+                  setCreativeMainTab('generate');
+                  setCreativeGenerateMode('scheduled');
+                }}
+                className="px-3 py-1.5 text-xs rounded-full font-medium transition-all bg-red-50 text-red-600 hover:bg-red-100"
+              >
+                定时生成
+              </button>
+
               {creativeMainTab !== 'generate' && (
                 <button
                   onClick={() => setCreativeMainTab('generate')}
@@ -326,6 +337,8 @@ export default function App() {
                 }}
                 mainTab={creativeMainTab}
                 onMainTabChange={setCreativeMainTab}
+                generateMode={creativeGenerateMode}
+                onGenerateModeChange={setCreativeGenerateMode}
                 onLibraryCountChange={setLibraryCount}
                 onRunningTasksCountChange={setRunningTasksCount}
               />

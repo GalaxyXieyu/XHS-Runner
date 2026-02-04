@@ -352,19 +352,9 @@ export function GenerationSection({
                       <div className="flex rounded-full border border-gray-200 bg-gray-50 p-1">
                         <button
                           onClick={() => setGenerateMode('oneClick')}
-                          className={`px-3 py-1 text-xs rounded-full transition ${
-                            generateMode === 'oneClick'
-                              ? 'bg-white text-gray-900 shadow-sm'
-                              : 'text-gray-500 hover:text-gray-700'
-                          }`}
+                          className="px-3 py-1 text-xs rounded-full transition bg-white text-gray-900 shadow-sm"
                         >
                           立即生成
-                        </button>
-                        <button
-                          onClick={() => setGenerateMode('scheduled')}
-                          className="px-3 py-1 text-xs rounded-full transition text-gray-500 hover:text-gray-700"
-                        >
-                          定时生成
                         </button>
                         <button
                           onClick={() => setGenerateMode('agent')}

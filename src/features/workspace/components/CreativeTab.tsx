@@ -52,6 +52,8 @@ export function CreativeTab({
   onSelectTheme,
   mainTab: externalMainTab,
   onMainTabChange,
+  generateMode: externalGenerateMode,
+  onGenerateModeChange,
   onLibraryCountChange,
   onRunningTasksCountChange,
 }: CreativeTabProps) {
@@ -59,7 +61,10 @@ export function CreativeTab({
   const [internalMainTab, setInternalMainTab] = useState<'generate' | 'library' | 'tasks'>('generate');
   const mainTab = externalMainTab ?? internalMainTab;
   const setMainTab = onMainTabChange ?? setInternalMainTab;
-  const [generateMode, setGenerateMode] = useState<'oneClick' | 'scheduled' | 'agent'>('agent');
+
+  const [internalGenerateMode, setInternalGenerateMode] = useState<'oneClick' | 'scheduled' | 'agent'>('agent');
+  const generateMode = externalGenerateMode ?? internalGenerateMode;
+  const setGenerateMode = onGenerateModeChange ?? setInternalGenerateMode;
   const [taskStatusTab, setTaskStatusTab] = useState<'running' | 'completed' | 'failed'>('running');
   // UI 状态映射：
   // - 默认态：generateMode = oneClick 且 ideaCreativeId 为空
