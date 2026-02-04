@@ -59,6 +59,7 @@ async function main() {
       'server',
       'services',
       'xhs',
+      'core',
       'workflow.js'
     ));
 

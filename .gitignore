@@ -22,3 +22,7 @@ scripts/backups/
 *.sql
 *.dump
 backups/
+
+# local debug artifacts
+logs/
+temp_images/
