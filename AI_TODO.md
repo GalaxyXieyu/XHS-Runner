@@ -16,6 +16,7 @@
 - Testing must include:
   - API tests (priority)
   - UI tests / E2E in Chrome (after API)
+  - UX sanity check in Chrome: run `npm run dev:next`, open `http://localhost:3000`, and verify entry points + no redundant/confusing flows for the feature being shipped
 - Each feature point:
   - has its own commit(s)
   - includes a short self-review: redundancy? risk to main app?
