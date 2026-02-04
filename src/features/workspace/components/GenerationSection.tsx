@@ -135,6 +135,8 @@ export function GenerationSection({
   const [taskSaving, setTaskSaving] = useState(false);
   const [taskSaveError, setTaskSaveError] = useState<string>('');
   const [taskMutatingId, setTaskMutatingId] = useState<string | null>(null);
+  const [jobExecutionsById, setJobExecutionsById] = useState<Record<string, any[]>>({});
+  const [jobExecutionsOpenId, setJobExecutionsOpenId] = useState<string | null>(null);
 
   const loadScheduledIdeaTasks = useCallback(async () => {
     setScheduledIdeaLoading(true);
@@ -153,6 +155,20 @@ export function GenerationSection({
       setScheduledIdeaLoading(false);
     }
   }, [theme.id]);
+
+  const loadJobExecutions = useCallback(async (jobId: string) => {
+    try {
+      const params = new URLSearchParams();
+      params.set('jobId', String(jobId));
+      params.set('limit', '5');
+      const res = await fetch(`/api/jobs/executions?${params.toString()}`);
+      const data = await res.json().catch(() => []);
+      const items = Array.isArray(data) ? data : [];
+      setJobExecutionsById((prev) => ({ ...prev, [jobId]: items }));
+    } catch (err) {
+      console.error('Failed to load job executions:', err);
+    }
+  }, []);
 
   const parseScheduleText = (raw: string):
     | { schedule_type: 'cron'; cron_expression: string }
@@ -926,6 +942,29 @@ export function GenerationSection({
                         </button>
 
                         <button
+                          className="flex-1 px-2 py-1 text-xs bg-emerald-50 text-emerald-700 rounded hover:bg-emerald-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                          disabled={taskMutatingId === task.id}
+                          onClick={async () => {
+                            setTaskSaveError('');
+                            setTaskMutatingId(task.id);
+                            try {
+                              const res = await fetch(`/api/jobs/${task.id}/trigger`, { method: 'POST' });
+                              const data = await res.json().catch(() => ({}));
+                              if (!res.ok) throw new Error(data?.error || '触发执行失败');
+
+                              await loadJobExecutions(task.id);
+                              setJobExecutionsOpenId(task.id);
+                            } catch (err: any) {
+                              setTaskSaveError(err?.message || String(err));
+                            } finally {
+                              setTaskMutatingId(null);
+                            }
+                          }}
+                        >
+                          {taskMutatingId === task.id ? '处理中...' : '立即执行'}
+                        </button>
+
+                        <button
                           className="flex-1 px-2 py-1 text-xs bg-yellow-50 text-yellow-700 rounded hover:bg-yellow-100 disabled:opacity-60 disabled:cursor-not-allowed"
                           disabled={taskMutatingId === task.id}
                           onClick={async () => {
@@ -981,6 +1020,42 @@ export function GenerationSection({
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
+                      </div>
+
+                      <div className="mt-3">
+                        <button
+                          className="text-xs text-gray-500 hover:text-gray-700"
+                          onClick={async () => {
+                            const next = jobExecutionsOpenId === task.id ? null : task.id;
+                            setJobExecutionsOpenId(next);
+                            if (next) await loadJobExecutions(task.id);
+                          }}
+                        >
+                          {jobExecutionsOpenId === task.id ? '收起执行历史' : '查看执行历史'}
+                        </button>
+
+                        {jobExecutionsOpenId === task.id ? (
+                          <div className="mt-2 space-y-2">
+                            {(jobExecutionsById[task.id] || []).length === 0 ? (
+                              <div className="text-xs text-gray-400">暂无执行记录</div>
+                            ) : (
+                              (jobExecutionsById[task.id] || []).map((e: any) => (
+                                <div key={String(e.id)} className="text-xs border border-gray-200 rounded p-2">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-gray-700">#{e.id} · {String(e.trigger_type || '')}</span>
+                                    <span className={`px-2 py-0.5 rounded ${e.status === 'success' ? 'bg-green-100 text-green-700' : e.status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                                      {String(e.status)}
+                                    </span>
+                                  </div>
+                                  <div className="text-gray-500 mt-1">{e.created_at ? new Date(e.created_at).toLocaleString('zh-CN') : '-'}</div>
+                                  {e.error_message ? (
+                                    <div className="text-red-600 mt-1">{String(e.error_message)}</div>
+                                  ) : null}
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   ))
