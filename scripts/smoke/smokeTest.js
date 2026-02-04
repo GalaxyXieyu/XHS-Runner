@@ -81,6 +81,31 @@ async function main() {
     assert.ok(next instanceof Date);
     assert.ok(next.getTime() > now.getTime(), 'expected next run time in future');
   });
+
+  await runTest('jobs DTO validation accepts interval schedule', async () => {
+    const dto = require(path.join(
+      repoRoot,
+      'electron',
+      'server',
+      'services',
+      'scheduler',
+      'jobDto.js'
+    ));
+
+    const out = dto.parseCreateJobInput({
+      name: 't',
+      job_type: 'daily_generate',
+      schedule_type: 'interval',
+      interval_minutes: 30,
+      cron_expression: null,
+      params: { output_count: 1 },
+      is_enabled: true,
+      priority: 5,
+    });
+
+    assert.strictEqual(out.schedule_type, 'interval');
+    assert.strictEqual(out.interval_minutes, 30);
+  });
 }
 
 main().catch((err) => {
