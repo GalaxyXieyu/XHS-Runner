@@ -15,7 +15,7 @@ interface LibraryStore {
   loading: boolean;
 
   // Actions
-  setAllPackages: (packages: ContentPackage[]) => void;
+  setAllPackages: (packages: ContentPackage[] | ((prev: ContentPackage[]) => ContentPackage[])) => void;
   setSelectedPackages: (ids: string[]) => void;
   setEditingPackage: (pkg: ContentPackage | null) => void;
   setLibraryFilter: (filter: LibraryFilter) => void;
@@ -72,7 +72,9 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
   loading: false,
 
   // Simple setters
-  setAllPackages: (packages) => set({ allPackages: packages }),
+  setAllPackages: (packages) => set((state) => ({
+    allPackages: typeof packages === 'function' ? packages(state.allPackages) : packages
+  })),
   setSelectedPackages: (ids) => set({ selectedPackages: ids }),
   setEditingPackage: (pkg) => set({ editingPackage: pkg }),
   setLibraryFilter: (filter) => set({ libraryFilter: filter }),

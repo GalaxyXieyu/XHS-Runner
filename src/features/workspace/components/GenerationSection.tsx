@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { Dispatch, SetStateAction } from 'react';
 import {
   AlertCircle,
   Check,
@@ -19,13 +18,12 @@ import type { Theme } from '@/App';
 import { AgentCreator } from '@/features/agent/components/AgentCreator';
 import { ContentResultCard } from '@/features/material-library/components/ContentResultCard';
 import type { ContentPackage } from '@/features/material-library/types';
-import type { AutoTask } from '@/features/task-management/types';
 import { ScheduledIdeasPanel, type ScheduledIdeaTask } from './generation/ScheduledIdeasPanel';
 import { ScheduledJobCard } from './generation/ScheduledJobCard';
 import { TaskFormModal } from './generation/TaskFormModal';
 import { IdeaConfirmModal } from './generation/IdeaConfirmModal';
-
-// ScheduledIdeaTask moved to ./generation/ScheduledIdeasPanel
+import { useGenerationStore } from '@/stores/useGenerationStore';
+import { useTaskStore } from '@/stores/useTaskStore';
 
 type IdeaConfig = {
   idea: string;
@@ -45,38 +43,10 @@ interface GenerationSectionProps {
   generateMode: 'oneClick' | 'scheduled' | 'agent';
   setGenerateMode: (mode: 'oneClick' | 'scheduled' | 'agent') => void;
   lastNonAgentMode: 'oneClick' | 'scheduled';
-  ideaCreativeId: number | null;
-  ideaTaskIds: number[];
-  setIdeaCreativeId: (id: number | null) => void;
-  setIdeaTaskIds: (ids: number[]) => void;
-  ideaPollingError: string;
   ideaContentPackage: any;
-  ideaConfig: IdeaConfig;
-  setIdeaConfig: Dispatch<SetStateAction<IdeaConfig>>;
+  ideaPollingError: string;
   ideaStyleOptions: ReadonlyArray<{ key: IdeaConfig['styleKeyOption']; name: string }>;
-  ideaPreviewPrompts: string[];
-  ideaPreviewLoading: boolean;
-  ideaPreviewError: string;
-  handleIdeaPreview: () => void;
-  updateIdeaPrompt: (index: number, value: string) => void;
-  removeIdeaPrompt: (index: number) => void;
-  moveIdeaPrompt: (index: number, direction: -1 | 1) => void;
-  addIdeaPrompt: () => void;
-  showIdeaConfirmModal: boolean;
-  setShowIdeaConfirmModal: (open: boolean) => void;
-  sanitizeIdeaPromptsForConfirm: () => string[];
-  resolveIdeaStyleKey: () => string;
-  ideaConfirmError: string;
-  setIdeaConfirmError: (value: string) => void;
-  ideaConfirming: boolean;
-  handleIdeaConfirm: () => void;
-  scheduledTasks: AutoTask[];
-  showTaskForm: boolean;
-  setShowTaskForm: (open: boolean) => void;
-  editingTask: AutoTask | null;
-  setEditingTask: (task: AutoTask | null) => void;
   promptProfiles: ReadonlyArray<{ id: string; name: string }>;
-  loadJobs: () => void;
   allPackages: ContentPackage[];
   setMainTab: (tab: 'generate' | 'library' | 'tasks') => void;
   setEditingPackage: (pkg: ContentPackage | null) => void;
@@ -87,42 +57,49 @@ export function GenerationSection({
   generateMode,
   setGenerateMode,
   lastNonAgentMode,
-  ideaCreativeId,
-  ideaTaskIds,
-  setIdeaCreativeId,
-  setIdeaTaskIds,
-  ideaPollingError,
   ideaContentPackage,
-  ideaConfig,
-  setIdeaConfig,
+  ideaPollingError,
   ideaStyleOptions,
-  ideaPreviewPrompts,
-  ideaPreviewLoading,
-  ideaPreviewError,
-  handleIdeaPreview,
-  updateIdeaPrompt,
-  removeIdeaPrompt,
-  moveIdeaPrompt,
-  addIdeaPrompt,
-  showIdeaConfirmModal,
-  setShowIdeaConfirmModal,
-  sanitizeIdeaPromptsForConfirm,
-  resolveIdeaStyleKey,
-  ideaConfirmError,
-  setIdeaConfirmError,
-  ideaConfirming,
-  handleIdeaConfirm,
-  scheduledTasks,
-  showTaskForm,
-  setShowTaskForm,
-  editingTask,
-  setEditingTask,
   promptProfiles,
-  loadJobs,
   allPackages,
   setMainTab,
   setEditingPackage,
 }: GenerationSectionProps) {
+  // Read state from stores
+  const {
+    ideaConfig,
+    setIdeaConfig,
+    ideaPreviewPrompts,
+    handleIdeaPreview: storeHandleIdeaPreview,
+    handleIdeaConfirm: storeHandleIdeaConfirm,
+    updatePrompt,
+    addPrompt,
+    removePrompt,
+    movePrompt,
+    sanitizePromptsForConfirm,
+    resolveStyleKey,
+    ideaCreativeId,
+    setIdeaCreativeId,
+    ideaTaskIds,
+    setIdeaTaskIds,
+    showIdeaConfirmModal,
+    setShowIdeaConfirmModal,
+    ideaConfirming,
+    ideaConfirmError,
+    setIdeaConfirmError,
+    ideaPreviewLoading,
+    ideaPreviewError,
+  } = useGenerationStore();
+
+  const {
+    scheduledTasks,
+    editingTask,
+    showTaskForm,
+    setEditingTask,
+    setShowTaskForm,
+    loadTasks,
+  } = useTaskStore();
+  // Component-specific local state (not in stores)
   const [scheduledIdeaTasks, setScheduledIdeaTasks] = useState<ScheduledIdeaTask[]>([]);
   const [scheduledIdeaLoading, setScheduledIdeaLoading] = useState(false);
   const [scheduledIdeaError, setScheduledIdeaError] = useState<string | null>(null);
@@ -135,6 +112,19 @@ export function GenerationSection({
   const [taskMutatingId, setTaskMutatingId] = useState<string | null>(null);
   const [jobExecutionsById, setJobExecutionsById] = useState<Record<string, any[]>>({});
   const [jobExecutionsOpenId, setJobExecutionsOpenId] = useState<string | null>(null);
+
+  // Wrapper functions to pass themeId to store actions
+  const handleIdeaPreview = useCallback(() => {
+    storeHandleIdeaPreview(Number(theme.id));
+  }, [storeHandleIdeaPreview, theme.id]);
+
+  const handleIdeaConfirm = useCallback(async () => {
+    await storeHandleIdeaConfirm();
+  }, [storeHandleIdeaConfirm]);
+
+  const loadJobs = useCallback(() => {
+    loadTasks(Number(theme.id));
+  }, [loadTasks, theme.id]);
 
   const loadScheduledIdeaTasks = useCallback(async () => {
     setScheduledIdeaLoading(true);
@@ -268,12 +258,12 @@ export function GenerationSection({
             initialRequirement={scheduledIdeaSelected || undefined}
             autoRunInitialRequirement={scheduledIdeaAutoRun}
             backLabel={agentBackLabel || undefined}
-            onClose={() => {
+            onClose={agentBackLabel ? () => {
               setScheduledIdeaAutoRun(false);
               setScheduledIdeaSelected(null);
               setAgentBackLabel(null);
               setGenerateMode(lastNonAgentMode);
-            }}
+            } : undefined}
           />
         </div>
       ) : (
@@ -441,7 +431,7 @@ export function GenerationSection({
                   <textarea
                     id="idea-input"
                     value={ideaConfig.idea}
-                    onChange={(e) => setIdeaConfig({ ...ideaConfig, idea: e.target.value })}
+                    onChange={(e) => setIdeaConfig({ idea: e.target.value })}
                     placeholder="例如：秋天的咖啡馆、通勤穿搭分享、周末露营清单..."
                     rows={3}
                     className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -465,7 +455,7 @@ export function GenerationSection({
                         <select
                           id="idea-goal"
                           value={ideaConfig.goal}
-                          onChange={(e) => setIdeaConfig({ ...ideaConfig, goal: e.target.value as IdeaConfig['goal'] })}
+                          onChange={(e) => setIdeaConfig({ goal: e.target.value as IdeaConfig['goal'] })}
                           className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                         >
                           <option value="collects">收藏优先</option>
@@ -480,7 +470,7 @@ export function GenerationSection({
                           id="idea-tone"
                           type="text"
                           value={ideaConfig.tone}
-                          onChange={(e) => setIdeaConfig({ ...ideaConfig, tone: e.target.value })}
+                          onChange={(e) => setIdeaConfig({ tone: e.target.value })}
                           placeholder="例如：干货/亲和、犀利吐槽、温柔治愈"
                           className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                         />
@@ -493,7 +483,7 @@ export function GenerationSection({
                         id="idea-persona"
                         type="text"
                         value={ideaConfig.persona}
-                        onChange={(e) => setIdeaConfig({ ...ideaConfig, persona: e.target.value })}
+                        onChange={(e) => setIdeaConfig({ persona: e.target.value })}
                         placeholder="例如：学生党、职场女性、宝妈、露营新手"
                         className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                       />
@@ -504,7 +494,7 @@ export function GenerationSection({
                       <textarea
                         id="idea-extra"
                         value={ideaConfig.extraRequirements}
-                        onChange={(e) => setIdeaConfig({ ...ideaConfig, extraRequirements: e.target.value })}
+                        onChange={(e) => setIdeaConfig({ extraRequirements: e.target.value })}
                         placeholder="例如：不要出现品牌 logo；画面更极简；避免手部特写"
                         rows={2}
                         className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -517,7 +507,7 @@ export function GenerationSection({
                         <select
                           id="idea-style"
                           value={ideaConfig.styleKeyOption}
-                          onChange={(e) => setIdeaConfig({ ...ideaConfig, styleKeyOption: e.target.value as IdeaConfig['styleKeyOption'] })}
+                          onChange={(e) => setIdeaConfig({ styleKeyOption: e.target.value as IdeaConfig['styleKeyOption'] })}
                           className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                         >
                           {ideaStyleOptions.map((opt) => (
@@ -531,7 +521,7 @@ export function GenerationSection({
                         <select
                           id="idea-aspect"
                           value={ideaConfig.aspectRatio}
-                          onChange={(e) => setIdeaConfig({ ...ideaConfig, aspectRatio: e.target.value as IdeaConfig['aspectRatio'] })}
+                          onChange={(e) => setIdeaConfig({ aspectRatio: e.target.value as IdeaConfig['aspectRatio'] })}
                           className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                         >
                           <option value="3:4">3:4（小红书）</option>
@@ -548,7 +538,7 @@ export function GenerationSection({
                           id="idea-count"
                           type="number"
                           value={ideaConfig.count}
-                          onChange={(e) => setIdeaConfig({ ...ideaConfig, count: parseInt(e.target.value) || 1 })}
+                          onChange={(e) => setIdeaConfig({ count: parseInt(e.target.value) || 1 })}
                           min={1}
                           max={9}
                           className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -560,7 +550,7 @@ export function GenerationSection({
                         <select
                           id="idea-model"
                           value={ideaConfig.model}
-                          onChange={(e) => setIdeaConfig({ ...ideaConfig, model: e.target.value as IdeaConfig['model'] })}
+                          onChange={(e) => setIdeaConfig({ model: e.target.value as IdeaConfig['model'] })}
                           className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                         >
                           <option value="nanobanana">Nanobanana</option>
@@ -576,7 +566,7 @@ export function GenerationSection({
                           id="idea-custom-style"
                           type="text"
                           value={ideaConfig.customStyleKey}
-                          onChange={(e) => setIdeaConfig({ ...ideaConfig, customStyleKey: e.target.value })}
+                          onChange={(e) => setIdeaConfig({ customStyleKey: e.target.value })}
                           placeholder="例如：cozy（或任意自定义 key，若不存在将降级为默认）"
                           className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                         />
@@ -634,7 +624,7 @@ export function GenerationSection({
                               <div className="text-xs text-gray-500">Prompt {idx + 1}</div>
                               <div className="flex items-center gap-1">
                               <button
-                                onClick={() => moveIdeaPrompt(idx, -1)}
+                                onClick={() => movePrompt(idx, -1)}
                                 disabled={idx === 0}
                                 aria-label="上移 Prompt"
                                 className="p-1 rounded hover:bg-gray-100 disabled:opacity-40 disabled:hover:bg-transparent"
@@ -643,7 +633,7 @@ export function GenerationSection({
                                 <ChevronUp className="w-4 h-4 text-gray-500" />
                               </button>
                               <button
-                                onClick={() => moveIdeaPrompt(idx, 1)}
+                                onClick={() => movePrompt(idx, 1)}
                                 disabled={idx === ideaPreviewPrompts.length - 1}
                                 aria-label="下移 Prompt"
                                 className="p-1 rounded hover:bg-gray-100 disabled:opacity-40 disabled:hover:bg-transparent"
@@ -652,7 +642,7 @@ export function GenerationSection({
                                 <ChevronDown className="w-4 h-4 text-gray-500" />
                               </button>
                               <button
-                                onClick={() => removeIdeaPrompt(idx)}
+                                onClick={() => removePrompt(idx)}
                                 aria-label="删除 Prompt"
                                 className="p-1 rounded hover:bg-red-50"
                                 title="删除"
@@ -663,7 +653,7 @@ export function GenerationSection({
                             </div>
                             <textarea
                               value={prompt}
-                              onChange={(e) => updateIdeaPrompt(idx, e.target.value)}
+                              onChange={(e) => updatePrompt(idx, e.target.value)}
                               rows={3}
                               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
                             />
@@ -675,7 +665,7 @@ export function GenerationSection({
 
                   <div className="mt-3 flex items-center justify-between">
                     <button
-                      onClick={addIdeaPrompt}
+                      onClick={addPrompt}
                       className="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 flex items-center gap-2"
                     >
                       <Plus className="w-4 h-4" />
@@ -687,7 +677,7 @@ export function GenerationSection({
                         setIdeaConfirmError('');
                         setShowIdeaConfirmModal(true);
                       }}
-                      disabled={ideaCreativeId !== null || sanitizeIdeaPromptsForConfirm().length === 0}
+                      disabled={ideaCreativeId !== null || sanitizePromptsForConfirm().length === 0}
                       className="px-3 py-2 bg-emerald-500 text-white rounded-lg text-sm font-medium hover:bg-emerald-600 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
                     >
                       <Check className="w-4 h-4" />
@@ -698,11 +688,11 @@ export function GenerationSection({
 
                 <IdeaConfirmModal
                   show={showIdeaConfirmModal}
-                  prompts={sanitizeIdeaPromptsForConfirm()}
+                  prompts={sanitizePromptsForConfirm()}
                   ideaConfig={ideaConfig}
                   confirming={ideaConfirming}
                   error={ideaConfirmError}
-                  resolveStyleKey={resolveIdeaStyleKey}
+                  resolveStyleKey={resolveStyleKey}
                   onClose={() => setShowIdeaConfirmModal(false)}
                   onConfirm={handleIdeaConfirm}
                 />

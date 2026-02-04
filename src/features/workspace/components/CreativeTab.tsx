@@ -1,55 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
-import {
-  Archive,
-  Activity,
-  Sparkles,
-} from 'lucide-react';
 import { ContentPackageEditor } from '@/features/material-library/components/ContentPackageEditor';
 import type { ContentPackage } from '@/features/material-library/types';
-import type { AutoTask, TaskExecution } from '@/features/task-management/types';
+import type { TaskExecution } from '@/features/task-management/types';
 import type { CreativeTabProps } from '@/features/workspace/types';
 import { GenerationSection } from '@/features/workspace/components/GenerationSection';
 import { LibrarySection } from '@/features/workspace/components/LibrarySection';
 import { TaskManagementSection } from '@/features/workspace/components/TaskManagementSection';
-
-function normalizeCreative(row: any): ContentPackage {
-  // 支持两种格式：直接的 creative 对象，或 { creative, assets } 结构
-  const creative = row.creative || row;
-  const assets = row.assets || [];
-  const coverImage = assets[0]?.id ? `/api/assets/${assets[0].id}` : (creative.cover_image || creative.coverImage);
-
-  // 解析 tags：支持数组或逗号分隔字符串
-  let tags: string[] = [];
-  if (Array.isArray(creative.tags)) {
-    tags = creative.tags;
-  } else if (typeof creative.tags === 'string' && creative.tags) {
-    tags = creative.tags.split(',').map((t: string) => t.trim()).filter(Boolean);
-  }
-
-  return {
-    id: String(creative.id),
-    titles: Array.isArray(creative.titles) ? creative.titles : [creative.title || '未命名内容包'],
-    selectedTitleIndex: creative.selected_title_index || 0,
-    content: creative.content || creative.body || '',
-    tags,
-    coverImage,
-    qualityScore: creative.quality_score || creative.qualityScore || 0,
-    predictedMetrics: creative.predicted_metrics || creative.predictedMetrics || { likes: 0, collects: 0, comments: 0 },
-    actualMetrics: creative.actual_metrics || creative.actualMetrics,
-    rationale: creative.rationale || '',
-    status: creative.status || 'draft',
-    publishedAt: creative.published_at || creative.publishedAt,
-    createdAt: creative.created_at?.split('T')[0] || creative.createdAt || new Date().toLocaleString('zh-CN'),
-    imageModel: creative.image_model || creative.imageModel,
-    source: creative.source || 'manual',
-    sourceName: creative.source_name || creative.sourceName || '手动创建',
-  };
-}
+import { useGenerationStore } from '@/stores/useGenerationStore';
+import { useTaskStore } from '@/stores/useTaskStore';
+import { useLibraryStore } from '@/stores/useLibraryStore';
 
 export function CreativeTab({
   theme,
-  themes,
-  onSelectTheme,
   mainTab: externalMainTab,
   onMainTabChange,
   generateMode: externalGenerateMode,
@@ -57,6 +19,27 @@ export function CreativeTab({
   onLibraryCountChange,
   onRunningTasksCountChange,
 }: CreativeTabProps) {
+  // 使用 Zustand stores
+  const { ideaCreativeId } = useGenerationStore();
+
+  const { scheduledTasks, loadTasks } = useTaskStore();
+
+  const {
+    allPackages,
+    selectedPackages,
+    editingPackage,
+    libraryFilter,
+    loading,
+    setAllPackages,
+    setSelectedPackages,
+    setEditingPackage,
+    setLibraryFilter,
+    loadPackages,
+    deletePackage,
+    batchDelete,
+    batchPublish,
+  } = useLibraryStore();
+
   // 如果外部提供了 mainTab，使用外部状态；否则使用内部状态
   const [internalMainTab, setInternalMainTab] = useState<'generate' | 'library' | 'tasks'>('generate');
   const mainTab = externalMainTab ?? internalMainTab;
@@ -74,56 +57,13 @@ export function CreativeTab({
     if (mode !== 'agent') setLastNonAgentMode(mode);
     setGenerateMode(mode);
   };
-  const [taskStatusTab, setTaskStatusTab] = useState<'running' | 'completed' | 'failed'>('running');
-  // UI 状态映射：
-  // - 默认态：generateMode = oneClick 且 ideaCreativeId 为空
-  // - Agent 模式态：generateMode = agent
-  // - 运行态：ideaCreativeId 非空（进入生成/结果流）
 
-  // 一键生成配置（= 立即生成，多图 + 可编辑 prompts）
-  const [ideaConfig, setIdeaConfig] = useState({
-    idea: '',
-    styleKeyOption: 'cozy' as 'cozy' | 'minimal' | 'illustration' | 'ink' | 'anime' | '3d' | 'cyberpunk' | 'photo' | 'custom',
-    customStyleKey: '',
-    aspectRatio: '3:4' as '3:4' | '1:1' | '4:3',
-    count: 4,
-    model: 'nanobanana' as 'nanobanana' | 'jimeng',
-    goal: 'collects' as 'collects' | 'comments' | 'followers',
-    persona: '25-35岁职场女性，追求实用与高效',
-    tone: '干货/亲和',
-    extraRequirements: '',
-  });
-  const [ideaPreviewPrompts, setIdeaPreviewPrompts] = useState<string[]>([]);
-  const [ideaPreviewLoading, setIdeaPreviewLoading] = useState(false);
-  const [ideaPreviewError, setIdeaPreviewError] = useState('');
-  const [showIdeaConfirmModal, setShowIdeaConfirmModal] = useState(false);
-  const [ideaConfirming, setIdeaConfirming] = useState(false);
-  const [ideaConfirmError, setIdeaConfirmError] = useState('');
-  const [ideaCreativeId, setIdeaCreativeId] = useState<number | null>(null);
-  const [ideaTaskIds, setIdeaTaskIds] = useState<number[]>([]);
+  // 本地状态（不在 store 中）
+  const [taskStatusTab, setTaskStatusTab] = useState<'running' | 'completed' | 'failed'>('running');
+  const [taskExecutions, setTaskExecutions] = useState<TaskExecution[]>([]);
+  const [selectedTasks, setSelectedTasks] = useState<string[]>([]);
   const [ideaContentPackage, setIdeaContentPackage] = useState<any>(null);
   const [ideaPollingError, setIdeaPollingError] = useState('');
-
-  // 选择状态
-  const [selectedPackages, setSelectedPackages] = useState<string[]>([]);
-  const [selectedTasks, setSelectedTasks] = useState<string[]>([]);
-
-  // 弹窗状态
-  const [showTaskForm, setShowTaskForm] = useState(false);
-  const [editingTask, setEditingTask] = useState<AutoTask | null>(null);
-  const [editingPackage, setEditingPackage] = useState<ContentPackage | null>(null);
-
-  // 数据状态
-  const [allPackages, setAllPackages] = useState<ContentPackage[]>([]);
-  const [scheduledTasks, setScheduledTasks] = useState<AutoTask[]>([]);
-  const [taskExecutions, setTaskExecutions] = useState<TaskExecution[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  // 筛选状态
-  const [libraryFilter, setLibraryFilter] = useState({
-    source: 'all',
-    searchQuery: '',
-  });
 
   const promptProfiles = [
     { id: '1', name: '通用图文-收藏优先' },
@@ -131,57 +71,11 @@ export function CreativeTab({
     { id: '3', name: '评论互动回复' },
   ] as const;
 
-  // 加载内容包列表
-  const loadCreatives = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/creatives?themeId=${theme.id}&withAssets=true`);
-      const data = await res.json();
-      const list = Array.isArray(data) ? data.map(normalizeCreative) : [];
-      setAllPackages(list);
-    } catch (error) {
-      console.error('Failed to load creatives:', error);
-      setAllPackages([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 加载任务列表
-  const loadJobs = async () => {
-    try {
-      const res = await fetch(`/api/jobs?themeId=${theme.id}`);
-      const data = await res.json();
-      // 转换任务格式
-      const tasks: AutoTask[] = Array.isArray(data) ? data.map((job: any) => ({
-        id: String(job.id),
-        name: job.name || job.description || '未命名任务',
-        schedule: job.schedule || '手动执行',
-        config: {
-          goal: (job.config?.goal as 'collects' | 'comments' | 'followers') || 'collects',
-          persona: job.config?.persona || '25-35岁职场女性',
-          tone: job.config?.tone || '干货/亲和',
-          promptProfileId: job.config?.prompt_profile_id || '1',
-          imageModel: (job.config?.image_model as 'nanobanana' | 'jimeng') || 'nanobanana',
-          outputCount: job.config?.output_count || 5,
-          minQualityScore: job.config?.min_quality_score || 70,
-        },
-        status: job.is_enabled ? 'active' : 'paused',
-        lastRunAt: job.last_run_at,
-        nextRunAt: job.next_run_at || new Date().toISOString(),
-        totalRuns: job.total_runs || 0,
-        successfulRuns: job.successful_runs || 0,
-      })) : [];
-      setScheduledTasks(tasks);
-    } catch (error) {
-      console.error('Failed to load jobs:', error);
-    }
-  };
-
+  // 加载数据
   useEffect(() => {
-    loadCreatives();
-    loadJobs();
-  }, [theme.id]);
+    loadPackages(Number(theme.id));
+    loadTasks(Number(theme.id));
+  }, [theme.id, loadPackages, loadTasks]);
 
   // 通知父组件素材库数量变化
   useEffect(() => {
@@ -251,58 +145,33 @@ export function CreativeTab({
     });
   }, [allPackages, libraryFilter]);
 
-  // 删除内容包
+  // 删除内容包（使用 store 方法）
   const handleDeletePackage = async (id: string) => {
     if (!confirm('确定要删除这个内容包吗？')) return;
     try {
-      const res = await fetch('/api/creatives', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: Number(id) }),
-      });
-      if (res.ok) {
-        setAllPackages(prev => prev.filter(p => p.id !== id));
-      }
+      await deletePackage(id);
     } catch (error) {
       console.error('Failed to delete package:', error);
     }
   };
 
-  // 批量删除
+  // 批量删除（使用 store 方法）
   const handleBatchDelete = async (ids: string[]) => {
     if (!confirm(`确定要删除选中的 ${ids.length} 个内容包吗？`)) return;
     try {
-      await Promise.all(ids.map(id =>
-        fetch('/api/creatives', {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: Number(id) }),
-        })
-      ));
-      setAllPackages(prev => prev.filter(p => !ids.includes(p.id)));
-      setSelectedPackages([]);
+      await batchDelete(ids);
     } catch (error) {
       console.error('Failed to batch delete:', error);
     }
   };
 
-  // 批量发布
+  // 批量发布（使用 store 方法）
   const handleBatchPublish = async (ids: string[]) => {
     const draftIds = ids.filter(id => allPackages.find(p => p.id === id)?.status === 'draft');
     if (draftIds.length === 0) return;
     if (!confirm(`确定要发布选中的 ${draftIds.length} 个草稿吗？`)) return;
     try {
-      await Promise.all(draftIds.map(id =>
-        fetch(`/api/creatives/${id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: 'published' }),
-        })
-      ));
-      setAllPackages(prev => prev.map(p =>
-        draftIds.includes(p.id) ? { ...p, status: 'published' as const } : p
-      ));
-      setSelectedPackages([]);
+      await batchPublish(draftIds);
     } catch (error) {
       console.error('Failed to batch publish:', error);
     }
@@ -330,144 +199,6 @@ export function CreativeTab({
     { key: 'custom', name: '自定义' },
   ] as const;
 
-  const resolveIdeaStyleKey = () => {
-    if (ideaConfig.styleKeyOption === 'custom') {
-      return ideaConfig.customStyleKey.trim();
-    }
-    return ideaConfig.styleKeyOption;
-  };
-
-  const normalizePrompts = (prompts: unknown): string[] => {
-    if (!Array.isArray(prompts)) return [];
-    return prompts
-      .filter((p) => typeof p === 'string')
-      .map((p) => p.trim())
-      .filter(Boolean);
-  };
-
-  const handleIdeaPreview = async () => {
-    if (!ideaConfig.idea.trim()) return;
-
-    setIdeaPreviewLoading(true);
-    setIdeaPreviewError('');
-
-    const styleKey = resolveIdeaStyleKey() || 'cozy';
-    try {
-      const res = await fetch('/api/generate/preview', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          idea: ideaConfig.idea,
-          styleKey,
-          aspectRatio: ideaConfig.aspectRatio,
-          count: ideaConfig.count,
-          goal: ideaConfig.goal,
-          persona: ideaConfig.persona,
-          tone: ideaConfig.tone,
-          extraRequirements: ideaConfig.extraRequirements,
-        }),
-      });
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data?.error || `HTTP ${res.status}`);
-      }
-
-      const prompts = normalizePrompts(data?.prompts);
-      if (prompts.length === 0) {
-        throw new Error('LLM 未返回有效 prompts（可手动编辑后继续）');
-      }
-
-      setIdeaPreviewPrompts(prompts);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '预览失败';
-      console.error('Idea preview failed:', message);
-      setIdeaPreviewError(message);
-      setIdeaPreviewPrompts((prev) => (prev.length > 0 ? prev : ['']));
-    } finally {
-      setIdeaPreviewLoading(false);
-    }
-  };
-
-  const updateIdeaPrompt = (index: number, value: string) => {
-    setIdeaPreviewPrompts((prev) => prev.map((p, i) => (i === index ? value : p)));
-  };
-
-  const addIdeaPrompt = () => {
-    setIdeaPreviewPrompts((prev) => [...prev, '']);
-  };
-
-  const removeIdeaPrompt = (index: number) => {
-    setIdeaPreviewPrompts((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const moveIdeaPrompt = (index: number, direction: -1 | 1) => {
-    setIdeaPreviewPrompts((prev) => {
-      const nextIndex = index + direction;
-      if (nextIndex < 0 || nextIndex >= prev.length) return prev;
-      const copy = [...prev];
-      const tmp = copy[index];
-      copy[index] = copy[nextIndex];
-      copy[nextIndex] = tmp;
-      return copy;
-    });
-  };
-
-  const sanitizeIdeaPromptsForConfirm = () => {
-    return ideaPreviewPrompts
-      .map((p) => String(p ?? '').trim())
-      .filter(Boolean)
-      .slice(0, 9);
-  };
-
-  const handleIdeaConfirm = async () => {
-    if (ideaConfirming) return;
-
-    const prompts = sanitizeIdeaPromptsForConfirm();
-    if (prompts.length === 0) {
-      setIdeaConfirmError('prompts 不能为空（可先预览或手动新增一条）');
-      return;
-    }
-
-    setIdeaConfirmError('');
-    setIdeaConfirming(true);
-
-    try {
-      const res = await fetch('/api/generate/confirm', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompts,
-          model: ideaConfig.model,
-        }),
-      });
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data?.error || `HTTP ${res.status}`);
-      }
-
-      const creativeId = Number(data?.creativeId);
-      const taskIds = Array.isArray(data?.taskIds)
-        ? data.taskIds.map((id: any) => Number(id)).filter((v: any) => Number.isFinite(v))
-        : [];
-
-      if (!Number.isFinite(creativeId) || taskIds.length === 0) {
-        throw new Error('入队成功但返回值不完整（缺少 creativeId/taskIds）');
-      }
-
-      setIdeaCreativeId(creativeId);
-      setIdeaTaskIds(taskIds);
-      setShowIdeaConfirmModal(false);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '确认生成失败';
-      console.error('Idea confirm failed:', message);
-      setIdeaConfirmError(message);
-    } finally {
-      setIdeaConfirming(false);
-    }
-  };
-
   return (
     <div className="h-full flex flex-col bg-white">
       {/* Content Area */}
@@ -479,38 +210,10 @@ export function CreativeTab({
             generateMode={generateMode}
             setGenerateMode={setGenerateModeWithHistory}
             lastNonAgentMode={lastNonAgentMode}
-            ideaCreativeId={ideaCreativeId}
-            ideaTaskIds={ideaTaskIds}
-            setIdeaCreativeId={setIdeaCreativeId}
-            setIdeaTaskIds={setIdeaTaskIds}
-            ideaPollingError={ideaPollingError}
             ideaContentPackage={ideaContentPackage}
-            ideaConfig={ideaConfig}
-            setIdeaConfig={setIdeaConfig}
+            ideaPollingError={ideaPollingError}
             ideaStyleOptions={ideaStyleOptions}
-            ideaPreviewPrompts={ideaPreviewPrompts}
-            ideaPreviewLoading={ideaPreviewLoading}
-            ideaPreviewError={ideaPreviewError}
-            handleIdeaPreview={handleIdeaPreview}
-            updateIdeaPrompt={updateIdeaPrompt}
-            removeIdeaPrompt={removeIdeaPrompt}
-            moveIdeaPrompt={moveIdeaPrompt}
-            addIdeaPrompt={addIdeaPrompt}
-            showIdeaConfirmModal={showIdeaConfirmModal}
-            setShowIdeaConfirmModal={setShowIdeaConfirmModal}
-            sanitizeIdeaPromptsForConfirm={sanitizeIdeaPromptsForConfirm}
-            resolveIdeaStyleKey={resolveIdeaStyleKey}
-            ideaConfirmError={ideaConfirmError}
-            setIdeaConfirmError={setIdeaConfirmError}
-            ideaConfirming={ideaConfirming}
-            handleIdeaConfirm={handleIdeaConfirm}
-            scheduledTasks={scheduledTasks}
-            showTaskForm={showTaskForm}
-            setShowTaskForm={setShowTaskForm}
-            editingTask={editingTask}
-            setEditingTask={setEditingTask}
             promptProfiles={promptProfiles}
-            loadJobs={loadJobs}
             allPackages={allPackages}
             setMainTab={setMainTab}
             setEditingPackage={setEditingPackage}
