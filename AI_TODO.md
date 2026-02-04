@@ -44,7 +44,7 @@
   - [~] Tests: API first, then Chrome E2E flow
 - [~] P0: Make smoke/API regression for daily_generate reliable
   - [x] Add jobs DTO validation in service layer + include in smoke suite
-  - [ ] Add HTTP-level API smoke for jobs trigger/executions (optional) OR add service-level contract checks for executions/result shape
+  - [x] Add API E2E: create job -> trigger -> fetch executions -> cleanup (`scripts/e2e/jobsE2E.js`)
   - [ ] Add Chrome E2E: scheduled job create -> trigger -> see executions -> rerun -> agent runs
 - [ ] P1: Improve observability (execution result/error surfaced; minimal replay hooks)
 - [ ] P1: Split large files to keep <=800 lines (AgentCreator / GenerationSection)
