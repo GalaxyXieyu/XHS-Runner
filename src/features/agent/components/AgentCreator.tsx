@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import type { Theme } from "@/App";
-import { Bot, Send, X, Wand2, Paperclip, ChevronDown, Image } from "lucide-react";
+import { Bot, Send, X, Wand2, Paperclip, ChevronDown, Image, ArrowLeft } from "lucide-react";
 import type { AgentEvent, ChatMessage, ImageTask, AskUserDialogState } from "../types";
 import type { ContentPackage } from "@/features/material-library/types";
 import { NoteDetailModal, type NoteDetailData } from "@/components/NoteDetailModal";
@@ -59,6 +59,7 @@ interface AgentCreatorProps {
   theme: Theme;
   themes?: Theme[];
   onClose?: () => void;
+  backLabel?: string;
   initialRequirement?: string;
   autoRunInitialRequirement?: boolean;
 }
@@ -86,7 +87,7 @@ const agentProgressMap: Record<string, number> = {
   review_agent: 95,
 };
 
-export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirement, onClose }: AgentCreatorProps) {
+export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirement, onClose, backLabel }: AgentCreatorProps) {
   // 基础状态
   const [requirement, setRequirement] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -596,7 +597,16 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
         <div className="flex-1 overflow-y-auto relative">
           {/* 右上角悬浮按钮组 */}
           <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
-            {onClose && (
+            {onClose && backLabel ? (
+              <button
+                onClick={onClose}
+                className="h-9 px-3 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 flex items-center justify-center transition-colors shadow-sm text-xs text-gray-700"
+                title={backLabel}
+              >
+                <ArrowLeft className="w-4 h-4 mr-1 text-gray-600" />
+                {backLabel}
+              </button>
+            ) : onClose ? (
               <button
                 onClick={onClose}
                 className="w-9 h-9 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 flex items-center justify-center transition-colors shadow-sm"
@@ -604,7 +614,7 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
               >
                 <X className="w-4 h-4 text-gray-600" />
               </button>
-            )}
+            ) : null}
             <ConversationHistory
               themeId={theme.id}
               currentConversationId={conversationId}
@@ -855,6 +865,25 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
 
           {/* 右上角悬浮按钮组 - 默认低调，hover 显现 */}
           <div className="absolute top-4 right-4 z-20 flex items-center gap-1.5 opacity-20 hover:opacity-100 transition-opacity duration-200">
+            {onClose && backLabel ? (
+              <button
+                onClick={onClose}
+                className="h-9 px-3 rounded-xl bg-white/90 backdrop-blur text-gray-700 hover:bg-gray-100 shadow-md shadow-gray-200/50 ring-1 ring-gray-100 text-xs flex items-center"
+                title={backLabel}
+              >
+                <ArrowLeft className="w-4 h-4 mr-1" />
+                {backLabel}
+              </button>
+            ) : onClose ? (
+              <button
+                onClick={onClose}
+                className="p-2 rounded-xl bg-white/90 backdrop-blur text-gray-500 hover:text-gray-700 hover:bg-gray-100 shadow-md shadow-gray-200/50 ring-1 ring-gray-100"
+                title="返回"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            ) : null}
+
             {/* 历史对话按钮 */}
             <ConversationHistory
               themeId={theme.id}

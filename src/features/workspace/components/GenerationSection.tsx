@@ -126,6 +126,7 @@ export function GenerationSection({
   const [scheduledIdeaError, setScheduledIdeaError] = useState<string | null>(null);
   const [scheduledIdeaSelected, setScheduledIdeaSelected] = useState<string | null>(null);
   const [scheduledIdeaAutoRun, setScheduledIdeaAutoRun] = useState(false);
+  const [agentBackLabel, setAgentBackLabel] = useState<string | null>(null);
 
   const [taskSaving, setTaskSaving] = useState(false);
   const [taskSaveError, setTaskSaveError] = useState<string>('');
@@ -160,8 +161,10 @@ export function GenerationSection({
       const data = await res.json().catch(() => []);
       const items = Array.isArray(data) ? data : [];
       setJobExecutionsById((prev) => ({ ...prev, [jobId]: items }));
+      return items;
     } catch (err) {
       console.error('Failed to load job executions:', err);
+      return [];
     }
   }, []);
 
@@ -226,6 +229,30 @@ export function GenerationSection({
       loadScheduledIdeaTasks();
     }
   }, [generateMode, loadScheduledIdeaTasks]);
+
+  useEffect(() => {
+    if (!jobExecutionsOpenId) return;
+
+    let timer: any;
+    let stopped = false;
+
+    const tick = async () => {
+      if (stopped) return;
+      const items = await loadJobExecutions(jobExecutionsOpenId);
+      const latest = items?.[0];
+      const status = String(latest?.status || '');
+      // Only keep polling while an execution is in-progress.
+      if (status === 'running' || status === 'pending') {
+        timer = setTimeout(tick, 2500);
+      }
+    };
+
+    timer = setTimeout(tick, 800);
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [jobExecutionsOpenId, loadJobExecutions]);
 
   const ideaResultPackage = useMemo(() => {
     if (!ideaContentPackage?.creative) return null;
@@ -294,9 +321,11 @@ export function GenerationSection({
             theme={theme}
             initialRequirement={scheduledIdeaSelected || undefined}
             autoRunInitialRequirement={scheduledIdeaAutoRun}
+            backLabel={agentBackLabel || undefined}
             onClose={() => {
               setScheduledIdeaAutoRun(false);
               setScheduledIdeaSelected(null);
+              setAgentBackLabel(null);
               setGenerateMode(lastNonAgentMode);
             }}
           />
@@ -806,11 +835,13 @@ export function GenerationSection({
                   onOpenInAgent={(prompt) => {
                     setScheduledIdeaSelected(prompt);
                     setScheduledIdeaAutoRun(false);
+                    setAgentBackLabel('返回定时生成');
                     setGenerateMode('agent');
                   }}
                   onRerun={(prompt) => {
                     setScheduledIdeaSelected(prompt);
                     setScheduledIdeaAutoRun(true);
+                    setAgentBackLabel('返回定时生成');
                     setGenerateMode('agent');
                   }}
                 />
@@ -959,7 +990,7 @@ export function GenerationSection({
                       <input
                         id="task-schedule"
                         type="text"
-                        defaultValue={editingTask?.schedule || ''}
+                        defaultValue={editingTask?.schedule || '每日 09:00'}
                         placeholder="例如：每日 09:00"
                         className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
                       />

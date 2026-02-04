@@ -77,9 +77,15 @@ export class JobExecutor {
       );
 
       const duration = Date.now() - startTime;
-      await this.updateExecutionResult(execution.id, 'success', { ...result, duration_ms: duration });
-      await this.updateJobStats(job.id, true);
 
+      if (result.success) {
+        await this.updateExecutionResult(execution.id, 'success', { ...result, duration_ms: duration });
+        await this.updateJobStats(job.id, true);
+        return { ...result, duration_ms: duration };
+      }
+
+      await this.updateExecutionResult(execution.id, 'failed', { ...result, duration_ms: duration });
+      await this.updateJobStats(job.id, false, result.error || '任务执行失败');
       return { ...result, duration_ms: duration };
     } catch (error: any) {
       const duration = Date.now() - startTime;
@@ -147,7 +153,12 @@ export class JobExecutor {
   private async updateExecutionResult(id: number, status: string, result: ExecutionResult): Promise<void> {
     const db = getDatabase();
     const finishedAt = new Date().toISOString();
-    const resultJson = JSON.stringify({ total: result.total, inserted: result.inserted });
+    const resultJson = JSON.stringify({
+      success: result.success,
+      total: result.total,
+      inserted: result.inserted,
+      error: result.error,
+    });
     const errorMessage = result.error || null;
 
     const { error } = await db
