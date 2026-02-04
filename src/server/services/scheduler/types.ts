@@ -129,11 +129,11 @@ export const DEFAULT_SCHEDULER_CONFIG: SchedulerConfig = {
 };
 
 // 不同任务类型的默认超时配置
-// daily_generate 需要更长时间：5 个 idea × 2 分钟/个 = 10 分钟
+// 根据实际测试：单个 idea Agent 执行约 310 秒，使用 1.5x buffer
 export const JOB_TYPE_TIMEOUTS: Record<JobType, number> = {
   capture_theme: 120000,     // 2 分钟
   capture_keyword: 60000,    // 1 分钟
-  daily_generate: 600000,    // 10 分钟
+  daily_generate: 2400000,   // 40 分钟（5 ideas × 8 分钟/个）
 };
 
 // ============ 速率限制配置 ============

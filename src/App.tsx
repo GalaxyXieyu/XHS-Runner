@@ -264,10 +264,20 @@ export default function App() {
             <div className="flex items-center gap-1.5">
               <button
                 onClick={() => {
-                  setCreativeMainTab('generate');
-                  setCreativeGenerateMode('scheduled');
+                  if (creativeGenerateMode === 'scheduled') {
+                    // 当前在定时生成，点击返回 Agent
+                    setCreativeGenerateMode('agent');
+                  } else {
+                    // 当前在其他模式，点击进入定时生成
+                    setCreativeMainTab('generate');
+                    setCreativeGenerateMode('scheduled');
+                  }
                 }}
-                className="px-3 py-1.5 text-xs rounded-full font-medium transition-all bg-red-50 text-red-600 hover:bg-red-100"
+                className={`px-3 py-1.5 text-xs rounded-full font-medium transition-all ${
+                  creativeGenerateMode === 'scheduled'
+                    ? 'bg-red-500 text-white'
+                    : 'bg-red-50 text-red-600 hover:bg-red-100'
+                }`}
               >
                 定时生成
               </button>

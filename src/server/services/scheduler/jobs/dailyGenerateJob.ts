@@ -8,8 +8,8 @@ import { getClusterSummaries } from '../../xhs/llm/summaryService';
 import { createCreative } from '../../xhs/data/creativeService';
 import { getDatabase } from '../../../db';
 
-// 单个 idea 的超时时间（2 分钟）
-const PER_IDEA_TIMEOUT_MS = 120000;
+// 单个 idea 的超时时间（8 分钟，根据测试单个约 310 秒，留 1.5x buffer）
+const PER_IDEA_TIMEOUT_MS = 480000;
 
 function resolveOutputCount(params: DailyGenerateJobParams) {
   return params.outputCount || params.output_count || 5;
