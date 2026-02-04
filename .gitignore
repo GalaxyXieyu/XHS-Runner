@@ -16,6 +16,8 @@ src/lib/*.js
 /assets/*.png
 /assets/*.jpg
 /assets/*.webp
+/assets/images/*.webp
+/assets/images/*.json
 
 # Backup files (may contain sensitive data)
 scripts/backups/
