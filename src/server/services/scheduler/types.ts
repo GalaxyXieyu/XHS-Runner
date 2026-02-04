@@ -19,7 +19,7 @@ export interface ScheduledJob {
   schedule_type: ScheduleType;
   interval_minutes: number | null;
   cron_expression: string | null;
-  params_json: string | null;
+  params_json: any;
   is_enabled: number;
   priority: number;
   last_run_at: string | null;

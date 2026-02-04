@@ -33,7 +33,7 @@ export async function createJob(input: CreateJobInput): Promise<ScheduledJob> {
     schedule_type: input.schedule_type,
     interval_minutes: input.interval_minutes || null,
     cron_expression: input.cron_expression || null,
-    params_json: input.params ? JSON.stringify(input.params) : null,
+    params_json: input.params ?? null,
     is_enabled: input.is_enabled !== false ? 1 : 0,
     priority: input.priority || 5,
     next_run_at: nextRun.toISOString(),
@@ -71,7 +71,7 @@ export async function updateJob(id: number, input: UpdateJobInput): Promise<Sche
   if (input.schedule_type !== undefined) updateRow.schedule_type = input.schedule_type;
   if (input.interval_minutes !== undefined) updateRow.interval_minutes = input.interval_minutes;
   if (input.cron_expression !== undefined) updateRow.cron_expression = input.cron_expression;
-  if (input.params !== undefined) updateRow.params_json = JSON.stringify(input.params);
+  if (input.params !== undefined) updateRow.params_json = input.params;
   if (input.is_enabled !== undefined) updateRow.is_enabled = input.is_enabled ? 1 : 0;
   if (input.priority !== undefined) updateRow.priority = input.priority;
 

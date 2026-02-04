@@ -12,7 +12,7 @@ export const executionRowSchema = z.object({
   duration_ms: z.number().nullable().optional(),
   result_json: z.any().optional().nullable(),
   error_message: z.string().nullable().optional(),
-  created_at: z.string().optional().nullable(),
+  created_at: z.union([z.string(), z.date()]).optional().nullable(),
 });
 
 export function parseExecutionResultJson(raw: unknown): { total?: number; inserted?: number; [k: string]: any } | null {
@@ -30,8 +30,14 @@ export function parseExecutionResultJson(raw: unknown): { total?: number; insert
 
 export function normalizeExecutionRow(raw: unknown) {
   const row = executionRowSchema.parse(raw);
+  const createdAt =
+    row.created_at instanceof Date
+      ? row.created_at.toISOString()
+      : (row.created_at ?? null);
+
   return {
     ...row,
+    created_at: createdAt,
     result_json: parseExecutionResultJson(row.result_json),
   };
 }
