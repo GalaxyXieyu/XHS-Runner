@@ -40,9 +40,12 @@
 
 - [ ] P0: Daily generate pipeline (ideas -> agent -> drafts)
   - [x] Backend: daily_generate creates ideas + runs agent + updates generation_tasks
-  - [~] UI: Generation scheduled view shows "today ideas" + actions (open in agent / rerun)
-  - [ ] Tests: API first, then Chrome E2E flow
-- [ ] P0: Make smoke/API regression for daily_generate reliable
+  - [x] UI: Generation scheduled view shows "today ideas" + actions (open in agent / rerun)
+  - [~] Tests: API first, then Chrome E2E flow
+- [~] P0: Make smoke/API regression for daily_generate reliable
+  - [x] Add jobs DTO validation in service layer + include in smoke suite
+  - [ ] Add HTTP-level API smoke for jobs trigger/executions (optional) OR add service-level contract checks for executions/result shape
+  - [ ] Add Chrome E2E: scheduled job create -> trigger -> see executions -> rerun -> agent runs
 - [ ] P1: Improve observability (execution result/error surfaced; minimal replay hooks)
 - [ ] P1: Split large files to keep <=800 lines (AgentCreator / GenerationSection)
 - [ ] P2: Publishing analytics (3rd tab) planning + business logic
