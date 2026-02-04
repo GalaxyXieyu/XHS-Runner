@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp, boolean, real, jsonb, date, unique, numeric } from 'drizzle-orm/pg-core';
+import { pgTable, serial, text, integer, timestamp, boolean, real, jsonb, date, unique, numeric, index } from 'drizzle-orm/pg-core';
 
 // ==================== Core Tables ====================
 
@@ -184,6 +184,15 @@ export const generationTasks = pgTable('generation_tasks', {
   topicId: integer('topic_id').references(() => topics.id, { onDelete: 'set null' }),
   creativeId: integer('creative_id').references(() => creatives.id, { onDelete: 'set null' }),
   status: text('status').notNull().default('queued'),
+  threadId: text('thread_id'),
+  hitlStatus: text('hitl_status').notNull().default('none'),
+  hitlData: jsonb('hitl_data'),
+  hitlResponse: jsonb('hitl_response'),
+  progress: integer('progress').notNull().default(0),
+  currentAgent: text('current_agent'),
+  startedAt: timestamp('started_at', { withTimezone: true }),
+  finishedAt: timestamp('finished_at', { withTimezone: true }),
+  metadata: jsonb('metadata'),
   prompt: text('prompt'),
   model: text('model'),
   resultAssetId: integer('result_asset_id').references(() => assets.id, { onDelete: 'set null' }),
@@ -194,7 +203,23 @@ export const generationTasks = pgTable('generation_tasks', {
   sequence: integer('sequence'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => ({
+  statusIndex: index('idx_generation_tasks_status').on(table.status),
+  threadIdIndex: index('idx_generation_tasks_thread_id').on(table.threadId),
+}));
+
+export const taskEvents = pgTable('task_events', {
+  id: serial('id').primaryKey(),
+  taskId: integer('task_id').notNull().references(() => generationTasks.id, { onDelete: 'cascade' }),
+  eventIndex: integer('event_index').notNull(),
+  eventType: text('event_type').notNull(),
+  eventData: jsonb('event_data').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  taskIdIndex: index('idx_task_events_task_id').on(table.taskId),
+  taskIdEventIndexIndex: index('idx_task_events_lookup').on(table.taskId, table.eventIndex),
+  taskIdEventIndexUnique: unique().on(table.taskId, table.eventIndex),
+}));
 
 export const publishRecords = pgTable('publish_records', {
   id: serial('id').primaryKey(),
@@ -387,6 +412,9 @@ export type NewCreative = typeof creatives.$inferInsert;
 
 export type GenerationTask = typeof generationTasks.$inferSelect;
 export type NewGenerationTask = typeof generationTasks.$inferInsert;
+
+export type TaskEvent = typeof taskEvents.$inferSelect;
+export type NewTaskEvent = typeof taskEvents.$inferInsert;
 
 export type PublishRecord = typeof publishRecords.$inferSelect;
 export type NewPublishRecord = typeof publishRecords.$inferInsert;

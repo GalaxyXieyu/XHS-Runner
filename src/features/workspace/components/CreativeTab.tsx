@@ -9,6 +9,7 @@ import { TaskManagementSection } from '@/features/workspace/components/TaskManag
 import { useGenerationStore } from '@/stores/useGenerationStore';
 import { useTaskStore } from '@/stores/useTaskStore';
 import { useLibraryStore } from '@/stores/useLibraryStore';
+import { useBackgroundTaskStore } from '@/stores/useBackgroundTaskStore';
 
 export function CreativeTab({
   theme,
@@ -39,6 +40,9 @@ export function CreativeTab({
     batchDelete,
     batchPublish,
   } = useLibraryStore();
+
+  // 后台任务 store
+  const { tasks: backgroundTasks } = useBackgroundTaskStore();
 
   // 如果外部提供了 mainTab，使用外部状态；否则使用内部状态
   const [internalMainTab, setInternalMainTab] = useState<'generate' | 'library' | 'tasks'>('generate');
@@ -177,10 +181,41 @@ export function CreativeTab({
     }
   };
 
-  // 任务执行筛选
-  const runningTasks = taskExecutions.filter(e => e.status === 'running');
-  const completedTasks = taskExecutions.filter(e => e.status === 'completed');
-  const failedTasks = taskExecutions.filter(e => e.status === 'failed');
+  // 将后台任务转换为 TaskExecution 格式
+  const backgroundTaskExecutions = useMemo<TaskExecution[]>(() => {
+    const executions: TaskExecution[] = [];
+    backgroundTasks.forEach((task, taskId) => {
+      const status =
+        task.status === 'completed' ? 'completed' :
+        task.status === 'failed' ? 'failed' : 'running';
+
+      executions.push({
+        id: `bg-${taskId}`,
+        taskId: String(taskId),
+        taskName: `后台任务 #${taskId}`,
+        taskType: 'instant',
+        status,
+        startTime: task.createdAt ? new Date(task.createdAt).toLocaleString('zh-CN') : '-',
+        endTime: task.status === 'completed' || task.status === 'failed'
+          ? new Date(task.updatedAt).toLocaleString('zh-CN')
+          : undefined,
+        progress: task.progress,
+        generatedCount: task.creativeId ? 1 : 0,
+        targetCount: 1,
+        errorMessage: task.errorMessage || undefined,
+      });
+    });
+    return executions;
+  }, [backgroundTasks]);
+
+  // 任务执行筛选（合并本地任务和后台任务）
+  const allTaskExecutions = useMemo(() => {
+    return [...taskExecutions, ...backgroundTaskExecutions];
+  }, [taskExecutions, backgroundTaskExecutions]);
+
+  const runningTasks = allTaskExecutions.filter(e => e.status === 'running');
+  const completedTasks = allTaskExecutions.filter(e => e.status === 'completed');
+  const failedTasks = allTaskExecutions.filter(e => e.status === 'failed');
 
   // 通知父组件运行中任务数量变化
   useEffect(() => {

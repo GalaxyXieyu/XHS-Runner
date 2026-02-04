@@ -24,6 +24,7 @@ import { TaskFormModal } from './generation/TaskFormModal';
 import { IdeaConfirmModal } from './generation/IdeaConfirmModal';
 import { useGenerationStore } from '@/stores/useGenerationStore';
 import { useTaskStore } from '@/stores/useTaskStore';
+import { useBackgroundTaskStore } from '@/stores/useBackgroundTaskStore';
 
 type IdeaConfig = {
   idea: string;
@@ -99,6 +100,9 @@ export function GenerationSection({
     setShowTaskForm,
     loadTasks,
   } = useTaskStore();
+
+  const { submitTask, subscribeToTask, tasks: backgroundTasks } = useBackgroundTaskStore();
+
   // Component-specific local state (not in stores)
   const [scheduledIdeaTasks, setScheduledIdeaTasks] = useState<ScheduledIdeaTask[]>([]);
   const [scheduledIdeaLoading, setScheduledIdeaLoading] = useState(false);
@@ -106,6 +110,8 @@ export function GenerationSection({
   const [scheduledIdeaSelected, setScheduledIdeaSelected] = useState<string | null>(null);
   const [scheduledIdeaAutoRun, setScheduledIdeaAutoRun] = useState(false);
   const [agentBackLabel, setAgentBackLabel] = useState<string | null>(null);
+  const [rerunningPrompt, setRerunningPrompt] = useState<string | null>(null);
+  const [rerunError, setRerunError] = useState<string | null>(null);
 
   const [taskSaving, setTaskSaving] = useState(false);
   const [taskSaveError, setTaskSaveError] = useState<string>('');
@@ -712,12 +718,26 @@ export function GenerationSection({
                     setAgentBackLabel('返回定时生成');
                     setGenerateMode('agent');
                   }}
-                  onRerun={(prompt) => {
-                    setScheduledIdeaSelected(prompt);
-                    setScheduledIdeaAutoRun(true);
-                    setAgentBackLabel('返回定时生成');
-                    setGenerateMode('agent');
+                  onRerun={async (prompt) => {
+                    if (!prompt || rerunningPrompt) return;
+                    setRerunningPrompt(prompt);
+                    setRerunError(null);
+                    try {
+                      const taskId = await submitTask({
+                        message: prompt,
+                        themeId: Number(theme.id),
+                        enableHITL: false,
+                      });
+                      subscribeToTask(taskId);
+                      // 切换到任务页面查看进度
+                      setMainTab('tasks');
+                    } catch (err: any) {
+                      setRerunError(err?.message || '提交任务失败');
+                    } finally {
+                      setRerunningPrompt(null);
+                    }
                   }}
+                  rerunningPrompt={rerunningPrompt}
                 />
 
                 <div className="flex items-center justify-between">

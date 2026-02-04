@@ -1,4 +1,4 @@
-import { Calendar } from 'lucide-react';
+import { Calendar, Loader2 } from 'lucide-react';
 import { useMemo } from 'react';
 
 export type ScheduledIdeaTask = {
@@ -18,6 +18,7 @@ export function ScheduledIdeasPanel({
   onRefresh,
   onOpenInAgent,
   onRerun,
+  rerunningPrompt,
 }: {
   loading: boolean;
   error: string | null;
@@ -25,6 +26,7 @@ export function ScheduledIdeasPanel({
   onRefresh: () => void;
   onOpenInAgent: (prompt: string) => void;
   onRerun: (prompt: string) => void;
+  rerunningPrompt?: string | null;
 }) {
   const todayItems = useMemo(() => {
     const startOfToday = new Date();
@@ -99,11 +101,18 @@ export function ScheduledIdeasPanel({
                   Open in Agent
                 </button>
                 <button
-                  className="flex-1 px-2 py-1 text-xs bg-emerald-50 text-emerald-700 rounded hover:bg-emerald-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="flex-1 px-2 py-1 text-xs bg-emerald-50 text-emerald-700 rounded hover:bg-emerald-100 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-1"
                   onClick={() => onRerun(t.prompt || '')}
-                  disabled={!t.prompt}
+                  disabled={!t.prompt || rerunningPrompt === t.prompt}
                 >
-                  Rerun
+                  {rerunningPrompt === t.prompt ? (
+                    <>
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      提交中
+                    </>
+                  ) : (
+                    '后台运行'
+                  )}
                 </button>
               </div>
             </div>
