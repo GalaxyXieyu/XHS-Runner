@@ -45,6 +45,8 @@ export class BrowserManager {
 
       // Create new page
       const page = await this.browser.newPage();
+      // Ensure a large viewport so critical buttons are visible without layout switching.
+      await page.setViewport({ width: 1600, height: 1000 });
 
       // Configure page timeouts
       page.setDefaultTimeout(this.config.browser.defaultTimeout);
@@ -124,6 +126,9 @@ export class BrowserManager {
           '--no-first-run',
           '--no-zygote',
           '--disable-gpu',
+          // Make the UI less likely to be hidden/overlapped (useful for publish flow)
+          '--start-maximized',
+          '--window-size=1600,1000',
         ],
       };
 

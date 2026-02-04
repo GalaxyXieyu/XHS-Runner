@@ -7,7 +7,10 @@ import { Config, PublishResult } from '../../shared/types';
 import { PublishError, InvalidImageError } from '../../shared/errors';
 import { BaseService } from '../../shared/base.service';
 import { existsSync, statSync } from 'fs';
+import fs from 'fs';
 import { join } from 'path';
+import path from 'path';
+import { resolveUserDataPath } from '../../../../runtime/userDataPath';
 import { logger } from '../../shared/logger';
 import { sleep } from '../../shared/utils';
 import { ImageDownloader } from '../../shared/image-downloader';
@@ -54,6 +57,32 @@ const TEXT_PATTERNS = COMMON_TEXT_PATTERNS;
 
 export class PublishService extends BaseService {
   private imageDownloader: ImageDownloader;
+
+  private async dumpDebug(page: Page, label: string) {
+    try {
+      const dir = resolveUserDataPath('logs', 'xhs-publish-debug');
+      fs.mkdirSync(dir, { recursive: true });
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      const safeLabel = label.replace(/[^a-zA-Z0-9_-]+/g, '-').slice(0, 60);
+      const base = path.join(dir, `${ts}-${safeLabel}`);
+
+      await page.screenshot({ path: `${base}.png`, fullPage: true });
+      const html = await page.content();
+      fs.writeFileSync(`${base}.html`, html, 'utf8');
+
+      const url = page.url();
+      fs.writeFileSync(`${base}.url.txt`, url, 'utf8');
+
+      // Capture some key text to quickly spot login/overlay states.
+      const text = await page.evaluate(() => {
+        const s = document.body?.innerText || '';
+        return s.slice(0, 8000);
+      });
+      fs.writeFileSync(`${base}.text.txt`, text, 'utf8');
+    } catch (_e) {
+      // Best effort only.
+    }
+  }
 
   constructor(config: Config) {
     super(config);
@@ -159,6 +188,7 @@ export class PublishService extends BaseService {
 
     try {
       const page = await this.getBrowserManager().createPage(false, browserPath, true);
+      await page.bringToFront();
 
       try {
         await this.getBrowserManager().navigateWithRetry(
@@ -259,10 +289,21 @@ export class PublishService extends BaseService {
         }
 
         // Submit the note
-        await this.submitPost(page);
+        try {
+          await this.submitPost(page);
+        } catch (e) {
+          await this.dumpDebug(page, 'submit-failed');
+          throw e;
+        }
 
         // Wait for completion and check result
-        const noteId = await this.waitForPublishCompletion(page);
+        let noteId: string | null = null;
+        try {
+          noteId = await this.waitForPublishCompletion(page);
+        } catch (e) {
+          await this.dumpDebug(page, 'wait-completion-failed');
+          throw e;
+        }
 
         // Save cookies
         await this.getBrowserManager().saveCookiesFromPage(page);
@@ -797,21 +838,56 @@ export class PublishService extends BaseService {
 
   private async submitPost(page: Page): Promise<void> {
     const submitSelector = 'div.submit div.d-button-content';
-    const submitButton = await page.$(submitSelector);
 
-    if (!submitButton) {
+    // Primary selector (legacy)
+    const submitButton = await page.$(submitSelector);
+    if (submitButton) {
+      await page.waitForSelector(submitSelector, { visible: true, timeout: 10000 });
+      try {
+        await submitButton.click();
+        await sleep(2000);
+        return;
+      } catch (error) {
+        throw new PublishError(`Failed to click submit button: ${error}`);
+      }
+    }
+
+    // Fallback: find a visible clickable element whose text is exactly "发布".
+    const clicked = await page.evaluate(() => {
+      function isVisible(el: Element) {
+        const style = window.getComputedStyle(el);
+        if (style.visibility === 'hidden' || style.display === 'none') return false;
+        const rect = (el as HTMLElement).getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      }
+
+      const candidates = Array.from(
+        document.querySelectorAll('button, [role="button"], a, div')
+      ) as HTMLElement[];
+
+      const publish = candidates.find((el) => {
+        const text = (el.innerText || el.textContent || '').trim();
+        if (text !== '发布') return false;
+        if (!isVisible(el)) return false;
+        const disabled =
+          (el as any).disabled ||
+          el.getAttribute('aria-disabled') === 'true' ||
+          el.classList.contains('disabled');
+        return !disabled;
+      });
+
+      if (!publish) return false;
+
+      publish.scrollIntoView({ block: 'center', inline: 'center' });
+      publish.click();
+      return true;
+    });
+
+    if (!clicked) {
       throw new PublishError('Could not find submit button');
     }
 
-    // Wait for submit button to be visible
-    await page.waitForSelector(submitSelector, { visible: true, timeout: 10000 });
-
-    try {
-      await submitButton.click();
-      await sleep(2000);
-    } catch (error) {
-      throw new PublishError(`Failed to click submit button: ${error}`);
-    }
+    await sleep(2000);
   }
 
   private async isElementVisible(element: Element): Promise<boolean> {
