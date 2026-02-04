@@ -2,6 +2,7 @@
 // POST /api/jobs - 创建任务
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getService } from '@/server/nextApi/init';
+import { parseCreateJobInput } from '@/server/services/scheduler/jobDto';
 
 async function getSchedulerModule() {
   return getService('schedulerModule', () => import('@/server/services/scheduler'));
@@ -35,7 +36,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === 'POST') {
-      const job = await mod.createJob(req.body);
+      const input = parseCreateJobInput(req.body);
+      const job = await mod.createJob(input);
       return res.status(201).json(job);
     }
 

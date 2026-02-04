@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getService } from '@/server/nextApi/init';
+import { jobStatusSchema } from '@/server/services/scheduler/jobDto';
 
 async function getSchedulerModule() {
   return getService('schedulerModule', () => import('@/server/services/scheduler'));
@@ -18,11 +19,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     const mod = await getSchedulerModule();
-    const { status } = req.body;
-
-    if (!status || !['active', 'paused'].includes(status)) {
-      return res.status(400).json({ error: 'Status must be "active" or "paused"' });
-    }
+    const { status } = jobStatusSchema.parse(req.body);
 
     // 获取当前任务
     const job = await mod.getJob(id);

@@ -1,6 +1,7 @@
 // GET/PUT/DELETE /api/jobs/[id]
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getService } from '@/server/nextApi/init';
+import { parseUpdateJobInput } from '@/server/services/scheduler/jobDto';
 
 async function getSchedulerModule() {
   return getService('schedulerModule', () => import('@/server/services/scheduler'));
@@ -18,7 +19,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === 'PUT') {
-      const job = await mod.updateJob(id, req.body);
+      const input = parseUpdateJobInput(req.body);
+      const job = await mod.updateJob(id, input);
       return res.status(200).json(job);
     }
 
