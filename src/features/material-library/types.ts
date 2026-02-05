@@ -22,7 +22,7 @@ export interface ContentPackage {
   status: 'draft' | 'published' | 'archived';
   publishedAt?: string;
   createdAt: string;
-  imageModel?: 'nanobanana' | 'jimeng';
+  imageModel?: 'nanobanana' | 'jimeng' | 'jimeng-45';
   source: 'manual' | string;
   sourceName: string;
 }

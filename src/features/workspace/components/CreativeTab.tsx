@@ -1,29 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ContentPackageEditor } from '@/features/material-library/components/ContentPackageEditor';
-import type { ContentPackage } from '@/features/material-library/types';
-import type { TaskExecution } from '@/features/task-management/types';
 import type { CreativeTabProps } from '@/features/workspace/types';
 import { GenerationSection } from '@/features/workspace/components/GenerationSection';
 import { LibrarySection } from '@/features/workspace/components/LibrarySection';
-import { TaskManagementSection } from '@/features/workspace/components/TaskManagementSection';
 import { useGenerationStore } from '@/stores/useGenerationStore';
-import { useTaskStore } from '@/stores/useTaskStore';
 import { useLibraryStore } from '@/stores/useLibraryStore';
-import { useBackgroundTaskStore } from '@/stores/useBackgroundTaskStore';
 
 export function CreativeTab({
   theme,
   mainTab: externalMainTab,
-  onMainTabChange,
   generateMode: externalGenerateMode,
   onGenerateModeChange,
   onLibraryCountChange,
-  onRunningTasksCountChange,
+  onNavigateToTaskCenter,
 }: CreativeTabProps) {
   // 使用 Zustand stores
   const { ideaCreativeId } = useGenerationStore();
-
-  const { scheduledTasks, loadTasks } = useTaskStore();
 
   const {
     allPackages,
@@ -41,31 +33,13 @@ export function CreativeTab({
     batchPublish,
   } = useLibraryStore();
 
-  // 后台任务 store
-  const { tasks: backgroundTasks } = useBackgroundTaskStore();
+  const mainTab = externalMainTab ?? 'generate';
 
-  // 如果外部提供了 mainTab，使用外部状态；否则使用内部状态
-  const [internalMainTab, setInternalMainTab] = useState<'generate' | 'library' | 'tasks'>('generate');
-  const mainTab = externalMainTab ?? internalMainTab;
-  const setMainTab = onMainTabChange ?? setInternalMainTab;
-
-  const [internalGenerateMode, setInternalGenerateMode] = useState<'oneClick' | 'scheduled' | 'agent'>('agent');
+  const [internalGenerateMode, setInternalGenerateMode] = useState<'oneClick' | 'agent'>('agent');
   const generateMode = externalGenerateMode ?? internalGenerateMode;
   const setGenerateMode = onGenerateModeChange ?? setInternalGenerateMode;
 
-  const [lastNonAgentMode, setLastNonAgentMode] = useState<'oneClick' | 'scheduled'>(() =>
-    generateMode === 'scheduled' ? 'scheduled' : 'oneClick'
-  );
-
-  const setGenerateModeWithHistory = (mode: 'oneClick' | 'scheduled' | 'agent') => {
-    if (mode !== 'agent') setLastNonAgentMode(mode);
-    setGenerateMode(mode);
-  };
-
   // 本地状态（不在 store 中）
-  const [taskStatusTab, setTaskStatusTab] = useState<'running' | 'completed' | 'failed'>('running');
-  const [taskExecutions, setTaskExecutions] = useState<TaskExecution[]>([]);
-  const [selectedTasks, setSelectedTasks] = useState<string[]>([]);
   const [ideaContentPackage, setIdeaContentPackage] = useState<any>(null);
   const [ideaPollingError, setIdeaPollingError] = useState('');
 
@@ -78,8 +52,7 @@ export function CreativeTab({
   // 加载数据
   useEffect(() => {
     loadPackages(Number(theme.id));
-    loadTasks(Number(theme.id));
-  }, [theme.id, loadPackages, loadTasks]);
+  }, [theme.id, loadPackages]);
 
   // 通知父组件素材库数量变化
   useEffect(() => {
@@ -181,47 +154,6 @@ export function CreativeTab({
     }
   };
 
-  // 将后台任务转换为 TaskExecution 格式
-  const backgroundTaskExecutions = useMemo<TaskExecution[]>(() => {
-    const executions: TaskExecution[] = [];
-    backgroundTasks.forEach((task, taskId) => {
-      const status =
-        task.status === 'completed' ? 'completed' :
-        task.status === 'failed' ? 'failed' : 'running';
-
-      executions.push({
-        id: `bg-${taskId}`,
-        taskId: String(taskId),
-        taskName: `后台任务 #${taskId}`,
-        taskType: 'instant',
-        status,
-        startTime: task.createdAt ? new Date(task.createdAt).toLocaleString('zh-CN') : '-',
-        endTime: task.status === 'completed' || task.status === 'failed'
-          ? new Date(task.updatedAt).toLocaleString('zh-CN')
-          : undefined,
-        progress: task.progress,
-        generatedCount: task.creativeId ? 1 : 0,
-        targetCount: 1,
-        errorMessage: task.errorMessage || undefined,
-      });
-    });
-    return executions;
-  }, [backgroundTasks]);
-
-  // 任务执行筛选（合并本地任务和后台任务）
-  const allTaskExecutions = useMemo(() => {
-    return [...taskExecutions, ...backgroundTaskExecutions];
-  }, [taskExecutions, backgroundTaskExecutions]);
-
-  const runningTasks = allTaskExecutions.filter(e => e.status === 'running');
-  const completedTasks = allTaskExecutions.filter(e => e.status === 'completed');
-  const failedTasks = allTaskExecutions.filter(e => e.status === 'failed');
-
-  // 通知父组件运行中任务数量变化
-  useEffect(() => {
-    onRunningTasksCountChange?.(runningTasks.length);
-  }, [runningTasks.length, onRunningTasksCountChange]);
-
   const ideaStyleOptions = [
     { key: 'cozy', name: '温馨治愈' },
     { key: 'minimal', name: '极简设计' },
@@ -243,15 +175,14 @@ export function CreativeTab({
           <GenerationSection
             theme={theme}
             generateMode={generateMode}
-            setGenerateMode={setGenerateModeWithHistory}
-            lastNonAgentMode={lastNonAgentMode}
+            setGenerateMode={setGenerateMode}
             ideaContentPackage={ideaContentPackage}
             ideaPollingError={ideaPollingError}
             ideaStyleOptions={ideaStyleOptions}
             promptProfiles={promptProfiles}
             allPackages={allPackages}
-            setMainTab={setMainTab}
             setEditingPackage={setEditingPackage}
+            onNavigateToTaskCenter={onNavigateToTaskCenter}
           />
         )}
 
@@ -262,7 +193,6 @@ export function CreativeTab({
             filteredPackages={filteredPackages}
             libraryFilter={libraryFilter}
             setLibraryFilter={setLibraryFilter}
-            scheduledTasks={scheduledTasks}
             selectedPackages={selectedPackages}
             setSelectedPackages={setSelectedPackages}
             allPackages={allPackages}
@@ -270,19 +200,6 @@ export function CreativeTab({
             onDeletePackage={handleDeletePackage}
             onBatchDelete={handleBatchDelete}
             onBatchPublish={handleBatchPublish}
-          />
-        )}
-
-        {/* ========== 任务管理 Tab ========== */}
-        {mainTab === 'tasks' && (
-          <TaskManagementSection
-            taskStatusTab={taskStatusTab}
-            setTaskStatusTab={setTaskStatusTab}
-            runningTasks={runningTasks}
-            completedTasks={completedTasks}
-            failedTasks={failedTasks}
-            selectedTasks={selectedTasks}
-            setSelectedTasks={setSelectedTasks}
           />
         )}
       </div>

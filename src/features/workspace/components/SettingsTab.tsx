@@ -96,6 +96,11 @@ export function SettingsTab({ theme: _theme, auth }: SettingsTabProps) {
   const [tavilyConfig, setTavilyConfig] = useState<TavilyConfig | null>(null);
   const [showTavilyModal, setShowTavilyModal] = useState(false);
   const [tavilySaving, setTavilySaving] = useState(false);
+  const [jimengConfig, setJimengConfig] = useState({ apiKey: '', endpointId: '' });
+  const [showJimengModal, setShowJimengModal] = useState(false);
+  const [jimengSaving, setJimengSaving] = useState(false);
+
+  const jimengConfigured = Boolean(jimengConfig.apiKey || jimengConfig.endpointId);
 
   // Form refs for modals
   const llmFormRef = {
@@ -135,6 +140,7 @@ export function SettingsTab({ theme: _theme, auth }: SettingsTabProps) {
     loadCaptureEnabled();
     loadLangfuseConfig();
     loadTavilyConfig();
+    loadJimengConfig();
   }, []);
 
   const loadCaptureEnabled = async () => {
@@ -264,6 +270,39 @@ export function SettingsTab({ theme: _theme, auth }: SettingsTabProps) {
       setTavilyConfig(data);
     } catch (e) {
       console.error('Failed to load Tavily config:', e);
+    }
+  };
+
+  const loadJimengConfig = async () => {
+    try {
+      const res = await fetch('/api/settings');
+      const data = await res.json();
+      setJimengConfig({
+        apiKey: data.jimeng_api_key || '',
+        endpointId: data.seedream_45_model || ''
+      });
+    } catch (e) {
+      console.error('Failed to load Jimeng config:', e);
+    }
+  };
+
+  const handleSaveJimeng = async () => {
+    setJimengSaving(true);
+    try {
+      await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jimeng_api_key: jimengConfig.apiKey,
+          seedream_45_model: jimengConfig.endpointId
+        }),
+      });
+      await loadJimengConfig();
+      setShowJimengModal(false);
+    } catch (e) {
+      console.error('Failed to save Jimeng config:', e);
+    } finally {
+      setJimengSaving(false);
     }
   };
 
@@ -716,6 +755,32 @@ export function SettingsTab({ theme: _theme, auth }: SettingsTabProps) {
               </div>
             </div>
 
+            {/* Jimeng Seedream 4.5 */}
+            <div className="mt-4">
+              <div className="flex items-center gap-2 mb-2">
+                <h3 className="text-xs font-medium text-gray-900">即梦 4.5</h3>
+                <span className="px-2 py-0.5 bg-pink-100 text-pink-700 text-xs rounded">Image</span>
+              </div>
+              <div className={`bg-white border rounded p-3 flex items-center justify-between ${jimengConfigured ? 'border-green-200' : 'border-gray-200'}`}>
+                <div className="flex items-center gap-2">
+                  <Key className="w-3.5 h-3.5 text-gray-500" />
+                  <div>
+                    <div className="text-xs font-medium text-gray-900">Seedream 4.5 (Ark)</div>
+                    <div className="text-xs text-gray-500">配置 API Key 与 Endpoint ID</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {jimengConfigured && <CheckCircle className="w-3 h-3 text-green-500" />}
+                  <button
+                    onClick={() => setShowJimengModal(true)}
+                    className="px-2 py-1 text-xs border border-gray-200 text-gray-700 rounded hover:bg-gray-50 transition-colors"
+                  >
+                    {jimengConfigured ? '重新配置' : '配置'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
             {/* LLM Config Modal */}
             {showLLMModal && (
               <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -858,6 +923,52 @@ export function SettingsTab({ theme: _theme, auth }: SettingsTabProps) {
                     <button
                       onClick={handleSaveExtension}
                       className="flex-1 px-3 py-1.5 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
+                    >
+                      保存
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Jimeng Config Modal */}
+            {showJimengModal && (
+              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                <div className="bg-white rounded-lg p-4 max-w-md w-full mx-4">
+                  <div className="text-sm font-medium text-gray-900 mb-3">配置 即梦 4.5</div>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs text-gray-700 mb-1">API Key</label>
+                      <input
+                        type="password"
+                        value={jimengConfig.apiKey}
+                        onChange={(e) => setJimengConfig({ ...jimengConfig, apiKey: e.target.value })}
+                        placeholder="08bd... 或 ark-..."
+                        className="w-full px-3 py-2 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-700 mb-1">Endpoint ID / Model ID</label>
+                      <input
+                        type="text"
+                        value={jimengConfig.endpointId}
+                        onChange={(e) => setJimengConfig({ ...jimengConfig, endpointId: e.target.value })}
+                        placeholder="ep-xxxx 或 doubao-seedream-4.5"
+                        className="w-full px-3 py-2 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-2 mt-4">
+                    <button
+                      onClick={() => setShowJimengModal(false)}
+                      className="flex-1 px-3 py-1.5 text-xs border border-gray-200 text-gray-700 rounded hover:bg-gray-50 transition-colors"
+                    >
+                      取消
+                    </button>
+                    <button
+                      onClick={handleSaveJimeng}
+                      disabled={jimengSaving}
+                      className="flex-1 px-3 py-1.5 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors disabled:opacity-60"
                     >
                       保存
                     </button>

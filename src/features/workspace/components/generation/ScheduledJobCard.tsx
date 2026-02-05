@@ -1,8 +1,32 @@
 import { Calendar, Trash2 } from 'lucide-react';
 import type { AutoTask } from '@/features/task-management/types';
 
+const formatTime = (iso?: string) => {
+  if (!iso) return '-';
+  return new Date(iso).toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
+const getGoalLabel = (goal: AutoTask['config']['goal']) => {
+  switch (goal) {
+    case 'collects':
+      return '收藏优先';
+    case 'comments':
+      return '评论优先';
+    case 'followers':
+      return '涨粉优先';
+    default:
+      return goal;
+  }
+};
+
 export function ScheduledJobCard({
   task,
+  typeLabel,
   mutating,
   executions,
   executionsOpen,
@@ -13,6 +37,7 @@ export function ScheduledJobCard({
   onToggleExecutions,
 }: {
   task: AutoTask;
+  typeLabel?: string;
   mutating: boolean;
   executions: any[];
   executionsOpen: boolean;
@@ -22,11 +47,20 @@ export function ScheduledJobCard({
   onDelete: () => void;
   onToggleExecutions: () => void;
 }) {
+  const successRate = task.totalRuns > 0 ? Math.round((task.successfulRuns / task.totalRuns) * 100) : 0;
+
   return (
     <div className="p-4 border border-gray-200 rounded-lg">
-      <div className="flex items-start justify-between mb-2">
+      <div className="flex items-start justify-between">
         <div>
-          <div className="text-sm font-medium text-gray-900 mb-1">{task.name}</div>
+          <div className="flex items-center gap-2 mb-1">
+            <div className="text-sm font-medium text-gray-900">{task.name}</div>
+            {typeLabel ? (
+              <span className="px-2 py-0.5 rounded-full text-[10px] bg-blue-50 text-blue-600">
+                {typeLabel}
+              </span>
+            ) : null}
+          </div>
           <div className="text-xs text-gray-500 flex items-center gap-1">
             <Calendar className="w-3 h-3" />
             {task.schedule}
@@ -41,13 +75,44 @@ export function ScheduledJobCard({
         </span>
       </div>
 
-      <div className="grid grid-cols-3 gap-2 text-xs text-gray-600 mb-3">
-        <div>生成：{task.config.outputCount}个/次</div>
-        <div>质量：≥{task.config.minQualityScore}</div>
-        <div>成功率：{task.totalRuns > 0 ? Math.round((task.successfulRuns / task.totalRuns) * 100) : 0}%</div>
+      <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs text-gray-600 mt-3">
+        <div className="flex items-center gap-2">
+          <span className="text-gray-400">目标</span>
+          <span className="text-gray-700">{getGoalLabel(task.config.goal)}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-gray-400">语气</span>
+          <span className="text-gray-700">{task.config.tone}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-gray-400">数量</span>
+          <span className="text-gray-700">{task.config.outputCount} 个/次</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-gray-400">质量</span>
+          <span className="text-gray-700">≥{task.config.minQualityScore}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-gray-400">上次</span>
+          <span className="text-gray-700">{formatTime(task.lastRunAt)}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-gray-400">下次</span>
+          <span className="text-gray-700">{formatTime(task.nextRunAt)}</span>
+        </div>
       </div>
 
-      <div className="flex gap-2">
+      <div className="mt-3">
+        <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+          <span>成功率</span>
+          <span>{successRate}%</span>
+        </div>
+        <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
+          <div className="h-full bg-emerald-500" style={{ width: `${successRate}%` }} />
+        </div>
+      </div>
+
+      <div className="flex gap-2 mt-3">
         <button
           onClick={onEdit}
           className="flex-1 px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded hover:bg-blue-100 disabled:opacity-60 disabled:cursor-not-allowed"

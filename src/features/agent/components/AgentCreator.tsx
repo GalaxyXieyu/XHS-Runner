@@ -38,7 +38,8 @@ function getAgentDisplayName(name: string | undefined): string {
 
 // 类型定义
 type AspectRatio = "3:4" | "1:1" | "4:3";
-type ImageModel = "nanobanana" | "jimeng";
+type ImageModel = "nanobanana" | "jimeng" | "jimeng-45";
+type ImageGenProvider = "jimeng" | "jimeng-45" | "gemini";
 type Mode = "agent" | "custom";
 type StyleKey = "cozy" | "minimal" | "illustration" | "ink" | "anime" | "3d" | "cyberpunk" | "photo" | "custom";
 type Goal = "collects" | "comments" | "followers";
@@ -103,7 +104,7 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
   const [expandedProcess, setExpandedProcess] = useState(false);
   const [expandedLoading, setExpandedLoading] = useState(true);
   const [imageTasks, setImageTasks] = useState<ImageTask[]>([]);
-  const [imageGenProvider, setImageGenProvider] = useState<'gemini' | 'jimeng'>('jimeng');
+  const [imageGenProvider, setImageGenProvider] = useState<ImageGenProvider>('jimeng');
   const [autoConfirm, setAutoConfirm] = useState(false);
   const [workflowProgress, setWorkflowProgress] = useState(0);
   
@@ -702,28 +703,18 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
                 {/* 分隔线 */}
                 <div className="w-px h-6 bg-gray-200/60" />
 
-                {/* 生图模型 - 极简按钮组 */}
-                <div className="inline-flex items-center gap-1 p-1 bg-gray-100/80 backdrop-blur-sm rounded-[0.75rem]">
-                  <button
-                    onClick={() => setImageGenProvider('jimeng')}
-                    className={`flex items-center gap-1.5 px-4 py-2.5 text-[13px] rounded-[0.625rem] font-medium transition-all duration-300 ${
-                      imageGenProvider === 'jimeng'
-                        ? 'bg-white text-gray-900 shadow-sm'
-                        : 'text-gray-500 hover:text-gray-700'
-                    }`}
+                {/* 生图模型选择 */}
+                <div className="inline-flex items-center gap-2">
+                  <span className="text-[12px] text-gray-500">生图模型</span>
+                  <select
+                    value={imageGenProvider}
+                    onChange={(e) => setImageGenProvider(e.target.value as ImageGenProvider)}
+                    className="px-3 py-2 text-[13px] border border-gray-200 rounded-[0.625rem] bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
                   >
-                    <span>即梦</span>
-                  </button>
-                  <button
-                    onClick={() => setImageGenProvider('gemini')}
-                    className={`flex items-center gap-1.5 px-4 py-2.5 text-[13px] rounded-[0.625rem] font-medium transition-all duration-300 ${
-                      imageGenProvider === 'gemini'
-                        ? 'bg-white text-gray-900 shadow-sm'
-                        : 'text-gray-500 hover:text-gray-700'
-                    }`}
-                  >
-                    <span>Gemini</span>
-                  </button>
+                    <option value="jimeng">即梦 4.0</option>
+                    <option value="jimeng-45">即梦 4.5</option>
+                    <option value="gemini">Gemini</option>
+                  </select>
                 </div>
 
                 {/* 分隔线 */}
@@ -810,7 +801,8 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
                         className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
                       >
                         <option value="nanobanana">Nanobanana</option>
-                        <option value="jimeng">即梦</option>
+                        <option value="jimeng">即梦 4.0</option>
+                        <option value="jimeng-45">即梦 4.5</option>
                       </select>
                     </div>
                   </div>

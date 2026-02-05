@@ -1,9 +1,8 @@
 import { X } from 'lucide-react';
 import type { AutoTask } from '@/features/task-management/types';
-import type { Theme } from '@/App';
 
 interface TaskFormModalProps {
-  theme: Theme;
+  themeId: string;
   editingTask: AutoTask | null;
   showTaskForm: boolean;
   taskSaving: boolean;
@@ -14,7 +13,7 @@ interface TaskFormModalProps {
 }
 
 export function TaskFormModal({
-  theme,
+  themeId,
   editingTask,
   showTaskForm,
   taskSaving,
@@ -117,6 +116,10 @@ export function TaskFormModal({
       throw new Error('请填写任务名称');
     }
 
+    if (!themeId) {
+      throw new Error('请先选择主题');
+    }
+
     const scheduleParsed = parseScheduleText(scheduleText);
     if (!scheduleParsed) {
       throw new Error('执行计划格式不正确：例如"每日 09:00"或"每周一 09:00"（也支持直接填 30 表示每 30 分钟）');
@@ -137,7 +140,7 @@ export function TaskFormModal({
     const payload: any = {
       name,
       job_type: 'daily_generate',
-      theme_id: Number(theme.id),
+      theme_id: Number(themeId),
       schedule_type: scheduleParsed.schedule_type,
       interval_minutes: scheduleParsed.schedule_type === 'interval' ? scheduleParsed.interval_minutes : null,
       cron_expression: scheduleParsed.schedule_type === 'cron' ? scheduleParsed.cron_expression : null,
@@ -334,7 +337,8 @@ export function TaskFormModal({
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
               >
                 <option value="nanobanana">Nanobanana</option>
-                <option value="jimeng">即梦</option>
+                <option value="jimeng">即梦 4.0</option>
+                <option value="jimeng-45">即梦 4.5</option>
               </select>
             </div>
           </div>

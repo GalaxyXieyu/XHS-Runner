@@ -3,7 +3,7 @@ import { generateContent } from './nanobananaClient';
 import { getSetting } from '../../../settings';
 import { getExtensionServiceByType } from '../../extensionService';
 
-export type ImageModel = 'nanobanana' | 'jimeng';
+export type ImageModel = 'nanobanana' | 'jimeng' | 'jimeng-45';
 
 export interface ImageGenerateInput {
   prompt: string;
@@ -21,6 +21,9 @@ const HOST = 'visual.volcengineapi.com';
 const REGION = 'cn-north-1';
 const SERVICE = 'cv';
 const VERSION = '2022-08-31';
+const DEFAULT_ARK_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3/images/generations';
+const DEFAULT_SEEDREAM_45_MODEL = 'doubao-seedream-4.5';
+const DEFAULT_SEEDREAM_45_SIZE = '1728x2304';
 
 // Jimeng 图片生成串行队列（避免并发限流）
 class JimengApiLock {
@@ -143,6 +146,20 @@ function stripBase64Header(base64: string) {
 
 export function isHttpUrl(value: string) {
   return /^https?:\/\//i.test(value);
+}
+
+function readEnvString(...keys: string[]) {
+  for (const key of keys) {
+    const value = process.env[key];
+    if (value && String(value).trim()) return String(value).trim();
+  }
+  return '';
+}
+
+function readEnvBoolean(keys: string[], fallback: boolean) {
+  const raw = readEnvString(...keys);
+  if (!raw) return fallback;
+  return ['1', 'true', 'yes', 'y', 'on'].includes(raw.toLowerCase());
 }
 
 export async function uploadBase64ToSuperbed(base64: string, filename: string, token?: string): Promise<string> {
@@ -316,9 +333,9 @@ async function generateJimengImage(params: {
 }
 
 async function getJimengConfig() {
-  let accessKey = '';
-  let secretKey = '';
-  let superbedToken = '';
+  let accessKey = readEnvString('VOLCENGINE_ACCESS_KEY');
+  let secretKey = readEnvString('VOLCENGINE_SECRET_KEY');
+  let superbedToken = readEnvString('SUPERBED_TOKEN');
 
   if (!accessKey || !secretKey || !superbedToken) {
     try {
@@ -364,6 +381,188 @@ async function getJimengConfig() {
   return { accessKey, secretKey, superbedToken };
 }
 
+async function normalizeSeedreamImages(images: string[] | undefined, superbedToken?: string) {
+  if (!Array.isArray(images) || images.length === 0) return undefined;
+
+  const output: string[] = [];
+  for (const image of images) {
+    const normalized = String(image || '').trim();
+    if (!normalized) continue;
+    if (isHttpUrl(normalized) || normalized.startsWith('data:image/')) {
+      output.push(normalized);
+      continue;
+    }
+    if (superbedToken) {
+      const url = await uploadBase64ToSuperbed(normalized, `seedream-${Date.now()}.png`, superbedToken);
+      output.push(url);
+      continue;
+    }
+    output.push(`data:image/png;base64,${normalized}`);
+  }
+
+  if (output.length === 0) return undefined;
+  return output.length === 1 ? output[0] : output;
+}
+
+async function fetchImageBuffer(url: string) {
+  const response = await fetchWithRetry(url, { method: 'GET' }, 60000, 1);
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Seedream图片下载失败: HTTP ${response.status} ${body}`);
+  }
+  const buffer = Buffer.from(await response.arrayBuffer());
+  return buffer;
+}
+
+async function getSeedreamConfig() {
+  let apiKey = readEnvString('JIMENG_API_KEY', 'ARK_API_KEY', 'IMAGE_API_KEY', 'VOLCENGINE_IMAGE_KEY');
+  let baseUrl = readEnvString('ARK_IMAGE_BASE_URL', 'ARK_BASE_URL');
+  let model = readEnvString('SEEDREAM_45_MODEL', 'ARK_IMAGE_MODEL');
+  let size = readEnvString('SEEDREAM_45_SIZE', 'ARK_IMAGE_SIZE');
+  let watermark = readEnvBoolean(['SEEDREAM_WATERMARK', 'ARK_IMAGE_WATERMARK'], false);
+  let superbedToken = readEnvString('SUPERBED_TOKEN');
+
+  try {
+    const [imageService, imagehostService] = await Promise.all([
+      getExtensionServiceByType('image'),
+      getExtensionServiceByType('imagehost')
+    ]);
+
+    if (imageService) {
+      if (!apiKey && imageService.api_key) {
+        apiKey = String(imageService.api_key || '').trim();
+      }
+      if (!baseUrl && imageService.endpoint) {
+        baseUrl = String(imageService.endpoint || '').trim();
+      }
+      if (imageService.config_json) {
+        try {
+          const config = JSON.parse(imageService.config_json);
+          apiKey = apiKey || config.jimeng_api_key || config.ark_api_key || config.image_api_key || config.api_key || '';
+          baseUrl = baseUrl || config.ark_base_url || config.ark_image_base_url || config.base_url || '';
+          model = model || config.seedream_model || config.seedream_45_model || config.model || '';
+          size = size || config.seedream_size || config.seedream_45_size || config.size || '';
+          if (typeof config.seedream_watermark === 'boolean') {
+            watermark = config.seedream_watermark;
+          }
+        } catch {
+          // Ignore invalid config
+        }
+      }
+    }
+
+    if (!superbedToken && imagehostService?.api_key) {
+      superbedToken = imagehostService.api_key;
+    }
+  } catch {
+    // Ignore missing extension services
+  }
+
+  try {
+    const [fallbackJimengApiKey, fallbackImageKey, fallbackSeedreamModel, fallbackSuperbedToken] = await Promise.all([
+      getSetting('jimeng_api_key'),
+      getSetting('imageKey'),
+      getSetting('seedream_45_model'),
+      getSetting('superbedToken')
+    ]);
+    apiKey = apiKey || fallbackJimengApiKey || fallbackImageKey || '';
+    model = model || fallbackSeedreamModel || '';
+    superbedToken = superbedToken || fallbackSuperbedToken || '';
+  } catch {
+    // Ignore missing settings db
+  }
+
+  return {
+    apiKey,
+    baseUrl: baseUrl || DEFAULT_ARK_BASE_URL,
+    model: model || DEFAULT_SEEDREAM_45_MODEL,
+    size: size || DEFAULT_SEEDREAM_45_SIZE,
+    watermark,
+    superbedToken,
+  };
+}
+
+async function generateSeedream45Image(params: {
+  prompt: string;
+  images?: string[];
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+  size: string;
+  watermark: boolean;
+  superbedToken?: string;
+}): Promise<ImageGenerateResult> {
+  const { prompt, images, apiKey, baseUrl, model, size, watermark, superbedToken } = params;
+  if (!apiKey) {
+    throw new Error('JIMENG_API_KEY_NOT_CONFIGURED: 请先配置即梦 4.5 API Key（Ark）');
+  }
+
+  const imagePayload = await normalizeSeedreamImages(images, superbedToken);
+  const requestBody: Record<string, any> = {
+    model,
+    prompt,
+    response_format: 'b64_json',
+    sequential_image_generation: 'disabled',
+    size,
+    stream: false,
+    watermark,
+  };
+
+  if (imagePayload) {
+    requestBody.image = imagePayload;
+  }
+
+  const result: any = await postJson(
+    baseUrl,
+    requestBody,
+    {
+      Authorization: `Bearer ${apiKey}`,
+    },
+    120000
+  );
+
+  if (result?.error) {
+    const message = result.error?.message || 'Seedream API error';
+    throw new Error(`Seedream 4.5 调用失败: ${message}`);
+  }
+
+  const dataList = Array.isArray(result?.data) ? result.data : [];
+  if (dataList.length === 0) {
+    throw new Error('Seedream 4.5 返回空结果');
+  }
+
+  const item = dataList.find((entry: any) => entry?.b64_json || entry?.url || entry?.error) || dataList[0];
+  if (item?.error) {
+    const code = item.error?.code || 'unknown';
+    const message = item.error?.message || 'Unknown';
+    throw new Error(`Seedream 4.5 生成失败: code=${code}, msg=${message}`);
+  }
+
+  let imageBuffer: Buffer | null = null;
+  if (item?.b64_json) {
+    imageBuffer = Buffer.from(item.b64_json, 'base64');
+  } else if (item?.url) {
+    imageBuffer = await fetchImageBuffer(String(item.url));
+  }
+
+  if (!imageBuffer) {
+    throw new Error('Seedream 4.5 返回结果缺少图片数据');
+  }
+
+  return {
+    text: '',
+    imageBuffer,
+    metadata: {
+      mimeType: 'image/jpeg',
+      model: result?.model || model,
+      prompt,
+      size: item?.size || size,
+      usage: result?.usage,
+      created: result?.created,
+    },
+  };
+}
+
 export async function generateImage(input: ImageGenerateInput): Promise<ImageGenerateResult> {
   const model = input.model || 'nanobanana';
   if (model === 'jimeng') {
@@ -373,6 +572,19 @@ export async function generateImage(input: ImageGenerateInput): Promise<ImageGen
       images: input.images,
       accessKey,
       secretKey,
+      superbedToken,
+    });
+  }
+  if (model === 'jimeng-45') {
+    const { apiKey, baseUrl, model: modelId, size, watermark, superbedToken } = await getSeedreamConfig();
+    return generateSeedream45Image({
+      prompt: input.prompt,
+      images: input.images,
+      apiKey,
+      baseUrl,
+      model: modelId,
+      size,
+      watermark,
       superbedToken,
     });
   }
@@ -387,7 +599,7 @@ export async function generateImage(input: ImageGenerateInput): Promise<ImageGen
 
 // ============ 带参考图生成接口 ============
 
-export type ReferenceImageProvider = 'gemini' | 'jimeng';
+export type ReferenceImageProvider = 'gemini' | 'jimeng' | 'jimeng-45';
 
 export interface ReferenceImageInput {
   prompt: string;
@@ -411,6 +623,8 @@ export async function generateImageWithReference(input: ReferenceImageInput): Pr
   const provider = input.provider || (await getSetting('imageGenProvider')) || 'gemini';
 
   switch (provider) {
+    case 'jimeng-45':
+      return generateWithJimeng45(input);
     case 'jimeng':
       return generateWithJimeng(input);
     case 'gemini':
@@ -447,6 +661,26 @@ async function generateWithJimeng(input: ReferenceImageInput): Promise<Reference
   return {
     imageBuffer: result.imageBuffer,
     provider: 'jimeng',
+    metadata: result.metadata,
+  };
+}
+
+// Jimeng 4.5 (Ark) 实现
+async function generateWithJimeng45(input: ReferenceImageInput): Promise<ReferenceImageResult> {
+  const { apiKey, baseUrl, model, size, watermark, superbedToken } = await getSeedreamConfig();
+  const result = await generateSeedream45Image({
+    prompt: input.prompt,
+    images: input.referenceImageUrls,
+    apiKey,
+    baseUrl,
+    model,
+    size,
+    watermark,
+    superbedToken,
+  });
+  return {
+    imageBuffer: result.imageBuffer,
+    provider: 'jimeng-45',
     metadata: result.metadata,
   };
 }

@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo } from 'react';
+import { toast } from 'sonner';
 import {
   AlertCircle,
   Check,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
-  Clock,
   Loader,
   Plus,
   Sparkles,
@@ -18,13 +18,8 @@ import type { Theme } from '@/App';
 import { AgentCreator } from '@/features/agent/components/AgentCreator';
 import { ContentResultCard } from '@/features/material-library/components/ContentResultCard';
 import type { ContentPackage } from '@/features/material-library/types';
-import { ScheduledIdeasPanel, type ScheduledIdeaTask } from './generation/ScheduledIdeasPanel';
-import { ScheduledJobCard } from './generation/ScheduledJobCard';
-import { TaskFormModal } from './generation/TaskFormModal';
 import { IdeaConfirmModal } from './generation/IdeaConfirmModal';
 import { useGenerationStore } from '@/stores/useGenerationStore';
-import { useTaskStore } from '@/stores/useTaskStore';
-import { useBackgroundTaskStore } from '@/stores/useBackgroundTaskStore';
 
 type IdeaConfig = {
   idea: string;
@@ -32,7 +27,7 @@ type IdeaConfig = {
   customStyleKey: string;
   aspectRatio: '3:4' | '1:1' | '4:3';
   count: number;
-  model: 'nanobanana' | 'jimeng';
+  model: 'nanobanana' | 'jimeng' | 'jimeng-45';
   goal: 'collects' | 'comments' | 'followers';
   persona: string;
   tone: string;
@@ -41,30 +36,28 @@ type IdeaConfig = {
 
 interface GenerationSectionProps {
   theme: Theme;
-  generateMode: 'oneClick' | 'scheduled' | 'agent';
-  setGenerateMode: (mode: 'oneClick' | 'scheduled' | 'agent') => void;
-  lastNonAgentMode: 'oneClick' | 'scheduled';
+  generateMode: 'oneClick' | 'agent';
+  setGenerateMode: (mode: 'oneClick' | 'agent') => void;
   ideaContentPackage: any;
   ideaPollingError: string;
   ideaStyleOptions: ReadonlyArray<{ key: IdeaConfig['styleKeyOption']; name: string }>;
   promptProfiles: ReadonlyArray<{ id: string; name: string }>;
   allPackages: ContentPackage[];
-  setMainTab: (tab: 'generate' | 'library' | 'tasks') => void;
   setEditingPackage: (pkg: ContentPackage | null) => void;
+  onNavigateToTaskCenter?: (taskIds?: number[]) => void;
 }
 
 export function GenerationSection({
   theme,
   generateMode,
   setGenerateMode,
-  lastNonAgentMode,
   ideaContentPackage,
   ideaPollingError,
   ideaStyleOptions,
   promptProfiles,
   allPackages,
-  setMainTab,
   setEditingPackage,
+  onNavigateToTaskCenter,
 }: GenerationSectionProps) {
   // Read state from stores
   const {
@@ -92,32 +85,7 @@ export function GenerationSection({
     ideaPreviewError,
   } = useGenerationStore();
 
-  const {
-    scheduledTasks,
-    editingTask,
-    showTaskForm,
-    setEditingTask,
-    setShowTaskForm,
-    loadTasks,
-  } = useTaskStore();
-
-  const { submitTask, subscribeToTask, tasks: backgroundTasks } = useBackgroundTaskStore();
-
   // Component-specific local state (not in stores)
-  const [scheduledIdeaTasks, setScheduledIdeaTasks] = useState<ScheduledIdeaTask[]>([]);
-  const [scheduledIdeaLoading, setScheduledIdeaLoading] = useState(false);
-  const [scheduledIdeaError, setScheduledIdeaError] = useState<string | null>(null);
-  const [scheduledIdeaSelected, setScheduledIdeaSelected] = useState<string | null>(null);
-  const [scheduledIdeaAutoRun, setScheduledIdeaAutoRun] = useState(false);
-  const [agentBackLabel, setAgentBackLabel] = useState<string | null>(null);
-  const [rerunningPrompt, setRerunningPrompt] = useState<string | null>(null);
-  const [rerunError, setRerunError] = useState<string | null>(null);
-
-  const [taskSaving, setTaskSaving] = useState(false);
-  const [taskSaveError, setTaskSaveError] = useState<string>('');
-  const [taskMutatingId, setTaskMutatingId] = useState<string | null>(null);
-  const [jobExecutionsById, setJobExecutionsById] = useState<Record<string, any[]>>({});
-  const [jobExecutionsOpenId, setJobExecutionsOpenId] = useState<string | null>(null);
 
   // Wrapper functions to pass themeId to store actions
   const handleIdeaPreview = useCallback(() => {
@@ -125,76 +93,22 @@ export function GenerationSection({
   }, [storeHandleIdeaPreview, theme.id]);
 
   const handleIdeaConfirm = useCallback(async () => {
+    setIdeaTaskIds([]);
     await storeHandleIdeaConfirm();
-  }, [storeHandleIdeaConfirm]);
+    const latestTaskIds = useGenerationStore.getState().ideaTaskIds;
+    if (latestTaskIds.length === 0) return;
 
-  const loadJobs = useCallback(() => {
-    loadTasks(Number(theme.id));
-  }, [loadTasks, theme.id]);
-
-  const loadScheduledIdeaTasks = useCallback(async () => {
-    setScheduledIdeaLoading(true);
-    setScheduledIdeaError(null);
-    try {
-      const res = await fetch(`/api/tasks?themeId=${theme.id}&limit=20&time_range=7d`);
-      const data = await res.json().catch(() => []);
-      const items: ScheduledIdeaTask[] = Array.isArray(data) ? data : [];
-      // Daily-generate ideas are stored with model='agent' (prompt is the idea text).
-      const filtered = items.filter((t: any) => t && t.model === 'agent');
-      setScheduledIdeaTasks(filtered.slice(0, 5));
-    } catch (err: any) {
-      setScheduledIdeaError(err?.message || String(err));
-      setScheduledIdeaTasks([]);
-    } finally {
-      setScheduledIdeaLoading(false);
+    if (onNavigateToTaskCenter) {
+      toast.success('任务已创建', {
+        description: '前往任务中心查看进度',
+        action: { label: '查看', onClick: () => onNavigateToTaskCenter(latestTaskIds) },
+      });
+    } else {
+      toast.success('任务已创建', {
+        description: '前往任务中心查看进度',
+      });
     }
-  }, [theme.id]);
-
-  const loadJobExecutions = useCallback(async (jobId: string) => {
-    try {
-      const params = new URLSearchParams();
-      params.set('jobId', String(jobId));
-      params.set('limit', '5');
-      const res = await fetch(`/api/jobs/executions?${params.toString()}`);
-      const data = await res.json().catch(() => []);
-      const items = Array.isArray(data) ? data : [];
-      setJobExecutionsById((prev) => ({ ...prev, [jobId]: items }));
-      return items;
-    } catch (err) {
-      console.error('Failed to load job executions:', err);
-      return [];
-    }
-  }, []);
-
-  useEffect(() => {
-    if (generateMode === 'scheduled') {
-      loadScheduledIdeaTasks();
-    }
-  }, [generateMode, loadScheduledIdeaTasks]);
-
-  useEffect(() => {
-    if (!jobExecutionsOpenId) return;
-
-    let timer: any;
-    let stopped = false;
-
-    const tick = async () => {
-      if (stopped) return;
-      const items = await loadJobExecutions(jobExecutionsOpenId);
-      const latest = items?.[0];
-      const status = String(latest?.status || '');
-      // Only keep polling while an execution is in-progress.
-      if (status === 'running' || status === 'pending') {
-        timer = setTimeout(tick, 2500);
-      }
-    };
-
-    timer = setTimeout(tick, 800);
-    return () => {
-      stopped = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [jobExecutionsOpenId, loadJobExecutions]);
+  }, [onNavigateToTaskCenter, setIdeaTaskIds, storeHandleIdeaConfirm]);
 
   const ideaResultPackage = useMemo(() => {
     if (!ideaContentPackage?.creative) return null;
@@ -231,46 +145,12 @@ export function GenerationSection({
     return { tasks, total, completed, percent };
   }, [ideaContentPackage]);
 
-  const handleCreateScheduleFromResult = () => {
-    if (!ideaResultPackage) return;
-    setEditingTask({
-      id: 'new',
-      name: `${ideaResultPackage.titles[0] || '内容生成'} 定时任务`,
-      schedule: '每日 09:00',
-      config: {
-        goal: ideaConfig.goal,
-        persona: ideaConfig.persona,
-        tone: ideaConfig.tone,
-        promptProfileId: promptProfiles[0]?.id || '1',
-        imageModel: ideaConfig.model,
-        outputCount: ideaConfig.count,
-        minQualityScore: 70,
-      },
-      status: 'paused',
-      nextRunAt: new Date().toISOString(),
-      totalRuns: 0,
-      successfulRuns: 0,
-    });
-    setShowTaskForm(true);
-  };
-
   return (
     <div className="flex flex-col h-full">
       {/* Agent 模式：全屏无边框 */}
       {generateMode === 'agent' ? (
         <div className="flex-1 overflow-hidden">
-          <AgentCreator
-            theme={theme}
-            initialRequirement={scheduledIdeaSelected || undefined}
-            autoRunInitialRequirement={scheduledIdeaAutoRun}
-            backLabel={agentBackLabel || undefined}
-            onClose={agentBackLabel ? () => {
-              setScheduledIdeaAutoRun(false);
-              setScheduledIdeaSelected(null);
-              setAgentBackLabel(null);
-              setGenerateMode(lastNonAgentMode);
-            } : undefined}
-          />
+          <AgentCreator theme={theme} />
         </div>
       ) : (
       /* 其他模式：带边框和标题 */
@@ -280,36 +160,6 @@ export function GenerationSection({
             <div className="mb-6">
               <h2 className="text-xl font-medium text-gray-900">创建内容生成任务</h2>
               <div className="text-sm text-gray-500 mt-1">基于现有功能快速生成内容与素材</div>
-            </div>
-
-            {/* 生成方式选择 - 隐藏，默认使用agent */}
-            <div className="mb-6 hidden">
-              <label className="block text-sm font-medium text-gray-700 mb-3">生成方式</label>
-              <div className="grid grid-cols-2 gap-4">
-                <button
-                  onClick={() => setGenerateMode('oneClick')}
-                  className={`p-4 rounded-lg border-2 transition-all ${generateMode === 'oneClick' ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 hover:border-gray-300'
-                    }`}
-                >
-                  <Wand2 className={`w-6 h-6 mx-auto mb-2 ${generateMode === 'oneClick' ? 'text-emerald-600' : 'text-gray-400'}`} />
-                  <div className={`text-sm font-medium ${generateMode === 'oneClick' ? 'text-emerald-700' : 'text-gray-700'}`}>
-                    立即生成
-                  </div>
-                  <div className="text-xs text-gray-500 mt-1">输入 idea 预览/编辑多图 prompts</div>
-                </button>
-
-                <button
-                  onClick={() => setGenerateMode('scheduled')}
-                  className={`p-4 rounded-lg border-2 transition-all ${generateMode === 'scheduled' ? 'border-red-500 bg-red-50' : 'border-gray-200 hover:border-gray-300'
-                    }`}
-                >
-                  <Clock className={`w-6 h-6 mx-auto mb-2 ${generateMode === 'scheduled' ? 'text-red-500' : 'text-gray-400'}`} />
-                  <div className={`text-sm font-medium ${generateMode === 'scheduled' ? 'text-red-700' : 'text-gray-700'}`}>
-                    定时任务
-                  </div>
-                  <div className="text-xs text-gray-500 mt-1">设置自动生成计划</div>
-                </button>
-              </div>
             </div>
 
             {generateMode === 'oneClick' && (
@@ -406,20 +256,11 @@ export function GenerationSection({
                     {ideaResultPackage ? (
                       <div>
                         <div className="text-sm font-medium text-gray-800 mb-2">生成结果</div>
-                        <ContentResultCard
-                          pkg={ideaResultPackage}
-                          onCreateSchedule={() => handleCreateScheduleFromResult()}
-                        />
+                        <ContentResultCard pkg={ideaResultPackage} />
                       </div>
                     ) : (
-                      <div className="p-3 bg-gray-50 border border-dashed border-gray-200 rounded-lg text-xs text-gray-500 flex items-center justify-between">
-                        <span>生成完成后可创建定时任务</span>
-                        <button
-                          className="px-2 py-1 text-xs rounded bg-gray-200 text-gray-400 cursor-not-allowed"
-                          disabled
-                        >
-                          定时发布
-                        </button>
+                      <div className="p-3 bg-gray-50 border border-dashed border-gray-200 rounded-lg text-xs text-gray-500">
+                        生成完成后将展示结果，可在任务中心查看进度。
                       </div>
                     )}
                   </div>
@@ -560,7 +401,8 @@ export function GenerationSection({
                           className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                         >
                           <option value="nanobanana">Nanobanana</option>
-                          <option value="jimeng">即梦</option>
+                          <option value="jimeng">即梦 4.0</option>
+                          <option value="jimeng-45">即梦 4.5</option>
                         </select>
                       </div>
                     </div>
@@ -705,190 +547,6 @@ export function GenerationSection({
               </div>
             )}
 
-            {generateMode === 'scheduled' && (
-              <div className="space-y-3">
-                <ScheduledIdeasPanel
-                  loading={scheduledIdeaLoading}
-                  error={scheduledIdeaError}
-                  items={scheduledIdeaTasks}
-                  onRefresh={() => loadScheduledIdeaTasks()}
-                  onOpenInAgent={(prompt) => {
-                    setScheduledIdeaSelected(prompt);
-                    setScheduledIdeaAutoRun(false);
-                    setAgentBackLabel('返回定时生成');
-                    setGenerateMode('agent');
-                  }}
-                  onRerun={async (prompt) => {
-                    if (!prompt || rerunningPrompt) return;
-                    setRerunningPrompt(prompt);
-                    setRerunError(null);
-                    try {
-                      const taskId = await submitTask({
-                        message: prompt,
-                        themeId: Number(theme.id),
-                        enableHITL: false,
-                      });
-                      subscribeToTask(taskId);
-                      // 切换到任务页面查看进度
-                      setMainTab('tasks');
-                    } catch (err: any) {
-                      setRerunError(err?.message || '提交任务失败');
-                    } finally {
-                      setRerunningPrompt(null);
-                    }
-                  }}
-                  rerunningPrompt={rerunningPrompt}
-                />
-
-                <div className="flex items-center justify-between">
-                  <div className="text-sm font-medium text-gray-700">定时任务列表</div>
-                  <button
-                    onClick={() => setShowTaskForm(true)}
-                    className="px-3 py-1.5 bg-red-500 text-white rounded text-xs hover:bg-red-600 flex items-center gap-1"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    新建
-                  </button>
-                </div>
-
-                {scheduledTasks.length === 0 ? (
-                  <div className="text-center py-12 text-gray-500">
-                    <Clock className="w-12 h-12 mx-auto mb-3 text-gray-300" />
-                    <div className="text-sm">暂无定时任务</div>
-                    <div className="text-xs mt-1">创建任务后可自动生成内容</div>
-                  </div>
-                ) : (
-                  scheduledTasks.map(task => (
-                    <ScheduledJobCard
-                      key={task.id}
-                      task={task}
-                      mutating={taskMutatingId === task.id}
-                      executions={jobExecutionsById[task.id] || []}
-                      executionsOpen={jobExecutionsOpenId === task.id}
-                      onEdit={() => {
-                        setEditingTask(task);
-                        setShowTaskForm(true);
-                      }}
-                      onTrigger={async () => {
-                        setTaskSaveError('');
-                        setTaskMutatingId(task.id);
-                        try {
-                          const res = await fetch(`/api/jobs/${task.id}/trigger`, { method: 'POST' });
-                          const data = await res.json().catch(() => ({}));
-                          if (!res.ok) throw new Error(data?.error || '触发执行失败');
-
-                          await loadJobExecutions(task.id);
-                          setJobExecutionsOpenId(task.id);
-                        } catch (err: any) {
-                          setTaskSaveError(err?.message || String(err));
-                        } finally {
-                          setTaskMutatingId(null);
-                        }
-                      }}
-                      onToggleStatus={async () => {
-                        setTaskSaveError('');
-                        setTaskMutatingId(task.id);
-                        try {
-                          const res = await fetch(`/api/jobs/${task.id}/status`, {
-                            method: 'PATCH',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ status: task.status === 'active' ? 'paused' : 'active' }),
-                          });
-                          const data = await res.json().catch(() => ({}));
-                          if (!res.ok) throw new Error(data?.error || '切换任务状态失败');
-
-                          try {
-                            await (window as any).scheduler?.start?.();
-                          } catch (error) {
-                            console.error('启动调度器失败:', error);
-                          }
-
-                          loadJobs();
-                        } catch (err: any) {
-                          setTaskSaveError(err?.message || String(err));
-                        } finally {
-                          setTaskMutatingId(null);
-                        }
-                      }}
-                      onDelete={async () => {
-                        if (!window.confirm(`确定删除任务「${task.name}」吗？`)) return;
-
-                        setTaskSaveError('');
-                        setTaskMutatingId(task.id);
-                        try {
-                          const res = await fetch(`/api/jobs/${task.id}`, { method: 'DELETE' });
-                          const data = await res.json().catch(() => ({}));
-                          if (!res.ok) throw new Error(data?.error || '删除任务失败');
-
-                          loadJobs();
-                        } catch (err: any) {
-                          setTaskSaveError(err?.message || String(err));
-                        } finally {
-                          setTaskMutatingId(null);
-                        }
-                      }}
-                      onToggleExecutions={async () => {
-                        const next = jobExecutionsOpenId === task.id ? null : task.id;
-                        setJobExecutionsOpenId(next);
-                        if (next) await loadJobExecutions(task.id);
-                      }}
-                    />
-                  ))
-                )}
-              </div>
-            )}
-
-            {/* 定时任务编辑弹窗 */}
-            <TaskFormModal
-              theme={theme}
-              editingTask={editingTask}
-              showTaskForm={showTaskForm}
-              taskSaving={taskSaving}
-              taskSaveError={taskSaveError}
-              promptProfiles={promptProfiles}
-              onClose={() => {
-                setShowTaskForm(false);
-                setEditingTask(null);
-              }}
-              onSave={async (payload) => {
-                setTaskSaving(true);
-                setTaskSaveError('');
-                try {
-                  if (editingTask && editingTask.id !== 'new') {
-                    const res = await fetch(`/api/jobs/${editingTask.id}`, {
-                      method: 'PUT',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify(payload),
-                    });
-                    const data = await res.json().catch(() => ({}));
-                    if (!res.ok) throw new Error(data?.error || '更新定时任务失败');
-                  } else {
-                    const res = await fetch('/api/jobs', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify(payload),
-                    });
-                    const data = await res.json().catch(() => ({}));
-                    if (!res.ok) throw new Error(data?.error || '创建定时任务失败');
-                  }
-
-                  try {
-                    if (payload.is_enabled) await (window as any).scheduler?.start?.();
-                  } catch (error) {
-                    console.error('启动调度器失败:', error);
-                  }
-
-                  setShowTaskForm(false);
-                  setEditingTask(null);
-                  loadJobs();
-                } catch (err: any) {
-                  setTaskSaveError(err?.message || String(err));
-                  throw err;
-                } finally {
-                  setTaskSaving(false);
-                }
-              }}
-            />
           </div>
         </div>
       </div>

@@ -6,7 +6,7 @@ type IdeaConfig = {
   customStyleKey: string;
   aspectRatio: '3:4' | '1:1' | '4:3';
   count: number;
-  model: 'nanobanana' | 'jimeng';
+  model: 'nanobanana' | 'jimeng' | 'jimeng-45';
   goal: 'collects' | 'comments' | 'followers';
   persona: string;
   tone: string;

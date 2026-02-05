@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { FolderKanban, Sparkles, BarChart3, Settings as SettingsIcon, PanelLeftClose, PanelLeftOpen, ListChecks, ChevronDown, Archive, Activity, Hash, Users } from 'lucide-react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { FolderKanban, Sparkles, BarChart3, Settings as SettingsIcon, PanelLeftClose, PanelLeftOpen, ListChecks, ChevronDown, Archive, Hash, Users, X } from 'lucide-react';
 import { ThemeManagement } from './components/ThemeManagement';
 import { CreativeTab } from '@/features/workspace/components/CreativeTab';
 import { OperationsTab } from '@/features/workspace/components/OperationsTab';
@@ -51,6 +51,60 @@ function transformTheme(t: any): Theme {
 
 type ViewId = 'themes' | 'creative' | 'operations' | 'settings' | 'taskCenter';
 
+type OverviewTask = {
+  id: number;
+  theme_id: number | null;
+  status: string;
+  progress: number | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+};
+
+type OverviewJob = {
+  id: number;
+  name: string;
+  job_type: string;
+  theme_id: number | null;
+  is_enabled: number | boolean;
+  next_run_at: string | null;
+  last_status: string | null;
+};
+
+const formatOverviewTime = (iso: string | null) => {
+  if (!iso) return '-';
+  return new Date(iso).toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
+const getTaskStatusText = (status: string) => {
+  switch (status) {
+    case 'queued':
+      return '排队中';
+    case 'running':
+      return '生成中';
+    case 'completed':
+    case 'done':
+      return '已完成';
+    case 'failed':
+      return '失败';
+    case 'paused':
+      return '已暂停';
+    default:
+      return status || '-';
+  }
+};
+
+const getJobTypeLabel = (jobType: string) => {
+  if (jobType === 'daily_generate') return '定时生成';
+  if (jobType === 'capture_theme' || jobType === 'capture_keyword') return '抓取调度';
+  return jobType || '-';
+};
+
 export default function App() {
   const [currentView, setCurrentView] = useState<ViewId>('themes');
   const [mountedViews, setMountedViews] = useState<Set<ViewId>>(() => new Set(['themes']));
@@ -61,18 +115,78 @@ export default function App() {
   const [showThemeDropdown, setShowThemeDropdown] = useState(false);
 
   // CreativeTab 子 tab 状态提升
-  const [creativeMainTab, setCreativeMainTab] = useState<'generate' | 'library' | 'tasks'>('generate');
-  const [creativeGenerateMode, setCreativeGenerateMode] = useState<'oneClick' | 'scheduled' | 'agent'>('agent');
-  // 素材库数量和运行中任务数量（由 CreativeTab 回调更新）
+  const [creativeMainTab, setCreativeMainTab] = useState<'generate' | 'library'>('generate');
+  const [creativeGenerateMode, setCreativeGenerateMode] = useState<'oneClick' | 'agent'>('agent');
+  const [taskCenterFocus, setTaskCenterFocus] = useState<{
+    tab?: 'capture' | 'generation' | 'executions';
+    jobType?: 'all' | 'capture' | 'daily_generate';
+    themeId?: string;
+  } | null>(null);
+  // 素材库数量（由 CreativeTab 回调更新）
   const [libraryCount, setLibraryCount] = useState(0);
-  const [runningTasksCount, setRunningTasksCount] = useState(0);
+  const [taskQuickOpen, setTaskQuickOpen] = useState(false);
+  const [overviewTasks, setOverviewTasks] = useState<OverviewTask[]>([]);
+  const [overviewJobs, setOverviewJobs] = useState<OverviewJob[]>([]);
+  const [overviewLoading, setOverviewLoading] = useState(false);
+  const [overviewError, setOverviewError] = useState('');
 
   const auth = useAuthStatus();
   const showLoginDialog = !auth.isChecking && !auth.isLoggedIn;
+  const canLoadTaskOverview = !auth.isChecking && auth.isLoggedIn;
+
+  const themeNameMap = useMemo(() => {
+    const map = new Map<number, string>();
+    themes.forEach((theme) => map.set(Number(theme.id), theme.name));
+    return map;
+  }, [themes]);
+
+  const loadTaskOverview = useCallback(
+    async (isBackground = false) => {
+      if (!canLoadTaskOverview) return;
+      if (!isBackground) setOverviewLoading(true);
+
+      let nextError = '';
+
+      try {
+        const params = new URLSearchParams();
+        params.set('time_range', '7d');
+        params.set('limit', '20');
+        const res = await fetch(`/api/tasks?${params.toString()}`);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data?.error || '加载生成任务失败');
+        }
+        setOverviewTasks(Array.isArray(data) ? data : []);
+      } catch (error) {
+        nextError = error instanceof Error ? error.message : '加载生成任务失败';
+      }
+
+      try {
+        const res = await fetch('/api/jobs');
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data?.error || '加载调度任务失败');
+        }
+        setOverviewJobs(Array.isArray(data) ? data : []);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '加载调度任务失败';
+        nextError = nextError ? `${nextError}；${message}` : message;
+      }
+
+      setOverviewError(nextError);
+      if (!isBackground) setOverviewLoading(false);
+    },
+    [canLoadTaskOverview]
+  );
 
   useEffect(() => {
     loadThemes();
   }, []);
+
+  useEffect(() => {
+    if (!canLoadTaskOverview) return;
+    loadTaskOverview();
+  }, [canLoadTaskOverview, loadTaskOverview]);
 
   useEffect(() => {
     setMountedViews((prev) => {
@@ -82,6 +196,18 @@ export default function App() {
       return next;
     });
   }, [currentView]);
+
+  useEffect(() => {
+    if (!canLoadTaskOverview) return;
+    const hasRunning = overviewTasks.some((task) => task.status === 'running' || task.status === 'queued');
+    if (!taskQuickOpen && !hasRunning) return;
+
+    const interval = setInterval(() => {
+      loadTaskOverview(true);
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [canLoadTaskOverview, overviewTasks, taskQuickOpen, loadTaskOverview]);
 
   const loadThemes = async () => {
     try {
@@ -108,12 +234,59 @@ export default function App() {
     { id: 'settings' as const, label: '系统设置', icon: SettingsIcon }
   ];
 
+  const runningTaskCount = useMemo(
+    () => overviewTasks.filter((task) => task.status === 'running' || task.status === 'queued').length,
+    [overviewTasks]
+  );
+  const failedTaskCount = useMemo(
+    () => overviewTasks.filter((task) => task.status === 'failed').length,
+    [overviewTasks]
+  );
+  const latestOverviewTasks = useMemo(() => {
+    return [...overviewTasks]
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(0, 3);
+  }, [overviewTasks]);
+  const latestOverviewJobs = useMemo(() => {
+    return [...overviewJobs]
+      .sort((a, b) => new Date(b.next_run_at || 0).getTime() - new Date(a.next_run_at || 0).getTime())
+      .slice(0, 3);
+  }, [overviewJobs]);
+  const enabledJobCount = useMemo(
+    () => overviewJobs.filter((job) => job.is_enabled === true || job.is_enabled === 1).length,
+    [overviewJobs]
+  );
+
   const isViewMounted = (view: ViewId) => mountedViews.has(view) || currentView === view;
 
   const handleJumpToTheme = (themeId: string) => {
     const target = themes.find((theme) => theme.id === themeId);
     if (target) setSelectedTheme(target);
     setCurrentView('themes');
+  };
+
+  const navigateToTaskCenter = (_taskIds?: number[], focus?: {
+    tab?: 'capture' | 'generation' | 'executions';
+    jobType?: 'all' | 'capture' | 'daily_generate';
+    themeId?: string;
+  }) => {
+    setCurrentView('taskCenter');
+    setTaskCenterFocus(focus ?? null);
+  };
+
+  const handleToggleTaskQuick = () => {
+    setTaskQuickOpen((prev) => {
+      const next = !prev;
+      if (!prev) {
+        if (!canLoadTaskOverview) {
+          setOverviewLoading(false);
+          setOverviewError('请先登录后查看任务概览');
+        } else {
+          void loadTaskOverview();
+        }
+      }
+      return next;
+    });
   };
 
   return (
@@ -262,26 +435,6 @@ export default function App() {
           {/* 右侧按钮 - 仅在 creative 视图显示 */}
           {currentView === 'creative' && selectedTheme && (
             <div className="flex items-center gap-1.5">
-              <button
-                onClick={() => {
-                  if (creativeGenerateMode === 'scheduled') {
-                    // 当前在定时生成，点击返回 Agent
-                    setCreativeGenerateMode('agent');
-                  } else {
-                    // 当前在其他模式，点击进入定时生成
-                    setCreativeMainTab('generate');
-                    setCreativeGenerateMode('scheduled');
-                  }
-                }}
-                className={`px-3 py-1.5 text-xs rounded-full font-medium transition-all ${
-                  creativeGenerateMode === 'scheduled'
-                    ? 'bg-red-500 text-white'
-                    : 'bg-red-50 text-red-600 hover:bg-red-100'
-                }`}
-              >
-                定时生成
-              </button>
-
               {creativeMainTab !== 'generate' && (
                 <button
                   onClick={() => setCreativeMainTab('generate')}
@@ -302,20 +455,6 @@ export default function App() {
                 <Archive className="w-3.5 h-3.5 inline mr-1" />
                 素材库
                 <span className="ml-1 text-[10px] opacity-60">{libraryCount}</span>
-              </button>
-              <button
-                onClick={() => setCreativeMainTab('tasks')}
-                className={`px-3 py-1.5 text-xs rounded-full font-medium transition-all ${
-                  creativeMainTab === 'tasks'
-                    ? 'bg-gray-800 text-white'
-                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-                }`}
-              >
-                <Activity className="w-3.5 h-3.5 inline mr-1" />
-                任务管理
-                {runningTasksCount > 0 && (
-                  <span className="ml-1 text-[10px] opacity-60">{runningTasksCount}</span>
-                )}
               </button>
             </div>
           )}
@@ -345,12 +484,11 @@ export default function App() {
                     setSelectedTheme(next);
                   }
                 }}
+                onNavigateToTaskCenter={navigateToTaskCenter}
                 mainTab={creativeMainTab}
-                onMainTabChange={setCreativeMainTab}
                 generateMode={creativeGenerateMode}
                 onGenerateModeChange={setCreativeGenerateMode}
                 onLibraryCountChange={setLibraryCount}
-                onRunningTasksCountChange={setRunningTasksCount}
               />
             </div>
           )}
@@ -380,7 +518,13 @@ export default function App() {
           {isViewMounted('taskCenter') && (
             <div className={currentView === 'taskCenter' ? 'h-full' : 'hidden'}>
               <div className="p-4 h-full bg-gray-50">
-                <TaskCenterPage themes={themes} onJumpToTheme={handleJumpToTheme} />
+                <TaskCenterPage
+                  themes={themes}
+                  onJumpToTheme={handleJumpToTheme}
+                  initialTab={taskCenterFocus?.tab}
+                  initialJobTypeFilter={taskCenterFocus?.jobType}
+                  initialThemeId={taskCenterFocus?.themeId}
+                />
               </div>
             </div>
           )}
@@ -401,6 +545,131 @@ export default function App() {
           )}
         </div>
       </main>
+
+      <div className="fixed bottom-6 right-6 z-40">
+        {taskQuickOpen && (
+          <div className="absolute bottom-16 right-0 w-80 rounded-lg border border-gray-200 bg-white shadow-xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-sm font-semibold text-gray-900">任务概览</div>
+              <button
+                onClick={() => setTaskQuickOpen(false)}
+                className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600"
+                aria-label="关闭任务概览"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {overviewLoading ? (
+              <div className="text-xs text-gray-500">加载中...</div>
+            ) : (
+              <>
+                {overviewError && (
+                  <div className="mb-2 text-xs text-red-600 bg-red-50 border border-red-200 rounded p-2">
+                    {overviewError}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-3 gap-2 text-xs">
+                  <div className="rounded-lg bg-gray-50 p-2">
+                    <div className="text-gray-500">进行中</div>
+                    <div className="text-gray-900 font-semibold">{runningTaskCount}</div>
+                  </div>
+                  <div className="rounded-lg bg-gray-50 p-2">
+                    <div className="text-gray-500">失败</div>
+                    <div className="text-gray-900 font-semibold">{failedTaskCount}</div>
+                  </div>
+                  <div className="rounded-lg bg-gray-50 p-2">
+                    <div className="text-gray-500">调度启用</div>
+                    <div className="text-gray-900 font-semibold">{enabledJobCount}/{overviewJobs.length}</div>
+                  </div>
+                </div>
+
+                <div className="mt-3">
+                  <div className="text-xs font-medium text-gray-500 mb-1">最新生成任务</div>
+                  {latestOverviewTasks.length === 0 ? (
+                    <div className="text-xs text-gray-400">暂无生成任务</div>
+                  ) : (
+                    <div className="space-y-2">
+                      {latestOverviewTasks.map((task) => {
+                        const themeName = task.theme_id ? themeNameMap.get(task.theme_id) : null;
+                        const showProgress = task.status === 'running' || task.status === 'queued';
+                        const progressText = showProgress ? ` · ${task.progress ?? 0}%` : '';
+                        return (
+                          <div key={task.id} className="flex items-center justify-between text-xs">
+                            <div className="text-gray-700 truncate max-w-[150px]">
+                              {themeName ? `${themeName} 生成` : `任务 #${task.id}`}
+                            </div>
+                            <div className="text-gray-500">
+                              {getTaskStatusText(task.status)}{progressText}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-3">
+                  <div className="text-xs font-medium text-gray-500 mb-1">调度任务</div>
+                  {latestOverviewJobs.length === 0 ? (
+                    <div className="text-xs text-gray-400">暂无调度任务</div>
+                  ) : (
+                    <div className="space-y-2">
+                      {latestOverviewJobs.map((job) => {
+                        const enabled = job.is_enabled === true || job.is_enabled === 1;
+                        const themeName = job.theme_id ? themeNameMap.get(job.theme_id) : null;
+                        return (
+                          <div key={job.id} className="flex items-start justify-between gap-2 text-xs">
+                            <div className="min-w-0">
+                              <div className="text-gray-700 truncate">
+                                {job.name || themeName || `任务 #${job.id}`}
+                              </div>
+                              <div className="text-gray-400">
+                                {getJobTypeLabel(job.job_type)} · 下次 {formatOverviewTime(job.next_run_at)}
+                              </div>
+                            </div>
+                            <span
+                              className={`shrink-0 px-2 py-0.5 rounded ${
+                                enabled ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                              }`}
+                            >
+                              {enabled ? '启用' : '暂停'}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  onClick={() => {
+                    setTaskQuickOpen(false);
+                    navigateToTaskCenter();
+                  }}
+                  className="mt-3 w-full px-3 py-2 text-xs rounded bg-red-50 text-red-600 hover:bg-red-100"
+                >
+                  前往任务中心
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+        <button
+          onClick={handleToggleTaskQuick}
+          className="flex items-center gap-2 px-4 py-3 rounded-full shadow-lg transition bg-red-500 text-white hover:bg-red-600"
+        >
+          <ListChecks className="w-5 h-5" />
+          <span className="text-sm font-semibold">任务</span>
+          {runningTaskCount > 0 && (
+            <span className="ml-1 px-1.5 py-0.5 text-xs bg-white text-red-600 rounded-full">
+              {runningTaskCount}
+            </span>
+          )}
+        </button>
+      </div>
 
       <LoginRequiredDialog
         open={showLoginDialog}

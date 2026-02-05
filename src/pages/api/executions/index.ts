@@ -32,9 +32,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const timeRange = parseTimeRange(req.query.time_range);
 
     const db = getDatabase();
+    const includeTotal = Array.isArray(req.query.includeTotal) ? req.query.includeTotal[0] : req.query.includeTotal;
+    const withTotal = includeTotal === '1' || includeTotal === 'true';
+
     let query = db
       .from('job_executions')
-      .select('id, job_id, status, trigger_type, retry_count, started_at, finished_at, duration_ms, result_json, error_message, created_at')
+      .select(
+        'id, job_id, status, trigger_type, retry_count, started_at, finished_at, duration_ms, result_json, error_message, created_at',
+        withTotal ? { count: 'exact' } : undefined
+      )
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
 
@@ -55,8 +61,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       query = query.gte('created_at', since.toISOString());
     }
 
-    const { data, error } = await query;
+    const { data, error, count } = await query;
     if (error) throw error;
+    if (withTotal) {
+      return res.status(200).json({
+        items: data || [],
+        total: Number.isFinite(count) ? count : 0,
+        limit,
+        offset,
+      });
+    }
     return res.status(200).json(data || []);
   } catch (error: any) {
     return res.status(500).json({ error: error.message });

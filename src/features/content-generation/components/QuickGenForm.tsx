@@ -158,13 +158,14 @@ export function QuickGenForm({ visible, onClose, onGenerate }: QuickGenFormProps
                             onChange={(e) =>
                                 setConfig({
                                     ...config,
-                                    model: e.target.value as "nanobanana" | "jimeng",
+                                    model: e.target.value as "nanobanana" | "jimeng" | "jimeng-45",
                                 })
                             }
                             className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                         >
                             <option value="nanobanana">Nanobanana</option>
-                            <option value="jimeng">即梦</option>
+                            <option value="jimeng">即梦 4.0</option>
+                            <option value="jimeng-45">即梦 4.5</option>
                         </select>
                     </div>
                 </div>

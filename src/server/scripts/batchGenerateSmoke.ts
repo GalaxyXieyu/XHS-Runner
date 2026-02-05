@@ -42,10 +42,10 @@ async function main() {
   const idea = String(args.idea || '').trim();
   const count = Math.max(1, Math.min(9, Number(args.count) || 2));
   const execute = args.execute === 'true';
-  const model = (args.model || 'nanobanana') as 'nanobanana' | 'jimeng';
+  const model = (args.model || 'nanobanana') as 'nanobanana' | 'jimeng' | 'jimeng-45';
 
   if (!idea) {
-    console.error('Usage: npx tsx src/server/scripts/batchGenerateSmoke.ts --idea "主题" --count 2 [--execute] [--model nanobanana|jimeng]');
+    console.error('Usage: npx tsx src/server/scripts/batchGenerateSmoke.ts --idea "主题" --count 2 [--execute] [--model nanobanana|jimeng|jimeng-45]');
     process.exitCode = 2;
     return;
   }

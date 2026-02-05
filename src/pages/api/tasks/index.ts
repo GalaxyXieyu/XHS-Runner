@@ -40,7 +40,8 @@ async function handleGetTasks(req: NextApiRequest, res: NextApiResponse) {
   }
 
   if (status) {
-    conditions.push(eq(schema.generationTasks.status, status));
+    const normalizedStatus = status === 'done' ? 'completed' : status;
+    conditions.push(eq(schema.generationTasks.status, normalizedStatus));
   }
 
   if (timeRange && timeRange !== 'all') {
@@ -55,9 +56,14 @@ async function handleGetTasks(req: NextApiRequest, res: NextApiResponse) {
   let query = db
     .select({
       id: schema.generationTasks.id,
+      themeId: schema.generationTasks.themeId,
       status: schema.generationTasks.status,
+      progress: schema.generationTasks.progress,
+      startedAt: schema.generationTasks.startedAt,
+      finishedAt: schema.generationTasks.finishedAt,
       prompt: schema.generationTasks.prompt,
       model: schema.generationTasks.model,
+      resultAssetId: schema.generationTasks.resultAssetId,
       errorMessage: schema.generationTasks.errorMessage,
       createdAt: schema.generationTasks.createdAt,
       updatedAt: schema.generationTasks.updatedAt,
@@ -77,9 +83,14 @@ async function handleGetTasks(req: NextApiRequest, res: NextApiResponse) {
     // 格式化响应
     const formattedTasks = tasks.map(task => ({
       id: task.id,
+      theme_id: task.themeId ?? null,
       status: task.status,
+      progress: task.progress ?? 0,
+      started_at: task.startedAt?.toISOString() || null,
+      finished_at: task.finishedAt?.toISOString() || null,
       prompt: task.prompt,
       model: task.model,
+      result_asset_id: task.resultAssetId ?? null,
       error_message: task.errorMessage,
       created_at: task.createdAt?.toISOString() || new Date().toISOString(),
       updated_at: task.updatedAt?.toISOString() || new Date().toISOString(),

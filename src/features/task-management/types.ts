@@ -1,5 +1,6 @@
 export interface AutoTask {
   id: string;
+  themeId?: number;
   name: string;
   schedule: string;
   config: {
@@ -7,7 +8,7 @@ export interface AutoTask {
     persona: string;
     tone: string;
     promptProfileId: string;
-    imageModel: 'nanobanana' | 'jimeng';
+    imageModel: 'nanobanana' | 'jimeng' | 'jimeng-45';
     outputCount: number;
     minQualityScore: number;
   };
@@ -16,18 +17,4 @@ export interface AutoTask {
   nextRunAt: string;
   totalRuns: number;
   successfulRuns: number;
-}
-
-export interface TaskExecution {
-  id: string;
-  taskId?: string;
-  taskName: string;
-  taskType: 'instant' | 'scheduled';
-  status: 'running' | 'completed' | 'failed';
-  startTime: string;
-  endTime?: string;
-  progress: number;
-  generatedCount: number;
-  targetCount: number;
-  errorMessage?: string;
 }

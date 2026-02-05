@@ -3,7 +3,7 @@ import { db, schema } from '@/server/db';
 import { enqueueBatch } from '@/server/services/xhs/llm/generationQueue';
 import type { ImageModel } from '@/server/services/xhs/integration/imageProvider';
 
-const ALLOWED_IMAGE_MODELS = new Set<ImageModel>(['nanobanana', 'jimeng']);
+const ALLOWED_IMAGE_MODELS = new Set<ImageModel>(['nanobanana', 'jimeng', 'jimeng-45']);
 const TEMPLATE_KEY_PATTERN = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -29,7 +29,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const normalizedModel = String(model || '').trim() as ImageModel;
     if (!ALLOWED_IMAGE_MODELS.has(normalizedModel)) {
-      return res.status(400).json({ error: 'IDEA_CONFIRM_BAD_REQUEST: model must be nanobanana or jimeng' });
+      return res.status(400).json({ error: 'IDEA_CONFIRM_BAD_REQUEST: model must be nanobanana, jimeng or jimeng-45' });
     }
 
     const normalizedThemeId =

@@ -76,7 +76,7 @@ export async function imageAgentNode(state: typeof AgentState.State, model: Chat
       const result = await generateImageWithReference({
         prompt,
         referenceImageUrls: processedRefImageUrls,
-        provider: provider as "gemini" | "jimeng",
+        provider: provider as "gemini" | "jimeng" | "jimeng-45",
         aspectRatio: "3:4",
       });
 

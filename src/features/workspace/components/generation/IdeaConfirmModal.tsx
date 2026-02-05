@@ -1,7 +1,7 @@
 import { AlertCircle, Check, Loader, X } from 'lucide-react';
 
 type IdeaConfig = {
-  model: 'nanobanana' | 'jimeng';
+  model: 'nanobanana' | 'jimeng' | 'jimeng-45';
   styleKeyOption: 'cozy' | 'minimal' | 'illustration' | 'ink' | 'anime' | '3d' | 'cyberpunk' | 'photo' | 'custom';
   customStyleKey: string;
 };

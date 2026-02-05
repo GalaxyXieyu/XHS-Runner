@@ -9,7 +9,7 @@ const DEFAULT_STYLE_KEY = 'cozy';
 const DEFAULT_ASPECT_RATIO: AspectRatio = '3:4';
 const ALLOWED_ASPECT_RATIOS = new Set<string>(['3:4', '1:1', '4:3']);
 const ALLOWED_GOALS = new Set<string>(['collects', 'comments', 'followers']);
-const ALLOWED_IMAGE_MODELS = new Set<ImageModel>(['nanobanana', 'jimeng']);
+const ALLOWED_IMAGE_MODELS = new Set<ImageModel>(['nanobanana', 'jimeng', 'jimeng-45']);
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
