@@ -28,3 +28,4 @@ backups/
 # local debug artifacts
 logs/
 temp_images/
+.claude/
