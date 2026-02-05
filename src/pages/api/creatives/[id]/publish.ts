@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getService } from '@/server/nextApi/init';
 import { enqueuePublish } from '@/server/services/xhs/publish/publishService';
+import { getContentPackage } from '@/server/services/xhs/content/creativeService';
 
 async function getCreativeService() {
   return getService('creativeService', () => import('@/server/services/xhs/data/creativeService'));
@@ -30,16 +31,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: 'Creative missing themeId' });
     }
 
-    // 构造发布数据
+    const pkg = await getContentPackage(id);
+    const host = req.headers.host;
+    const protocol = (req.headers['x-forwarded-proto'] as string) || 'http';
+    const assetUrls = (pkg?.assets || [])
+      .map((a: any) => a?.id)
+      .filter((v: any) => v !== null && v !== undefined)
+      .map((assetId: any) => `${protocol}://${host}/api/assets/${assetId}`);
+
+    // 构造发布数据（mediaUrls 存可下载的 URL 列表，供 Puppeteer 发布使用）
     const publishData = {
       creativeId: id,
       themeId,
+      type: 'image',
       title: Array.isArray(creativeAny.titles)
         ? creativeAny.titles[creativeAny.selected_title_index || creativeAny.selectedTitleIndex || 0]
         : creativeAny.title,
       content: creativeAny.content,
       tags: Array.isArray(creativeAny.tags) ? creativeAny.tags.join(',') : (creativeAny.tags ? String(creativeAny.tags) : ''),
-      mediaUrls: creativeAny.cover_image || creativeAny.coverImage ? String(creativeAny.cover_image || creativeAny.coverImage) : '',
+      mediaUrls: assetUrls.join(','),
       scheduledAt: req.body.scheduledAt ? new Date(req.body.scheduledAt) : null,
     };
 
