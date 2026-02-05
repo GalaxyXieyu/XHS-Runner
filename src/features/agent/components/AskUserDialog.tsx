@@ -1,11 +1,12 @@
 /**
  * AskUserDialog - 可复用的 HITL 确认对话框组件
- * 
+ *
  * 用于显示 Agent 工作流中需要用户确认的对话框
  * 支持单选/多选选项和自定义文本输入
  */
 
 import type { AskUserOption, AskUserDialogState } from "../types";
+import { ContextPreviewCard } from "./ContextPreviewCard";
 
 export interface AskUserDialogProps {
   state: AskUserDialogState;
@@ -52,6 +53,14 @@ export function AskUserDialog({
         {/* 问题内容 */}
         <div className="px-6 py-4 flex-1 overflow-y-auto">
           <p className="text-gray-700 whitespace-pre-wrap">{state.question}</p>
+
+          {/* 上下文预览 */}
+          {state.context && Object.keys(state.context).length > 0 && (
+            <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+              <div className="text-xs text-gray-500 mb-2 font-medium">当前内容预览</div>
+              <ContextPreviewCard context={state.context} />
+            </div>
+          )}
 
           {/* 选项列表 */}
           {state.options.length > 0 && (

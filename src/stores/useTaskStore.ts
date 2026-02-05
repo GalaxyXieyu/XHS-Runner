@@ -37,7 +37,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   loadTasks: async (themeId: number) => {
     set({ loading: true });
     try {
-      const res = await fetch(`/api/jobs?themeId=${themeId}`);
+      const res = await fetch(`/api/jobs?themeId=${themeId}&jobType=daily_generate`);
       const data = await res.json();
 
       // 转换任务格式

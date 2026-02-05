@@ -8,16 +8,48 @@ import { getTemplateByKey, type TemplateStructure } from "../../services/content
 
 /**
  * 从消息中提取标题
+ * 支持两种格式：
+ * 1. JSON 格式: {"title": "标题文本", ...} (writer_agent 的实际输出)
+ * 2. 文本格式: 标题：xxx 或 标题:xxx
  */
 function extractTitleFromMessages(messages: { content: unknown }[]): string {
-  for (const msg of messages) {
+  console.log(`[extractTitleFromMessages] 开始提取标题，共 ${messages.length} 条消息`);
+
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
     if (typeof msg.content === "string") {
+      const contentPreview = msg.content.slice(0, 200);
+      console.log(`[extractTitleFromMessages] 检查消息 ${i}: "${contentPreview}${msg.content.length > 200 ? '...' : ''}"`);
+
+      // 1. 尝试从 JSON 格式提取 (writer_agent 的实际输出)
+      const jsonMatch = msg.content.match(/"title"\s*:\s*"([^"]+)"/);
+      if (jsonMatch) {
+        const title = jsonMatch[1].trim();
+        console.log(`[extractTitleFromMessages] ✅ 从 JSON 格式提取成功: "${title}"`);
+        return title;
+      }
+
+      // 2. 尝试原有的 "标题：xxx" 格式
       const titleMatch = msg.content.match(/标题[：:]\s*(.+?)(?:\n|$)/);
       if (titleMatch) {
-        return titleMatch[1].trim();
+        const title = titleMatch[1].trim();
+        console.log(`[extractTitleFromMessages] ✅ 从文本格式提取成功: "${title}"`);
+        return title;
       }
     }
   }
+
+  // 提取失败，输出详细警告
+  console.warn(`[extractTitleFromMessages] ⚠️ 标题提取失败！所有消息内容如下：`);
+  messages.forEach((msg, i) => {
+    if (typeof msg.content === "string") {
+      console.warn(`  消息 ${i}: ${msg.content.slice(0, 500)}${msg.content.length > 500 ? '...' : ''}`);
+    } else {
+      console.warn(`  消息 ${i}: [非字符串类型] ${typeof msg.content}`);
+    }
+  });
+  console.warn(`[extractTitleFromMessages] 返回默认值 "AI 生成内容"，请检查 writer_agent 的输出格式`);
+
   return "AI 生成内容";
 }
 

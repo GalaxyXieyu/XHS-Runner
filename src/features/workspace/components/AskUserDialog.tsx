@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ContextPreviewCard } from "@/features/agent/components/ContextPreviewCard";
 
 export interface AskUserOption {
   id: string;
@@ -185,9 +186,7 @@ export function AskUserDialog({
               <Label className="text-xs text-muted-foreground mb-2 block">
                 当前内容预览
               </Label>
-              <pre className="text-xs overflow-auto max-h-32">
-                {JSON.stringify(context, null, 2)}
-              </pre>
+              <ContextPreviewCard context={context} />
             </div>
           )}
 

@@ -7,6 +7,7 @@ import type { UserResponse } from '@/server/agents/tools/askUserTool';
 import type { TaskEventEnvelope, TaskEventPayload } from './types';
 import { appendTaskEvent, getNextEventIndex } from './taskEventStore';
 import { publishTaskEvent } from './taskPubSub';
+import { addDatasetItem, createTrace, flushLangfuse } from '@/server/services/langfuseService';
 
 type TaskMetadata = {
   referenceImages?: string[];
@@ -123,14 +124,22 @@ async function processStream(
     creativeId?: number | null;
     enableHITL?: boolean;
     threadId?: string | null;
+    traceId?: string;
   }
 ) {
   let eventIndex = await getNextEventIndex(taskId);
   let paused = false;
+  let workflowCompleted = false;
+  let finalCreativeId: number | null = options.creativeId ?? null;
 
   const onCreativeCreated = async (creativeId: number) => {
+    finalCreativeId = creativeId;
     await updateTask(taskId, { creativeId });
   };
+
+  // 用于收集所有 agent 的输出
+  const agentInputs = new Map<string, any>();
+  const agentOutputs = new Map<string, any>();
 
   for await (const event of processAgentStream(stream, {
     themeId: options.themeId ?? undefined,
@@ -138,6 +147,7 @@ async function processStream(
     enableHITL: options.enableHITL,
     threadId: options.threadId ?? undefined,
     onCreativeCreated,
+    traceId: options.traceId,
   })) {
     const payload = event as TaskEventPayload;
     const envelope: TaskEventEnvelope = { ...payload, eventIndex } as TaskEventEnvelope;
@@ -145,6 +155,25 @@ async function processStream(
     await appendTaskEvent(taskId, eventIndex, payload);
     await publishTaskEvent(taskId, envelope);
     await updateTaskFromEvent(taskId, payload);
+
+    // 记录 agent 输入
+    if (payload.type === 'agent_start' && payload.agent) {
+      agentInputs.set(payload.agent, {
+        state: payload.state,
+        message: payload.message,
+      });
+    }
+
+    // 收集 agent 输出（不立即记录到 dataset）
+    if (payload.type === 'agent_end' && payload.agent && payload.agent !== 'supervisor_route') {
+      const agentOutput = payload.output || payload.content;
+      agentOutputs.set(payload.agent, agentOutput);
+    }
+
+    // 标记工作流完成
+    if (payload.type === 'workflow_complete') {
+      workflowCompleted = true;
+    }
 
     if (payload.type === 'ask_user') {
       paused = true;
@@ -156,6 +185,45 @@ async function processStream(
     }
 
     eventIndex += 1;
+  }
+
+  // 只有在流程成功完成且有 creativeId 时，才记录到 dataset
+  if (workflowCompleted && finalCreativeId && !paused) {
+    console.log(`[taskWorker] Workflow completed successfully, recording to dataset. creativeId: ${finalCreativeId}`);
+
+    // 批量记录所有 agent 输出到 dataset
+    for (const [agentName, output] of agentOutputs.entries()) {
+      const input = agentInputs.get(agentName) || { themeId: options.themeId };
+
+      void addDatasetItem({
+        agentName,
+        input,
+        output,
+        traceId: options.traceId,
+        metadata: {
+          themeId: options.themeId,
+          creativeId: finalCreativeId,
+          timestamp: new Date().toISOString(),
+          agent: agentName,
+          workflowCompleted: true,
+        },
+      }).catch((error) => {
+        console.error(`[taskWorker] Failed to record dataset item for ${agentName}:`, error);
+      });
+    }
+  } else {
+    if (!workflowCompleted) {
+      console.log(`[taskWorker] Workflow did not complete successfully, skipping dataset recording`);
+    } else if (!finalCreativeId) {
+      console.log(`[taskWorker] No creativeId created, skipping dataset recording`);
+    } else if (paused) {
+      console.log(`[taskWorker] Workflow paused (HITL), skipping dataset recording`);
+    }
+  }
+
+  // 刷新 Langfuse
+  if (options.traceId) {
+    await flushLangfuse();
   }
 
   if (!paused) {
@@ -212,6 +280,16 @@ export async function executeTask(taskId: number) {
     streamConfig.configurable = { thread_id: task.threadId };
   }
 
+  // 创建 Langfuse trace
+  const trace = await createTrace('task-execution', {
+    taskId,
+    themeId: task.themeId,
+    creativeId: task.creativeId,
+    enableHITL,
+    referenceImageCount: referenceImages.length,
+  });
+  const traceId = trace?.id;
+
   const stream = await app.stream(initialState, streamConfig as any);
 
   try {
@@ -220,6 +298,7 @@ export async function executeTask(taskId: number) {
       creativeId: task.creativeId,
       enableHITL,
       threadId: task.threadId,
+      traceId,
     });
   } catch (error: any) {
     const message = error?.message || String(error);
@@ -256,6 +335,14 @@ export async function resumeTask(taskId: number, options: ResumeOptions) {
     hitlStatus: 'responded',
   });
 
+  // 创建 Langfuse trace（恢复任务时）
+  const trace = await createTrace('task-resume', {
+    taskId,
+    threadId: task.threadId,
+    resumed: true,
+  });
+  const traceId = trace?.id;
+
   const stream = await resumeWorkflow(task.threadId, options.userResponse, options.userFeedback);
 
   try {
@@ -264,6 +351,7 @@ export async function resumeTask(taskId: number, options: ResumeOptions) {
       creativeId: task.creativeId,
       enableHITL,
       threadId: task.threadId,
+      traceId,
     });
   } catch (error: any) {
     const message = error?.message || String(error);

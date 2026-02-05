@@ -38,20 +38,23 @@ export function LibrarySection({
   onBatchDelete,
   onBatchPublish,
 }: LibrarySectionProps) {
-  const selectedDraftCount = selectedPackages.filter(id =>
+  // 防御性检查：确保 selectedPackages 是数组
+  const safeSelectedPackages = Array.isArray(selectedPackages) ? selectedPackages : [];
+
+  const selectedDraftCount = safeSelectedPackages.filter(id =>
     allPackages.find(p => p.id === id)?.status === 'draft'
   ).length;
 
   return (
     <div className="h-full flex flex-col p-4">
       {/* 批量操作栏 */}
-      {selectedPackages.length > 0 && (
+      {safeSelectedPackages.length > 0 && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 flex items-center gap-3">
-          <span className="text-sm text-red-700">已选择 {selectedPackages.length} 项</span>
+          <span className="text-sm text-red-700">已选择 {safeSelectedPackages.length} 项</span>
           <div className="flex gap-2 ml-auto">
             {selectedDraftCount > 0 && (
               <button
-                onClick={() => onBatchPublish?.(selectedPackages)}
+                onClick={() => onBatchPublish?.(safeSelectedPackages)}
                 className="px-3 py-1.5 text-xs bg-green-500 text-white rounded hover:bg-green-600 flex items-center gap-1"
               >
                 <CheckCircle2 className="w-3 h-3" />
@@ -59,7 +62,7 @@ export function LibrarySection({
               </button>
             )}
             <button
-              onClick={() => onBatchDelete?.(selectedPackages)}
+              onClick={() => onBatchDelete?.(safeSelectedPackages)}
               className="px-3 py-1.5 text-xs bg-red-500 text-white rounded hover:bg-red-600 flex items-center gap-1"
             >
               <Trash2 className="w-3 h-3" />
@@ -120,7 +123,7 @@ export function LibrarySection({
               <CompactPackageCard
                 key={pkg.id}
                 pkg={pkg}
-                isSelected={selectedPackages.includes(pkg.id)}
+                isSelected={safeSelectedPackages.includes(pkg.id)}
                 onToggleSelect={(id) => {
                   setSelectedPackages(prev =>
                     prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]

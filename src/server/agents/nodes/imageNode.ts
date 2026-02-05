@@ -50,6 +50,9 @@ export async function imageAgentNode(state: typeof AgentState.State, model: Chat
   // 获取 threadId 用于发送进度事件
   const threadId = state.threadId || 'global';
 
+  // 生成唯一标识符，确保文件名不冲突
+  const batchId = `${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
   for (let i = 0; i < plans.length; i++) {
     const plan = plans[i];
     const prompt = optimizedPrompts[i] || plan.prompt || plan.description;
@@ -77,8 +80,8 @@ export async function imageAgentNode(state: typeof AgentState.State, model: Chat
         aspectRatio: "3:4",
       });
 
-      // Generate filename and store asset to database
-      const filename = `img_${Date.now()}_${sequence}.png`;
+      // Generate unique filename (使用 batchId + taskId 确保唯一)
+      const filename = `img_${batchId}_${taskId}.png`;
 
       console.log(`[imageAgentNode] 正在保存第 ${taskId} 张到数据库...`);
       const asset = await storeAsset({

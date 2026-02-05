@@ -3,7 +3,7 @@ import { HumanMessage } from "@langchain/core/messages";
 import { INTERRUPT } from "@langchain/langgraph";
 import { createMultiAgentSystem } from "@/server/agents/multiAgentSystem";
 import { AgentEvent, AgentType } from "@/server/agents/state/agentState";
-import { createTrace, logGeneration, logSpan, flushLangfuse } from "@/server/services/langfuseService";
+import { addDatasetItem, createTrace, logGeneration, logSpan, flushLangfuse } from "@/server/services/langfuseService";
 import { createCreative, updateCreative } from "@/server/services/xhs/data/creativeService";
 import { v4 as uuidv4 } from "uuid";
 import type { AskUserInterrupt } from "@/server/agents/tools/askUserTool";
@@ -333,6 +333,45 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     let writerContent: { title: string; body: string; tags: string[] } | null = null;
     let imagePlans: any[] = [];
     let generatedAssetIds: number[] = [];
+    const agentInputs = new Map<string, any>();
+    const agentOutputs = new Map<string, any>(); // 收集 agent 输出，延迟记录
+    let workflowCompleted = false; // 标记工作流是否完成
+
+    const buildAgentInput = (agent: string, output: any) => ({
+      agent,
+      message,
+      themeId,
+      contentType: contentTypeDetection.type,
+      referenceImages: refImages,
+      imageGenProvider: provider,
+      threadId: threadId || null,
+      creativeId: creativeId ?? null,
+      state: {
+        currentAgent: output?.currentAgent,
+        iterationCount: output?.iterationCount,
+        maxIterations: output?.maxIterations,
+        summary: output?.summary,
+      },
+    });
+
+    const buildAgentOutput = (output: any) => ({
+      messages: Array.isArray(output?.messages)
+        ? output.messages.map((msg: any) => ({
+          type: typeof msg?._getType === 'function' ? msg._getType() : msg?.type,
+          name: msg?.name,
+          content: msg?.content,
+          tool_calls: msg?.tool_calls,
+          tool_call_id: msg?.tool_call_id,
+        }))
+        : [],
+      contentComplete: output?.contentComplete,
+      imagePlans: output?.imagePlans,
+      reviewFeedback: output?.reviewFeedback,
+      imagesComplete: output?.imagesComplete,
+      generatedImageAssetIds: output?.generatedImageAssetIds,
+      generatedImagePaths: output?.generatedImagePaths,
+      summary: output?.summary,
+    });
 
     for await (const chunk of stream) {
       // 检查是否有 interrupt (askUser 工具触发)
@@ -373,6 +412,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         const output = nodeOutput as any;
         const nodeStartTime = new Date();
+        agentInputs.set(nodeName, buildAgentInput(nodeName, output));
 
         sendEvent({
           type: "agent_start",
@@ -519,6 +559,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           content: `${getAgentDisplayName(nodeName)} 完成`,
           timestamp: Date.now(),
         });
+
+        // 收集 agent 输出（不立即记录到 dataset）
+        if (nodeName !== "supervisor_route") {
+          const agentOutput = buildAgentOutput(output);
+          agentOutputs.set(nodeName, agentOutput);
+        }
 
         // 记录 agent 执行结果
         if (nodeName !== "supervisor" && nodeName !== "supervisor_route") {
@@ -684,9 +730,41 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         body: writerContent?.body || "",
         tags: writerContent?.tags || [],
         imageAssetIds: generatedAssetIds,
-        creativeId,
-        timestamp: Date.now(),
       } as any);
+
+      workflowCompleted = true;
+
+      // 只有在流程成功完成且有 creativeId 时，才记录到 dataset
+      if (creativeId && workflowCompleted) {
+        console.log(`[stream] Workflow completed successfully, recording to dataset. creativeId: ${creativeId}`);
+
+        // 批量记录所有 agent 输出到 dataset
+        for (const [agentName, output] of agentOutputs.entries()) {
+          const input = agentInputs.get(agentName) || { message, themeId };
+
+          void addDatasetItem({
+            agentName,
+            input,
+            output,
+            traceId,
+            metadata: {
+              themeId,
+              creativeId,
+              timestamp: new Date().toISOString(),
+              agent: agentName,
+              workflowCompleted: true,
+            },
+          }).catch((error) => {
+            console.error(`[langfuse] Failed to record dataset item for ${agentName}:`, error);
+          });
+        }
+      } else {
+        if (!creativeId) {
+          console.log(`[stream] No creativeId created, skipping dataset recording`);
+        } else if (!workflowCompleted) {
+          console.log(`[stream] Workflow did not complete successfully, skipping dataset recording`);
+        }
+      }
     }
 
     // 保存 assistant 消息

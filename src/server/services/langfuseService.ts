@@ -173,3 +173,192 @@ export async function isLangfuseEnabled(): Promise<boolean> {
   const config = await getLangfuseConfig();
   return config?.enabled ?? false;
 }
+
+function buildDatasetName(agentName: string) {
+  return `xhs-dataset-${agentName}`;
+}
+
+/**
+ * 获取 Langfuse 基础 URL
+ */
+async function getLangfuseBaseUrl(): Promise<string> {
+  const config = await getLangfuseConfig();
+  return config?.baseUrl || 'https://cloud.langfuse.com';
+}
+
+/**
+ * 获取认证凭证
+ */
+async function getAuthHeaders(): Promise<{ 'Content-Type': string; Authorization?: string }> {
+  const config = await getLangfuseConfig();
+  if (!config) return { 'Content-Type': 'application/json' };
+
+  // Basic Auth 格式
+  const auth = Buffer.from(`${config.publicKey}:${config.secretKey}`).toString('base64');
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': `Basic ${auth}`,
+  };
+}
+
+/**
+ * 获取或创建指定 agent 的数据集
+ */
+export async function getOrCreateDataset(agentName: string): Promise<string | null> {
+  const langfuse = await getLangfuse();
+  if (!langfuse) {
+    console.warn('[langfuse] getOrCreateDataset skipped: not enabled');
+    return null;
+  }
+
+  const datasetName = buildDatasetName(agentName);
+  const baseUrl = await getLangfuseBaseUrl();
+  const headers = await getAuthHeaders();
+
+  try {
+    // 尝试通过 GET 请求检查数据集是否存在
+    const response = await fetch(`${baseUrl}/api/public/datasets/${datasetName}`, {
+      method: 'GET',
+      headers,
+    });
+    if (response.ok) {
+      return datasetName;
+    }
+  } catch (error) {
+    // 继续尝试创建
+  }
+
+  try {
+    // 数据集不存在，创建新的
+    const response = await fetch(`${baseUrl}/api/public/datasets`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        name: datasetName,
+        description: `Agent dataset for ${agentName}`,
+        metadata: {
+          project: 'xhs-generator',
+          agent: agentName,
+          createdAt: new Date().toISOString(),
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      console.error(`[langfuse] Failed to create dataset ${datasetName}:`, text);
+      return null;
+    }
+
+    return datasetName;
+  } catch (createError) {
+    console.error(`[langfuse] Failed to create dataset ${datasetName}:`, createError);
+    return null;
+  }
+}
+
+/**
+ * 添加样本到数据集
+ */
+export async function addDatasetItem(params: {
+  agentName: string;
+  input: any;
+  output: any;
+  traceId?: string;
+  observationId?: string;
+  metadata?: Record<string, any>;
+}): Promise<void> {
+  const langfuse = await getLangfuse();
+  if (!langfuse) {
+    console.warn('[langfuse] addDatasetItem skipped: not enabled');
+    return;
+  }
+
+  try {
+    const datasetName = await getOrCreateDataset(params.agentName);
+    if (!datasetName) return;
+
+    const baseUrl = await getLangfuseBaseUrl();
+    const headers = await getAuthHeaders();
+
+    const response = await fetch(`${baseUrl}/api/public/dataset-items`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        datasetName,
+        input: params.input,
+        expectedOutput: params.output,
+        sourceTraceId: params.traceId,
+        sourceObservationId: params.observationId,
+        metadata: {
+          ...params.metadata,
+          createdAt: new Date().toISOString(),
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      console.error('[langfuse] Failed to add dataset item:', text);
+    }
+  } catch (error) {
+    console.error('[langfuse] Failed to add dataset item:', error);
+  }
+}
+
+/**
+ * 为 trace 添加评分
+ */
+export async function scoreTrace(params: {
+  traceId: string;
+  name: string;
+  value: number;
+  comment?: string;
+}): Promise<void> {
+  const langfuse = await getLangfuse();
+  if (!langfuse) {
+    console.warn('[langfuse] scoreTrace skipped: not enabled');
+    return;
+  }
+
+  try {
+    const baseUrl = await getLangfuseBaseUrl();
+    const headers = await getAuthHeaders();
+
+    const response = await fetch(`${baseUrl}/api/public/scores`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        traceId: params.traceId,
+        name: params.name,
+        value: params.value,
+        comment: params.comment,
+      }),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      console.error('[langfuse] Failed to score trace:', text);
+    }
+  } catch (error) {
+    console.error('[langfuse] Failed to score trace:', error);
+  }
+}
+
+/**
+ * 批量评分（用于实验运行后）
+ */
+export async function scoreExperiment(params: {
+  runName: string;
+  scores: Array<{ traceId: string; name: string; value: number; comment?: string }>;
+}): Promise<void> {
+  const langfuse = await getLangfuse();
+  if (!langfuse) {
+    console.warn('[langfuse] scoreExperiment skipped: not enabled');
+    return;
+  }
+
+  for (const score of params.scores) {
+    await scoreTrace({ ...score });
+  }
+}
