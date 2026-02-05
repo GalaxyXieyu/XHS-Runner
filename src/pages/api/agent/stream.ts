@@ -15,73 +15,8 @@ import { detectContentType } from "@/server/services/contentTypeDetector";
 import { db } from "@/server/db";
 import { conversations, conversationMessages } from "@/server/db/schema";
 import { eq } from "drizzle-orm";
+import { CollectedMessage, getAgentDisplayName, parseWriterContent } from "./streamUtils";
 
-// 消息收集器类型
-interface CollectedMessage {
-  role: 'user' | 'assistant';
-  content: string;
-  agent?: string;
-  askUser?: any;
-  events?: any[];
-}
-
-// 解析 writer_agent 生成的内容（支持 JSON 和纯文本两种格式）
-function parseWriterContent(content: string): { title: string; body: string; tags: string[] } {
-  // 尝试解析 JSON 格式（writer_agent prompt 要求的格式）
-  try {
-    // 提取 JSON 部分（可能被包裹在 markdown 代码块中）
-    const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/) || content.match(/(\{[\s\S]*"title"[\s\S]*\})/);
-    const jsonStr = jsonMatch ? jsonMatch[1].trim() : content.trim();
-
-    // 尝试解析 JSON
-    if (jsonStr.startsWith('{')) {
-      const parsed = JSON.parse(jsonStr);
-      if (parsed.title) {
-        return {
-          title: parsed.title,
-          body: parsed.content || parsed.body || "",
-          tags: Array.isArray(parsed.tags)
-            ? parsed.tags.map((t: string) => t.replace(/^#/, ''))
-            : [],
-        };
-      }
-    }
-  } catch {
-    // JSON 解析失败，继续尝试纯文本格式
-  }
-
-  // 回退到纯文本格式解析
-  const titleMatch = content.match(/标题[：:]\s*(.+?)(?:\n|$)/);
-  const title = titleMatch?.[1]?.trim() || "AI 生成内容";
-
-  const tagMatch = content.match(/标签[：:]\s*(.+?)(?:\n|$)/);
-  const tagsStr = tagMatch?.[1] || "";
-  const tags = tagsStr.match(/#[\w\u4e00-\u9fa5]+/g)?.map(t => t.slice(1)) || [];
-
-  let body = content;
-  if (titleMatch) {
-    body = content.slice(content.indexOf(titleMatch[0]) + titleMatch[0].length);
-  }
-  if (tagMatch) {
-    body = body.slice(0, body.indexOf(tagMatch[0])).trim();
-  }
-
-  return { title, body: body.trim() || content, tags };
-}
-
-function getAgentDisplayName(name: string): string {
-  const names: Record<string, string> = {
-    supervisor: "主管",
-    supervisor_route: "任务路由",
-    research_agent: "研究专家",
-    writer_agent: "创作专家",
-    style_analyzer_agent: "风格分析",
-    image_planner_agent: "图片规划",
-    image_agent: "图片生成",
-    review_agent: "审核专家",
-  };
-  return names[name] || name;
-}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") {
@@ -209,6 +144,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   // 用于保存 creativeId
   let creativeId: number | undefined;
+  let workflowCompleted = false;
+  let workflowPaused = false;
   
   // 对话持久化：创建 conversation 记录
   let conversationId: number | undefined;
@@ -254,6 +191,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
   sendEvent(initEvent);
 
+  const markCreativeAborted = async (reason: string) => {
+    if (!creativeId || workflowCompleted || workflowPaused) return;
+    try {
+      await updateCreative({ id: creativeId, status: 'aborted' });
+      if (conversationId) {
+        await db.update(conversations)
+          .set({ status: 'aborted', updatedAt: new Date() })
+          .where(eq(conversations.id, conversationId));
+      }
+      console.warn(`[stream] Marked creative ${creativeId} as aborted (${reason})`);
+    } catch (err) {
+      console.error('[stream] Failed to mark creative aborted:', err);
+    }
+  };
+
+  res.on('close', () => {
+    if (res.writableEnded) return;
+    void markCreativeAborted('client_closed');
+  });
+
   // 开始轨迹记录
   const trajId = threadId || uuidv4();
   startTraj(trajId, message, hasReferenceImage, themeId);
@@ -292,7 +249,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       try {
         const creative = await createCreative({
           themeId,
-          status: "draft",
+          status: "processing",
           model: "agent",
           prompt: message,
         });
@@ -335,7 +292,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     let generatedAssetIds: number[] = [];
     const agentInputs = new Map<string, any>();
     const agentOutputs = new Map<string, any>(); // 收集 agent 输出，延迟记录
-    let workflowCompleted = false; // 标记工作流是否完成
+    // workflowCompleted 已在外层定义
 
     const buildAgentInput = (agent: string, output: any) => ({
       agent,
@@ -517,7 +474,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                       title: parsed.title,
                       content: parsed.body,
                       tags: parsed.tags.join(","),
-                      status: "draft",
                       model: "agent",
                       prompt: message,
                     });
@@ -527,7 +483,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                       title: parsed.title,
                       content: parsed.body,
                       tags: parsed.tags.join(","),
-                      status: "draft",
+                      status: "processing",
                       model: "agent",
                       prompt: message,
                     });
@@ -673,6 +629,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               // 保存 assistant 消息
               await saveAssistantMessages(writerAskUser);
               await flushLangfuse();
+              workflowPaused = true;
               res.end();
               return;
             }
@@ -697,6 +654,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             // 保存 assistant 消息
             await saveAssistantMessages(imagePlanAskUser);
             await flushLangfuse();
+            workflowPaused = true;
             res.end();
             return;
           }
@@ -716,12 +674,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             title: writerContent.title,
             content: writerContent.body,
             tags: writerContent.tags.join(', '),
+            status: 'draft',
           });
           console.log(`[stream] Updated creative ${creativeId} with title, content, tags`);
         } catch (error) {
           console.error(`[stream] Failed to update creative ${creativeId}:`, error);
         }
+      } else if (writerContent && themeId && !creativeId) {
+        try {
+          const creative = await createCreative({
+            themeId,
+            title: writerContent.title,
+            content: writerContent.body,
+            tags: writerContent.tags.join(', '),
+            status: 'draft',
+            model: 'agent',
+            prompt: message,
+          });
+          creativeId = creative.id;
+        } catch (error) {
+          console.error('[stream] Failed to create creative on completion:', error);
+        }
       }
+
+      workflowCompleted = true;
 
       sendEvent({
         type: "workflow_complete",
@@ -731,8 +707,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         tags: writerContent?.tags || [],
         imageAssetIds: generatedAssetIds,
       } as any);
-
-      workflowCompleted = true;
 
       // 只有在流程成功完成且有 creativeId 时，才记录到 dataset
       if (creativeId && workflowCompleted) {
@@ -804,6 +778,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       content: `错误: ${errorMessage}`,
       timestamp: Date.now(),
     });
+    if (creativeId && !workflowCompleted) {
+      try {
+        await updateCreative({ id: creativeId, status: 'failed' });
+      } catch (err) {
+        console.error('[stream] Failed to mark creative failed:', err);
+      }
+    }
     res.end();
   }
 }

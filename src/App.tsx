@@ -116,7 +116,6 @@ export default function App() {
 
   // CreativeTab 子 tab 状态提升
   const [creativeMainTab, setCreativeMainTab] = useState<'generate' | 'library'>('generate');
-  const [creativeGenerateMode, setCreativeGenerateMode] = useState<'oneClick' | 'agent'>('agent');
   const [taskCenterFocus, setTaskCenterFocus] = useState<{
     tab?: 'capture' | 'generation' | 'executions';
     jobType?: 'all' | 'capture' | 'daily_generate';
@@ -484,17 +483,16 @@ export default function App() {
                     setSelectedTheme(next);
                   }
                 }}
-                onNavigateToTaskCenter={navigateToTaskCenter}
                 mainTab={creativeMainTab}
-                generateMode={creativeGenerateMode}
-                onGenerateModeChange={setCreativeGenerateMode}
                 onLibraryCountChange={setLibraryCount}
               />
             </div>
           )}
           {isViewMounted('operations') && selectedTheme && (
             <div className={currentView === 'operations' ? 'h-full' : 'hidden'}>
-              <OperationsTab theme={selectedTheme} />
+              <div className="p-4 h-full overflow-y-auto bg-gray-50">
+                <OperationsTab theme={selectedTheme} />
+              </div>
             </div>
           )}
           {isViewMounted('settings') && (

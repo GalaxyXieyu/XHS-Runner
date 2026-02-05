@@ -132,6 +132,29 @@ async function main() {
     assert.ok(out.result_json);
     assert.strictEqual(out.result_json.total, 3);
   });
+
+  await runTest('requestLimits clamps query params', async () => {
+    const limits = require(path.join(
+      repoRoot,
+      'electron',
+      'server',
+      'utils',
+      'requestLimits.js'
+    ));
+
+    assert.strictEqual(
+      limits.parseNumberParam(undefined, { defaultValue: 7, min: 1, max: 90 }),
+      7
+    );
+    assert.strictEqual(
+      limits.parseNumberParam('0', { defaultValue: 7, min: 1, max: 90 }),
+      1
+    );
+    assert.strictEqual(
+      limits.parseNumberParam('999', { defaultValue: 7, min: 1, max: 90 }),
+      90
+    );
+  });
 }
 
 main().catch((err) => {

@@ -1,6 +1,8 @@
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
 import { ChatOpenAI } from "@langchain/openai";
 import { getDatabase } from "../../db";
+import { getLangfuse } from "../../services/langfuseService";
+import { LangfuseLangChain } from "langfuse";
 
 // PostgresSaver 单例
 let checkpointerInstance: PostgresSaver | null = null;
@@ -63,6 +65,11 @@ export async function getLLMConfig(requireVision = false): Promise<LLMConfig> {
 // 创建 LLM 实例
 export async function createLLM(requireVision = false): Promise<ChatOpenAI> {
   const config = await getLLMConfig(requireVision);
+
+  // 配置 Langfuse callbacks（如果启用）
+  const langfuse = await getLangfuse();
+  const callbacks = langfuse ? [new LangfuseLangChain({ langfuse })] : [];
+
   return new ChatOpenAI({
     configuration: { baseURL: config.baseUrl },
     apiKey: config.apiKey,
@@ -71,5 +78,6 @@ export async function createLLM(requireVision = false): Promise<ChatOpenAI> {
     timeout: requireVision ? 120000 : 60000,
     maxRetries: requireVision ? 2 : 3,
     maxTokens: config.maxTokens,
+    callbacks, // 添加 Langfuse 自动追踪
   });
 }

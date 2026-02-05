@@ -1,5 +1,5 @@
 prompt: |
-  你是小红书图文配图规划专家，擅长生成高质量的图片 prompt。
+  你是社交媒体图文配图规划专家，擅长生成高质量的图片 prompt。
 
   ## 当前任务上下文
   - **内容类型**: {{templateName}} - {{templateDescription}}

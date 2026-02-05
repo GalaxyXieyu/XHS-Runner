@@ -1,5 +1,5 @@
 import { db, schema } from '../../../db/index';
-import { asc, eq } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { PublishRecord } from '../../../db/schema';
 import { publishContent as publishContentLocal } from '../integration/localService';
 
@@ -10,6 +10,10 @@ export type PublishExecutor = (payload: {
   mediaPaths: string[];
   tags?: string | null;
 }) => Promise<{ success: boolean; noteId?: string; raw?: any; message?: string }>;
+
+type PublishProcessResult =
+  | { processed: false; reason: 'empty' | 'not-found' | 'not-eligible'; status?: string | null }
+  | { processed: true; recordId: number; success: boolean; noteId?: string; errorMessage?: string };
 
 function splitMediaUrls(mediaUrls: unknown): string[] {
   if (!mediaUrls) return [];
@@ -40,48 +44,14 @@ function assertPublishable(record: PublishRecord) {
   };
 }
 
-export async function processNextPublishRecord(options?: {
-  executor?: PublishExecutor;
-}): Promise<
-  | { processed: false; reason: 'empty' }
-  | { processed: true; recordId: number; success: boolean; noteId?: string; errorMessage?: string }
-> {
-  const executor: PublishExecutor =
-    options?.executor ||
-    (async ({ type, title, content, mediaPaths, tags }) => {
-      const raw = await publishContentLocal({
-        type: type || 'image',
-        title,
-        content,
-        media_paths: mediaPaths,
-        tags: tags || '',
-      });
-
-      // Best-effort normalization across drivers.
-      const noteId = (raw as any)?.noteId || (raw as any)?.note_id || (raw as any)?.data?.noteId;
-      const ok = (raw as any)?.success !== false;
-      return { success: ok, noteId, raw };
-    });
-
-  // No transaction/lock here; we keep it minimal. If concurrency becomes a problem,
-  // we can add an atomic UPDATE ... WHERE status='queued' RETURNING pattern.
-  const [next] = await db
-    .select()
-    .from(schema.publishRecords)
-    .where(eq(schema.publishRecords.status, 'queued'))
-    .orderBy(asc(schema.publishRecords.id))
-    .limit(1);
-
-  if (!next) return { processed: false, reason: 'empty' };
-
-  const recordId = Number((next as any).id);
-  await db
-    .update(schema.publishRecords)
-    .set({ status: 'running', updatedAt: new Date() })
-    .where(eq(schema.publishRecords.id, recordId));
+async function executePublishRecord(
+  record: PublishRecord,
+  executor: PublishExecutor
+): Promise<PublishProcessResult> {
+  const recordId = Number((record as any).id);
 
   try {
-    const payload = assertPublishable(next as any);
+    const payload = assertPublishable(record as any);
     const result = await executor(payload);
 
     await db
@@ -106,4 +76,88 @@ export async function processNextPublishRecord(options?: {
 
     return { processed: true, recordId, success: false, errorMessage: msg };
   }
+}
+
+export async function processNextPublishRecord(options?: {
+  executor?: PublishExecutor;
+}): Promise<PublishProcessResult> {
+  const executor: PublishExecutor =
+    options?.executor ||
+    (async ({ type, title, content, mediaPaths, tags }) => {
+      const raw = await publishContentLocal({
+        type: type || 'image',
+        title,
+        content,
+        media_paths: mediaPaths,
+        tags: tags || '',
+      });
+
+      // Best-effort normalization across drivers.
+      const noteId = (raw as any)?.noteId || (raw as any)?.note_id || (raw as any)?.data?.noteId;
+      const ok = (raw as any)?.success !== false;
+      return { success: ok, noteId, raw };
+    });
+
+  // Atomic claim with SKIP LOCKED to avoid concurrent workers racing on the same row.
+  const [locked] = await db
+    .update(schema.publishRecords)
+    .set({ status: 'running', updatedAt: new Date() })
+    .where(sql`${schema.publishRecords.id} = (
+      SELECT ${schema.publishRecords.id}
+      FROM ${schema.publishRecords}
+      WHERE ${schema.publishRecords.status} = 'queued'
+      ORDER BY ${schema.publishRecords.id} ASC
+      LIMIT 1
+      FOR UPDATE SKIP LOCKED
+    )`)
+    .returning();
+
+  if (!locked) return { processed: false, reason: 'empty' };
+
+  return executePublishRecord(locked as PublishRecord, executor);
+}
+
+export async function processPublishRecordById(
+  recordId: number,
+  options?: { executor?: PublishExecutor }
+): Promise<PublishProcessResult> {
+  const executor: PublishExecutor =
+    options?.executor ||
+    (async ({ type, title, content, mediaPaths, tags }) => {
+      const raw = await publishContentLocal({
+        type: type || 'image',
+        title,
+        content,
+        media_paths: mediaPaths,
+        tags: tags || '',
+      });
+
+      const noteId = (raw as any)?.noteId || (raw as any)?.note_id || (raw as any)?.data?.noteId;
+      const ok = (raw as any)?.success !== false;
+      return { success: ok, noteId, raw };
+    });
+
+  const [locked] = await db
+    .update(schema.publishRecords)
+    .set({ status: 'running', updatedAt: new Date() })
+    .where(
+      and(
+        eq(schema.publishRecords.id, recordId),
+        inArray(schema.publishRecords.status, ['queued', 'pending', 'failed'])
+      )
+    )
+    .returning();
+
+  if (!locked) {
+    const [current] = await db
+      .select({ status: schema.publishRecords.status })
+      .from(schema.publishRecords)
+      .where(eq(schema.publishRecords.id, recordId))
+      .limit(1);
+
+    if (!current) return { processed: false, reason: 'not-found' };
+    return { processed: false, reason: 'not-eligible', status: current.status };
+  }
+
+  return executePublishRecord(locked as PublishRecord, executor);
 }

@@ -271,6 +271,27 @@ export const formAssistRecords = pgTable('form_assist_records', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const comments = pgTable('comments', {
+  id: serial('id').primaryKey(),
+  publishRecordId: integer('publish_record_id').references(() => publishRecords.id, { onDelete: 'cascade' }),
+  xhsCommentId: text('xhs_comment_id'),  // 小红书评论唯一ID，用于去重
+  authorId: text('author_id'),
+  authorName: text('author_name'),
+  authorAvatar: text('author_avatar'),
+  content: text('content').notNull(),
+  parentCommentId: integer('parent_comment_id'),  // 父评论ID，用于回复关系
+  xhsCreatedAt: timestamp('xhs_created_at', { withTimezone: true }),
+  replyStatus: text('reply_status').default('pending'), // pending/draft/sent/failed
+  replyContent: text('reply_content'),
+  replySentAt: timestamp('reply_sent_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  xhsCommentIdUnique: unique('comments_xhs_comment_id_unique').on(table.xhsCommentId),
+  publishRecordIdIdx: index('comments_publish_record_id_idx').on(table.publishRecordId),
+  replyStatusIdx: index('comments_reply_status_idx').on(table.replyStatus),
+}));
+
 // ==================== Scheduler Tables ====================
 
 export const scheduledJobs = pgTable('scheduled_jobs', {
@@ -427,6 +448,9 @@ export type NewInteractionTask = typeof interactionTasks.$inferInsert;
 
 export type FormAssistRecord = typeof formAssistRecords.$inferSelect;
 export type NewFormAssistRecord = typeof formAssistRecords.$inferInsert;
+
+export type Comment = typeof comments.$inferSelect;
+export type NewComment = typeof comments.$inferInsert;
 
 export type ScheduledJob = typeof scheduledJobs.$inferSelect;
 export type NewScheduledJob = typeof scheduledJobs.$inferInsert;

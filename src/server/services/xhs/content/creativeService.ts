@@ -1,5 +1,5 @@
 import { db, schema } from '@/server/db';
-import { eq, desc, and, SQL, inArray, asc } from 'drizzle-orm';
+import { eq, desc, and, SQL, inArray, asc, notInArray } from 'drizzle-orm';
 
 export interface ContentPackage {
   creative: typeof schema.creatives.$inferSelect;
@@ -38,12 +38,16 @@ export async function getContentPackage(creativeId: number): Promise<ContentPack
 
 export async function listContentPackages(filters: {
   status?: string;
+  excludeStatuses?: string[];
   themeId?: number;
   limit?: number;
   offset?: number;
 }): Promise<ContentPackage[]> {
   const conditions: SQL[] = [];
   if (filters.status) conditions.push(eq(schema.creatives.status, filters.status));
+  if (filters.excludeStatuses && filters.excludeStatuses.length > 0) {
+    conditions.push(notInArray(schema.creatives.status, filters.excludeStatuses));
+  }
   if (filters.themeId) conditions.push(eq(schema.creatives.themeId, filters.themeId));
 
   const creatives = await db

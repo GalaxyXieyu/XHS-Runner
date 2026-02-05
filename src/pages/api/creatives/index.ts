@@ -36,8 +36,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       // 如果请求包含 assets，返回完整的 ContentPackage
       if (withAssets === 'true') {
+        const excludeStatuses = status ? undefined : ['processing', 'aborted', 'failed'];
         const packages = await listContentPackages({
           status: status as string | undefined,
+          excludeStatuses,
           themeId: themeId ? Number(themeId) : undefined,
           limit: limit ? Number(limit) : 20,
           offset: offset ? Number(offset) : 0,

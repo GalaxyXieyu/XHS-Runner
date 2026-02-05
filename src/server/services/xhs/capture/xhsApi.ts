@@ -9,9 +9,28 @@ import vm from 'vm';
 const XHS_API_BASE = 'https://edith.xiaohongshu.com';
 const COOKIES_FILE = path.join(process.env.HOME || '', '.xhs-mcp', 'cookies.json');
 // 使用 process.cwd() 获取项目根目录，避免 webpack 打包后 __dirname 路径问题
-const XHSVM_FILE = path.join(process.cwd(), 'src/server/services/xhs/xhsvm.js');
+const XHSVM_PATH_CANDIDATES = [
+  process.env.XHSVM_PATH,
+  path.join(process.cwd(), 'data/xhs/xhsvm.js'),
+  path.join(process.cwd(), 'data/xhsvm.js'),
+  path.join(process.cwd(), 'src/server/services/xhs/capture/xhsvm.js'),
+  path.join(process.cwd(), 'src/server/services/xhs/xhsvm.js'),
+].filter(Boolean) as string[];
 
 let xhsvmContext: vm.Context | null = null;
+
+function resolveXhsvmFile(): string {
+  for (const candidate of XHSVM_PATH_CANDIDATES) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  const hints = XHSVM_PATH_CANDIDATES.map((candidate) => `- ${candidate}`).join('\n');
+  throw new Error(
+    `[xhsApi] xhsvm.js not found. Set XHSVM_PATH or place file in one of:\n${hints}`
+  );
+}
 
 function loadCookieString(): string {
   try {
@@ -29,7 +48,7 @@ function loadCookieString(): string {
 function getXhsvmContext(): vm.Context {
   if (xhsvmContext) return xhsvmContext;
 
-  const code = fs.readFileSync(XHSVM_FILE, 'utf-8');
+  const code = fs.readFileSync(resolveXhsvmFile(), 'utf-8');
 
   // 创建完整的浏览器环境模拟
   const sandbox: any = {

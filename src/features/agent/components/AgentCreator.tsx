@@ -2,59 +2,23 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import type { Theme } from "@/App";
-import { Bot, Send, X, Wand2, Paperclip, ChevronDown, Image, ArrowLeft } from "lucide-react";
+import { ArrowLeft, ChevronDown, Image, Send, X } from "lucide-react";
 import type { AgentEvent, ChatMessage, ImageTask, AskUserDialogState } from "../types";
 import type { ContentPackage } from "@/features/material-library/types";
 import { NoteDetailModal, type NoteDetailData } from "@/components/NoteDetailModal";
 import { Markdown } from "@/components/ui/markdown";
 import { processSSEStream, createStreamCallbacks } from "../hooks/useStreamProcessor";
+import { AgentCreatorEmptyState } from "./AgentCreatorEmptyState";
+import { agentProgressMap, getAgentDisplayName } from "./AgentCreatorConfig";
+import type { ImageGenProvider } from "./AgentCreatorConfig";
 
 // 子组件
 import { createInitialAskUserState } from "./AskUserDialog";
 import { CollapsibleToolCard } from "./ToolEventList";
 import { ContentCard, parseCreativeContent } from "./ContentCard";
 import { ImagePlanCard, parseImagePlanContent } from "./ImagePlanCard";
-import { MaterialGallery } from "./MaterialGallery";
 import { HITLRequestMessage, HITLResponseMessage, isHITLRequest, InteractiveHITLBubble } from "./HITLMessage";
 import { ConversationHistory } from "./ConversationHistory";
-
-// Agent 名称中文映射
-const agentDisplayNames: Record<string, string> = {
-  supervisor: "主管",
-  supervisor_route: "任务路由",
-  research_agent: "研究专家",
-  writer_agent: "创作专家",
-  style_analyzer_agent: "风格分析",
-  image_planner_agent: "图片规划",
-  image_agent: "图片生成",
-  review_agent: "审核专家",
-  tools: "工具调用",
-};
-
-function getAgentDisplayName(name: string | undefined): string {
-  if (!name) return "";
-  return agentDisplayNames[name] || name;
-}
-
-// 类型定义
-type AspectRatio = "3:4" | "1:1" | "4:3";
-type ImageModel = "nanobanana" | "jimeng" | "jimeng-45";
-type ImageGenProvider = "jimeng" | "jimeng-45" | "gemini";
-type Mode = "agent" | "custom";
-type StyleKey = "cozy" | "minimal" | "illustration" | "ink" | "anime" | "3d" | "cyberpunk" | "photo" | "custom";
-type Goal = "collects" | "comments" | "followers";
-
-interface CustomConfig {
-  goal: Goal;
-  tone: string;
-  persona: string;
-  extraRequirements: string;
-  styleKey: StyleKey;
-  customStyleKey: string;
-  aspectRatio: AspectRatio;
-  count: number;
-  model: ImageModel;
-}
 
 interface AgentCreatorProps {
   theme: Theme;
@@ -65,28 +29,6 @@ interface AgentCreatorProps {
   autoRunInitialRequirement?: boolean;
 }
 
-const styleOptions: { key: StyleKey; name: string }[] = [
-  { key: "cozy", name: "温馨治愈" },
-  { key: "minimal", name: "极简风" },
-  { key: "illustration", name: "插画风" },
-  { key: "ink", name: "水墨风" },
-  { key: "anime", name: "动漫风" },
-  { key: "3d", name: "3D 渲染" },
-  { key: "cyberpunk", name: "赛博朋克" },
-  { key: "photo", name: "真实摄影" },
-  { key: "custom", name: "自定义" },
-];
-
-// Agent 进度权重
-const agentProgressMap: Record<string, number> = {
-  supervisor: 5,
-  research_agent: 20,
-  style_analyzer_agent: 30,
-  writer_agent: 45,
-  image_planner_agent: 55,
-  image_agent: 85,
-  review_agent: 95,
-};
 
 export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirement, onClose, backLabel }: AgentCreatorProps) {
   // 基础状态
@@ -99,27 +41,12 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
   const [conversationId, setConversationId] = useState<number | null>(null);
   
   // UI 状态
-  const [showCustomForm, setShowCustomForm] = useState(false);
-  const [mode, setMode] = useState<Mode>("agent");
   const [expandedProcess, setExpandedProcess] = useState(false);
   const [expandedLoading, setExpandedLoading] = useState(true);
   const [imageTasks, setImageTasks] = useState<ImageTask[]>([]);
   const [imageGenProvider, setImageGenProvider] = useState<ImageGenProvider>('jimeng');
   const [autoConfirm, setAutoConfirm] = useState(false);
   const [workflowProgress, setWorkflowProgress] = useState(0);
-  
-  // 自定义配置
-  const [customConfig, setCustomConfig] = useState<CustomConfig>({
-    goal: "collects",
-    tone: "",
-    persona: "",
-    extraRequirements: "",
-    styleKey: "cozy",
-    customStyleKey: "",
-    aspectRatio: "3:4",
-    count: 4,
-    model: "nanobanana",
-  });
   
   // 引用
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -595,251 +522,24 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
     <div className="h-full flex flex-col bg-white overflow-x-hidden relative">
       {/* 初始状态布局 */}
       {!hasMessages && (
-        <div className="flex-1 overflow-y-auto relative">
-          {/* 右上角悬浮按钮组 */}
-          <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
-            {onClose && backLabel ? (
-              <button
-                onClick={onClose}
-                className="h-9 px-3 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 flex items-center justify-center transition-colors shadow-sm text-xs text-gray-700"
-                title={backLabel}
-              >
-                <ArrowLeft className="w-4 h-4 mr-1 text-gray-600" />
-                {backLabel}
-              </button>
-            ) : onClose ? (
-              <button
-                onClick={onClose}
-                className="w-9 h-9 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 flex items-center justify-center transition-colors shadow-sm"
-                title="返回"
-              >
-                <X className="w-4 h-4 text-gray-600" />
-              </button>
-            ) : null}
-            <ConversationHistory
-              themeId={theme.id}
-              currentConversationId={conversationId}
-              onSelect={loadConversation}
-              onNewConversation={startNewConversation}
-              compact
-            />
-          </div>
-          
-          {/* 上半部分：标题 + 输入框 */}
-          <div className="min-h-[60vh] flex flex-col items-center justify-center px-6">
-            <div className="text-center mb-8">
-              <h1 className="text-2xl font-semibold text-gray-800 mb-2">
-                开启你的 <span className="text-blue-500">AI 创作</span> 之旅
-              </h1>
-              <p className="text-sm text-gray-400">
-                {mode === "agent" ? "AI 多专家协作，智能创作小红书内容" : "自定义参数，精确控制生成效果"}
-              </p>
-            </div>
-
-            {/* 输入框区域 */}
-            <div className="w-full max-w-3xl mx-auto">
-              {/* 主输入框 - 增强设计感 */}
-              <div className="relative group">
-                {/* 装饰性渐变背景 */}
-                <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 rounded-[1.25rem] opacity-0 group-hover:opacity-100 blur transition duration-300" />
-                
-                {/* 输入框本体 */}
-                <div className="relative flex items-center gap-3 rounded-[1.25rem] border-2 border-gray-200 bg-white px-5 py-4 shadow-[0_8px_30px_rgb(0,0,0,0.08)] transition-all duration-300 hover:shadow-[0_8px_40px_rgb(0,0,0,0.12)] hover:border-gray-300">
-                  <button
-                    type="button"
-                    className="group/clip w-11 h-11 rounded-xl text-gray-400 hover:text-blue-600 hover:bg-blue-50 flex items-center justify-center transition-all duration-200"
-                  >
-                    <Paperclip className="w-5 h-5 group-hover/clip:rotate-12 transition-transform" />
-                  </button>
-                  
-                  <input
-                    type="text"
-                    value={requirement}
-                    onChange={(e) => setRequirement(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSubmit()}
-                    placeholder="描述你想创作的内容..."
-                    className="flex-1 text-base text-gray-700 placeholder:text-gray-400 bg-transparent focus:outline-none"
-                    disabled={isStreaming}
-                  />
-                  
-                  <button
-                    onClick={handleSubmit}
-                    disabled={isStreaming || !requirement.trim()}
-                    className="group/send w-11 h-11 rounded-xl bg-gradient-to-r from-gray-800 to-gray-900 text-white flex items-center justify-center hover:from-gray-900 hover:to-black disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200 shadow-md hover:shadow-lg hover:scale-105 active:scale-95"
-                  >
-                    <Send className="w-5 h-5 group-hover/send:translate-x-0.5 group-hover/send:-translate-y-0.5 transition-transform" />
-                  </button>
-                </div>
-              </div>
-
-              {/* 模式切换和选项 - 极简高级设计 */}
-              <div className="flex items-center justify-center gap-4 mt-6">
-                {/* 模式切换 - 极简 Tab 风格 */}
-                <div className="inline-flex items-center gap-1 p-1 bg-gray-100/80 backdrop-blur-sm rounded-[0.75rem]">
-                  <button
-                    onClick={() => { setMode("agent"); setShowCustomForm(false); }}
-                    className={`relative flex items-center gap-1.5 px-4 py-2.5 text-[13px] rounded-[0.625rem] font-medium transition-all duration-300 ${
-                      mode === "agent"
-                        ? "bg-white text-gray-900 shadow-sm"
-                        : "text-gray-500 hover:text-gray-700"
-                    }`}
-                  >
-                    <Bot className="w-[15px] h-[15px]" />
-                    <span>Agent</span>
-                  </button>
-                  <button
-                    onClick={() => { setMode("custom"); setShowCustomForm(!showCustomForm); }}
-                    className={`relative flex items-center gap-1.5 px-4 py-2.5 text-[13px] rounded-[0.625rem] font-medium transition-all duration-300 ${
-                      mode === "custom"
-                        ? "bg-white text-gray-900 shadow-sm"
-                        : "text-gray-500 hover:text-gray-700"
-                    }`}
-                  >
-                    <Wand2 className="w-[15px] h-[15px]" />
-                    <span>自定义</span>
-                  </button>
-                </div>
-
-                {/* 分隔线 */}
-                <div className="w-px h-6 bg-gray-200/60" />
-
-                {/* 生图模型选择 */}
-                <div className="inline-flex items-center gap-2">
-                  <span className="text-[12px] text-gray-500">生图模型</span>
-                  <select
-                    value={imageGenProvider}
-                    onChange={(e) => setImageGenProvider(e.target.value as ImageGenProvider)}
-                    className="px-3 py-2 text-[13px] border border-gray-200 rounded-[0.625rem] bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-                  >
-                    <option value="jimeng">即梦 4.0</option>
-                    <option value="jimeng-45">即梦 4.5</option>
-                    <option value="gemini">Gemini</option>
-                  </select>
-                </div>
-
-                {/* 分隔线 */}
-                <div className="w-px h-6 bg-gray-200/60" />
-
-                {/* 自动继续 - iOS Toggle 风格 */}
-                <button
-                  onClick={() => setAutoConfirm(!autoConfirm)}
-                  className="group flex items-center gap-2.5 px-4 py-2.5 rounded-[0.75rem] hover:bg-gray-50/80 transition-all duration-200"
-                >
-                  <div
-                    className={`relative w-9 h-5 rounded-full transition-all duration-300 ${
-                      autoConfirm
-                        ? 'bg-gradient-to-r from-blue-500 to-blue-600 shadow-inner'
-                        : 'bg-gray-200'
-                    }`}
-                  >
-                    <div
-                      className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow-sm transition-all duration-300 ${
-                        autoConfirm ? 'left-[1.125rem]' : 'left-0.5'
-                      }`}
-                    />
-                  </div>
-                  <span className={`text-[13px] font-medium transition-colors ${
-                    autoConfirm ? 'text-gray-700' : 'text-gray-500'
-                  }`}>
-                    自动继续
-                  </span>
-                </button>
-              </div>
-
-              {/* 自定义参数面板 */}
-              {showCustomForm && (
-                <div className="mt-3 bg-white rounded-2xl border border-gray-200 shadow-sm p-4 animate-in slide-in-from-top-2 duration-200">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="text-sm font-medium text-gray-700">生成偏好</div>
-                    <button onClick={() => setShowCustomForm(false)} className="p-1 hover:bg-gray-100 rounded-lg">
-                      <X className="w-4 h-4 text-gray-400" />
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">内容目标</label>
-                      <select
-                        value={customConfig.goal}
-                        onChange={(e) => setCustomConfig({ ...customConfig, goal: e.target.value as Goal })}
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-                      >
-                        <option value="collects">收藏优先</option>
-                        <option value="comments">评论优先</option>
-                        <option value="followers">涨粉优先</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">图片风格</label>
-                      <select
-                        value={customConfig.styleKey}
-                        onChange={(e) => setCustomConfig({ ...customConfig, styleKey: e.target.value as StyleKey })}
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-                      >
-                        {styleOptions.map((opt) => (
-                          <option key={opt.key} value={opt.key}>{opt.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">图片比例</label>
-                      <select
-                        value={customConfig.aspectRatio}
-                        onChange={(e) => setCustomConfig({ ...customConfig, aspectRatio: e.target.value as AspectRatio })}
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-                      >
-                        <option value="3:4">3:4</option>
-                        <option value="1:1">1:1</option>
-                        <option value="4:3">4:3</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">图像模型</label>
-                      <select
-                        value={customConfig.model}
-                        onChange={(e) => setCustomConfig({ ...customConfig, model: e.target.value as ImageModel })}
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-                      >
-                        <option value="nanobanana">Nanobanana</option>
-                        <option value="jimeng">即梦 4.0</option>
-                        <option value="jimeng-45">即梦 4.5</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">目标受众</label>
-                      <input
-                        type="text"
-                        value={customConfig.persona}
-                        onChange={(e) => setCustomConfig({ ...customConfig, persona: e.target.value })}
-                        placeholder="学生党、职场女性..."
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">内容语气</label>
-                      <input
-                        type="text"
-                        value={customConfig.tone}
-                        onChange={(e) => setCustomConfig({ ...customConfig, tone: e.target.value })}
-                        placeholder="干货/亲和、犀利吐槽..."
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* 底部素材库预览 */}
-          <MaterialGallery 
-            packages={packages} 
-            onSelect={setSelectedPackage} 
-          />
-        </div>
+        <AgentCreatorEmptyState
+          onClose={onClose}
+          backLabel={backLabel}
+          themeId={theme.id}
+          conversationId={conversationId}
+          loadConversation={loadConversation}
+          startNewConversation={startNewConversation}
+          requirement={requirement}
+          setRequirement={setRequirement}
+          handleSubmit={handleSubmit}
+          isStreaming={isStreaming}
+          imageGenProvider={imageGenProvider}
+          setImageGenProvider={setImageGenProvider}
+          autoConfirm={autoConfirm}
+          setAutoConfirm={setAutoConfirm}
+          packages={packages}
+          setSelectedPackage={setSelectedPackage}
+        />
       )}
 
       {/* 有消息时的布局 */}
