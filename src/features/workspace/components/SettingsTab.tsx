@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Key, Database, Settings as SettingsIcon, QrCode, Smartphone, CheckCircle, Loader, Plus, Edit2, Trash2, FlaskConical, Activity, Globe } from 'lucide-react';
+import { Key, Database, Settings as SettingsIcon, QrCode, Smartphone, CheckCircle, Loader, Plus, Edit2, Trash2, FlaskConical } from 'lucide-react';
 import type { Theme } from '@/App';
 import { PromptPlayground } from '@/components/workspace/PromptPlayground';
 import type { AuthStatus } from '@/hooks/useAuthStatus';
+import { ApiSettingsSection } from './settings/ApiSettingsSection';
+import { SystemSettingsSection } from './settings/SystemSettingsSection';
+import type { ExtensionService, LangfuseConfig, LLMConfig, TavilyConfig } from './settings/types';
 
 interface AuthProps {
   status: AuthStatus;
@@ -23,20 +26,6 @@ interface SettingsTabProps {
 
 type SettingSection = 'hotNumber' | 'api' | 'rules' | 'system';
 
-interface LLMConfig {
-  id: number;
-  name: string;
-  provider_type: string;
-  model_name: string;
-  base_url?: string;
-  api_key?: string;
-  configured: boolean;
-  supports_vision?: boolean;
-  supports_image_gen?: boolean;
-}
-
-// 注意：base_url 已在接口中定义
-
 interface PromptTemplate {
   id: number;
   name: string;
@@ -44,30 +33,6 @@ interface PromptTemplate {
   system_prompt: string;
   user_template: string;
   description: string;
-}
-
-interface ExtensionService {
-  id: number;
-  service_type: string;
-  name: string;
-  api_key?: string;
-  endpoint?: string;
-  is_enabled: number;
-}
-
-interface LangfuseConfig {
-  configured: boolean;
-  enabled: boolean;
-  endpoint: string;
-  publicKey: string;
-  hasSecretKey: boolean;
-}
-
-interface TavilyConfig {
-  configured: boolean;
-  enabled: boolean;
-  endpoint: string;
-  hasApiKey: boolean;
 }
 
 const defaultExtensionTypes = [

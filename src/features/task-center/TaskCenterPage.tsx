@@ -74,8 +74,45 @@ const formatDuration = (ms: number | null) => {
 const getScheduleText = (job: CaptureJob) => {
   if (job.schedule_type === 'interval' && job.interval_minutes) {
     if (job.interval_minutes < 60) return `每${job.interval_minutes}分钟`;
-    return `每${job.interval_minutes / 60}小时`;
+    if (job.interval_minutes % 1440 === 0) {
+      const days = job.interval_minutes / 1440;
+      return days === 1 ? '每天' : `每${days}天`;
+    }
+    if (job.interval_minutes % 60 === 0) {
+      return `每${job.interval_minutes / 60}小时`;
+    }
+    const hours = Math.floor(job.interval_minutes / 60);
+    const minutes = job.interval_minutes % 60;
+    return `每${hours}小时${minutes}分钟`;
   }
+
+  if (job.schedule_type === 'cron' && job.cron_expression) {
+    const raw = job.cron_expression.trim();
+    const parts = raw.split(/\s+/);
+    if (parts.length >= 5) {
+      const [min, hour, dayOfMonth, month, dayOfWeek] = parts;
+      const mm = String(min).padStart(2, '0');
+      const hh = String(hour).padStart(2, '0');
+      if (dayOfMonth === '*' && month === '*' && dayOfWeek === '*') {
+        return `每日 ${hh}:${mm}`;
+      }
+      if (dayOfMonth === '*' && month === '*' && dayOfWeek !== '*') {
+        const map: Record<string, string> = {
+          '0': '日',
+          '1': '一',
+          '2': '二',
+          '3': '三',
+          '4': '四',
+          '5': '五',
+          '6': '六',
+          '7': '日',
+        };
+        const label = map[dayOfWeek] || dayOfWeek;
+        return `每周${label} ${hh}:${mm}`;
+      }
+    }
+  }
+
   return job.cron_expression || '-';
 };
 
@@ -340,10 +377,11 @@ export function TaskCenterPage({
   }, [activeTab, executionStatusFilter, timeRange]);
 
   useEffect(() => {
-    if (executionPage > executionTotalPages) {
-      setExecutionPage(executionTotalPages);
+    const totalPages = Math.max(1, Math.ceil(executionTotal / executionPageSize) || 1);
+    if (executionPage > totalPages) {
+      setExecutionPage(totalPages);
     }
-  }, [executionPage, executionTotalPages]);
+  }, [executionPage, executionTotal, executionPageSize]);
 
   useEffect(() => {
     if (activeTab !== 'generation') return;
