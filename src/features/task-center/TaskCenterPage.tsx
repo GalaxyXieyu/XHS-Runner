@@ -1,15 +1,30 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, AlertCircle, Calendar, CheckCircle2, Loader, Plus, RefreshCw } from 'lucide-react';
+import { Calendar, CheckSquare, Clock, RefreshCw, Square, Trash2 } from 'lucide-react';
 import type { AutoTask } from '@/features/task-management/types';
 import { TaskFormModal } from '@/features/workspace/components/generation/TaskFormModal';
-import { CaptureTabContent } from './components/CaptureTabContent';
+import { TaskCard } from './components/TaskCard';
+import { TaskCenterFilters, type TabType } from './components/TaskCenterFilters';
+import { getExecutionStatusStyle, getJobEnabledStyle, getTaskStatusStyle, getTaskTypeStyle } from './constants/statusStyles';
 import type { CaptureJob, GenerationTask, JobExecution, ThemeSummary } from './taskCenterTypes';
-import { calculateDuration, formatDuration, formatTime, getExecutionStatusColor, getExecutionStatusText, getStatusColor, getStatusText, mapJobToAutoTask, promptProfiles } from './taskCenterUtils';
+import { calculateDuration, formatDuration, formatTime, getScheduleText, mapJobToAutoTask, promptProfiles } from './taskCenterUtils';
+
+const getGoalLabel = (goal: AutoTask['config']['goal']) => {
+  switch (goal) {
+    case 'collects':
+      return '收藏优先';
+    case 'comments':
+      return '评论优先';
+    case 'followers':
+      return '涨粉优先';
+    default:
+      return goal;
+  }
+};
 
 interface TaskCenterPageProps {
   themes: ThemeSummary[];
   onJumpToTheme: (themeId: string) => void;
-  initialTab?: 'capture' | 'generation' | 'executions';
+  initialTab?: TabType;
   initialJobTypeFilter?: 'all' | 'capture' | 'daily_generate';
   initialThemeId?: string;
 }
@@ -21,17 +36,16 @@ export function TaskCenterPage({
   initialJobTypeFilter,
   initialThemeId,
 }: TaskCenterPageProps) {
-  const [activeTab, setActiveTab] = useState<'capture' | 'generation' | 'executions'>(initialTab || 'capture');
+  const [activeTab, setActiveTab] = useState<TabType>(initialTab || 'schedule');
   const [scheduleJobs, setScheduleJobs] = useState<CaptureJob[]>([]);
   const [generationTasks, setGenerationTasks] = useState<GenerationTask[]>([]);
   const [executions, setExecutions] = useState<JobExecution[]>([]);
   const [captureLoading, setCaptureLoading] = useState(false);
   const [generationLoading, setGenerationLoading] = useState(false);
   const [executionLoading, setExecutionLoading] = useState(false);
-  const [captureStatusFilter, setCaptureStatusFilter] = useState<'all' | 'enabled' | 'paused'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'paused'>('all');
   const [jobTypeFilter, setJobTypeFilter] = useState<'all' | 'capture' | 'daily_generate'>(initialJobTypeFilter || 'all');
-  const [taskStatusFilter, setTaskStatusFilter] = useState<'all' | 'queued' | 'running' | 'completed' | 'failed'>('all');
-  const [executionStatusFilter, setExecutionStatusFilter] = useState<'all' | 'pending' | 'running' | 'success' | 'failed' | 'canceled' | 'timeout'>('all');
+  const [historyStatusFilter, setHistoryStatusFilter] = useState<'all' | 'pending' | 'running' | 'success' | 'failed' | 'canceled' | 'timeout'>('all');
   const [timeRange, setTimeRange] = useState<'7d' | '30d' | 'all'>('7d');
   const [executionPage, setExecutionPage] = useState(1);
   const [executionTotal, setExecutionTotal] = useState(0);
@@ -44,6 +58,10 @@ export function TaskCenterPage({
   const [taskMutatingId, setTaskMutatingId] = useState<string | null>(null);
   const [jobExecutionsById, setJobExecutionsById] = useState<Record<string, any[]>>({});
   const [jobExecutionsOpenId, setJobExecutionsOpenId] = useState<string | null>(null);
+  // 批量删除状态
+  const [selectedExecutionIds, setSelectedExecutionIds] = useState<Set<number>>(new Set());
+  const [batchDeleteLoading, setBatchDeleteLoading] = useState(false);
+  const [deletingExecutionId, setDeletingExecutionId] = useState<number | null>(null);
   const focusRef = useRef<string | null>(null);
 
   const intervalOptions = [
@@ -65,11 +83,6 @@ export function TaskCenterPage({
     themes.forEach((theme) => map.set(Number(theme.id), theme.name));
     return map;
   }, [themes]);
-
-  const selectedDailyTheme = useMemo(
-    () => themes.find((theme) => String(theme.id) === String(dailyThemeId)) || null,
-    [themes, dailyThemeId]
-  );
 
   useEffect(() => {
     if (initialThemeId) {
@@ -112,7 +125,6 @@ export function TaskCenterPage({
     }
     try {
       const params = new URLSearchParams();
-      if (taskStatusFilter !== 'all') params.set('status', taskStatusFilter);
       params.set('time_range', timeRange);
       params.set('limit', '50');
       const res = await fetch(`/api/tasks?${params.toString()}`);
@@ -130,7 +142,7 @@ export function TaskCenterPage({
     setExecutionLoading(true);
     try {
       const params = new URLSearchParams();
-      if (executionStatusFilter !== 'all') params.set('status', executionStatusFilter);
+      if (historyStatusFilter !== 'all') params.set('status', historyStatusFilter);
       params.set('time_range', timeRange);
       params.set('limit', String(executionPageSize));
       params.set('offset', String((executionPage - 1) * executionPageSize));
@@ -151,15 +163,17 @@ export function TaskCenterPage({
   };
 
   useEffect(() => {
-    if (activeTab === 'capture') loadScheduleJobs();
-    if (activeTab === 'generation') loadGenerationTasks();
-    if (activeTab === 'executions') loadExecutions();
-  }, [activeTab, taskStatusFilter, executionStatusFilter, timeRange, executionPage]);
+    if (activeTab === 'schedule') {
+      loadScheduleJobs();
+      loadGenerationTasks();
+    }
+    if (activeTab === 'history') loadExecutions();
+  }, [activeTab, historyStatusFilter, timeRange, executionPage]);
 
   useEffect(() => {
-    if (activeTab !== 'executions') return;
+    if (activeTab !== 'history') return;
     setExecutionPage(1);
-  }, [activeTab, executionStatusFilter, timeRange]);
+  }, [activeTab, historyStatusFilter, timeRange]);
 
   useEffect(() => {
     const totalPages = Math.max(1, Math.ceil(executionTotal / executionPageSize) || 1);
@@ -169,7 +183,7 @@ export function TaskCenterPage({
   }, [executionPage, executionTotal, executionPageSize]);
 
   useEffect(() => {
-    if (activeTab !== 'generation') return;
+    if (activeTab !== 'schedule') return;
     const hasRunning = generationTasks.some(
       (task) => task.status === 'running' || task.status === 'queued'
     );
@@ -180,7 +194,7 @@ export function TaskCenterPage({
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [activeTab, generationTasks, taskStatusFilter, timeRange]);
+  }, [activeTab, generationTasks, timeRange]);
 
   const handleToggleJob = async (job: CaptureJob) => {
     const enabled = job.is_enabled === true || job.is_enabled === 1;
@@ -242,21 +256,21 @@ export function TaskCenterPage({
   const filteredCaptureJobs = useMemo(() => {
     return captureJobs.filter((job) => {
       const enabled = job.is_enabled === true || job.is_enabled === 1;
-      if (captureStatusFilter === 'enabled') return enabled;
-      if (captureStatusFilter === 'paused') return !enabled;
+      if (statusFilter === 'enabled') return enabled;
+      if (statusFilter === 'paused') return !enabled;
       return true;
     });
-  }, [captureJobs, captureStatusFilter]);
+  }, [captureJobs, statusFilter]);
 
   const filteredDailyJobs = useMemo(() => {
     return dailyJobs.filter((job) => {
       if (dailyThemeId && String(job.theme_id || '') !== String(dailyThemeId)) return false;
       const enabled = job.is_enabled === true || job.is_enabled === 1;
-      if (captureStatusFilter === 'enabled') return enabled;
-      if (captureStatusFilter === 'paused') return !enabled;
+      if (statusFilter === 'enabled') return enabled;
+      if (statusFilter === 'paused') return !enabled;
       return true;
     });
-  }, [dailyJobs, dailyThemeId, captureStatusFilter]);
+  }, [dailyJobs, dailyThemeId, statusFilter]);
 
   const dailyTasks = useMemo(() => filteredDailyJobs.map(mapJobToAutoTask), [filteredDailyJobs]);
 
@@ -295,6 +309,170 @@ export function TaskCenterPage({
       console.error('Failed to load job executions:', err);
       return [];
     }
+  };
+
+  const handleTriggerDailyTask = async (task: AutoTask) => {
+    setTaskSaveError('');
+    setTaskMutatingId(task.id);
+    try {
+      const res = await fetch(`/api/jobs/${task.id}/trigger`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || '触发执行失败');
+
+      await loadJobExecutions(task.id);
+      setJobExecutionsOpenId(task.id);
+    } catch (err: any) {
+      setTaskSaveError(err?.message || String(err));
+    } finally {
+      setTaskMutatingId(null);
+    }
+  };
+
+  // 删除单条执行记录
+  const handleDeleteExecution = async (id: number) => {
+    setDeletingExecutionId(id);
+    try {
+      const res = await fetch(`/api/executions/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || '删除失败');
+      }
+      setSelectedExecutionIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      // 重新加载数据
+      await loadExecutions();
+    } catch (err: any) {
+      console.error('Failed to delete execution:', err);
+      setTaskSaveError(err?.message || String(err));
+    } finally {
+      setDeletingExecutionId(null);
+    }
+  };
+
+  // 批量删除执行记录
+  const handleBatchDeleteExecutions = async () => {
+    if (selectedExecutionIds.size === 0) return;
+    setBatchDeleteLoading(true);
+    try {
+      const ids = Array.from(selectedExecutionIds);
+      const res = await fetch('/api/executions/batch-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || '批量删除失败');
+      }
+      setSelectedExecutionIds(new Set());
+      // 重新加载数据
+      await loadExecutions();
+    } catch (err: any) {
+      console.error('Failed to batch delete:', err);
+      setTaskSaveError(err?.message || String(err));
+    } finally {
+      setBatchDeleteLoading(false);
+    }
+  };
+
+  // 全选/取消全选当前页
+  const handleToggleSelectAll = () => {
+    const currentIds = new Set(executions.map((e) => e.id));
+    const allSelected = executions.every((e) => selectedExecutionIds.has(e.id));
+    if (allSelected) {
+      setSelectedExecutionIds((prev) => {
+        const next = new Set(prev);
+        currentIds.forEach((id) => next.delete(id));
+        return next;
+      });
+    } else {
+      setSelectedExecutionIds((prev) => new Set([...prev, ...currentIds]));
+    }
+  };
+
+  // 切换单条选择
+  const handleToggleSelect = (id: number) => {
+    setSelectedExecutionIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleToggleDailyTaskStatus = async (task: AutoTask) => {
+    setTaskSaveError('');
+    setTaskMutatingId(task.id);
+    try {
+      const res = await fetch(`/api/jobs/${task.id}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: task.status === 'active' ? 'paused' : 'active' }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || '切换任务状态失败');
+
+      try {
+        await (window as any).scheduler?.start?.();
+      } catch (error) {
+        console.error('启动调度器失败:', error);
+      }
+
+      await loadScheduleJobs();
+    } catch (err: any) {
+      setTaskSaveError(err?.message || String(err));
+    } finally {
+      setTaskMutatingId(null);
+    }
+  };
+
+  const handleDeleteDailyTask = async (task: AutoTask) => {
+    if (!window.confirm(`确定删除任务「${task.name}」吗？`)) return;
+
+    setTaskSaveError('');
+    setTaskMutatingId(task.id);
+    try {
+      const res = await fetch(`/api/jobs/${task.id}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || '删除任务失败');
+
+      await loadScheduleJobs();
+    } catch (err: any) {
+      setTaskSaveError(err?.message || String(err));
+    } finally {
+      setTaskMutatingId(null);
+    }
+  };
+
+  // 删除抓取任务
+  const handleDeleteCaptureJob = async (job: CaptureJob) => {
+    if (!window.confirm(`确定删除抓取任务「${job.name}」吗？`)) return;
+
+    setTaskSaveError('');
+    setTaskMutatingId(String(job.id));
+    try {
+      const res = await fetch(`/api/jobs/${job.id}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || '删除任务失败');
+
+      await loadScheduleJobs();
+    } catch (err: any) {
+      setTaskSaveError(err?.message || String(err));
+    } finally {
+      setTaskMutatingId(null);
+    }
+  };
+
+  const handleToggleDailyTaskExecutions = async (taskId: string) => {
+    const next = jobExecutionsOpenId === taskId ? null : taskId;
+    setJobExecutionsOpenId(next);
+    if (next) await loadJobExecutions(taskId);
   };
 
   const handleOpenTaskForm = (task?: AutoTask) => {
@@ -366,229 +544,334 @@ export function TaskCenterPage({
     return pages;
   }, [executionPage, executionTotalPages]);
 
+  const canTriggerJob = typeof window !== 'undefined' && Boolean((window as any).jobs?.trigger);
+
+  const renderCaptureJobCard = (job: CaptureJob) => {
+    const enabled = job.is_enabled === true || job.is_enabled === 1;
+    const themeName = job.theme_id ? themeMap.get(job.theme_id) : null;
+    const scheduleNode = editingJobId === job.id ? (
+      <select
+        autoFocus
+        value={job.interval_minutes || 60}
+        onChange={(e) => handleUpdateInterval(job, Number(e.target.value))}
+        onBlur={() => setEditingJobId(null)}
+        className="px-1 py-0.5 text-xs border border-blue-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+      >
+        {intervalOptions.map((opt) => (
+          <option key={opt.value} value={opt.value}>{opt.label}</option>
+        ))}
+      </select>
+    ) : (
+      <button
+        onClick={() => setEditingJobId(job.id)}
+        className="text-blue-600 hover:text-blue-700 hover:underline"
+        title="点击修改周期"
+      >
+        {getScheduleText(job)}
+      </button>
+    );
+
+    const actions: Array<{
+      label: string;
+      onClick: () => void | Promise<void>;
+      variant: 'primary' | 'warning' | 'danger' | 'default';
+      disabled?: boolean;
+    }> = [
+      {
+        label: enabled ? '暂停' : '启用',
+        onClick: () => handleToggleJob(job),
+        variant: enabled ? 'warning' : 'primary',
+      },
+      {
+        label: '立即执行',
+        onClick: () => handleTriggerJob(job),
+        variant: 'primary',
+        disabled: !canTriggerJob,
+      },
+    ];
+
+    if (job.theme_id) {
+      actions.push({
+        label: '去主题',
+        onClick: () => onJumpToTheme(String(job.theme_id)),
+        variant: 'default',
+      });
+    }
+
+    const isMutating = taskMutatingId === String(job.id);
+
+    return (
+      <TaskCard
+        key={`capture-${job.id}`}
+        title={job.name}
+        typeBadge={getTaskTypeStyle('capture')}
+        statusBadge={getJobEnabledStyle(enabled)}
+        metadata={[
+          { label: '主题', value: themeName || '-' },
+          { label: '周期', value: scheduleNode, highlight: true },
+          { label: '下次', value: formatTime(job.next_run_at), highlight: true },
+          { label: '上次', value: job.last_status || '-' },
+        ]}
+        actions={actions}
+        onDelete={() => handleDeleteCaptureJob(job)}
+        deleteLoading={isMutating}
+      />
+    );
+  };
+
+  const renderDailyTaskCard = (task: AutoTask) => {
+    const mutating = taskMutatingId === task.id;
+    const executions = jobExecutionsById[task.id] || [];
+    const executionsOpen = jobExecutionsOpenId === task.id;
+
+    return (
+      <TaskCard
+        key={`daily-${task.id}`}
+        title={task.name}
+        typeBadge={getTaskTypeStyle('daily_generate')}
+        statusBadge={getJobEnabledStyle(task.status === 'active')}
+        metadata={[
+          { label: '目标', value: getGoalLabel(task.config.goal) },
+          { label: '语气', value: task.config.tone },
+          { label: '数量', value: `${task.config.outputCount} 个/次`, highlight: true },
+          { label: '质量', value: `≥${task.config.minQualityScore}`, highlight: true },
+          { label: '上次', value: formatTime(task.lastRunAt || null) },
+          { label: '下次', value: formatTime(task.nextRunAt), highlight: true },
+        ]}
+        actions={[
+          {
+            label: '编辑',
+            onClick: () => handleOpenTaskForm(task),
+            variant: 'default',
+            disabled: mutating,
+          },
+          {
+            label: mutating ? '处理中...' : '立即执行',
+            onClick: () => handleTriggerDailyTask(task),
+            variant: 'primary',
+            disabled: mutating,
+            loading: mutating,
+          },
+          {
+            label: mutating ? '处理中...' : (task.status === 'active' ? '暂停' : '启动'),
+            onClick: () => handleToggleDailyTaskStatus(task),
+            variant: 'warning',
+            disabled: mutating,
+            loading: mutating,
+          },
+        ]}
+        onDelete={() => handleDeleteDailyTask(task)}
+        deleteLoading={mutating}
+        expandable={{
+          label: executionsOpen ? '收起执行历史' : '查看执行历史',
+          expanded: executionsOpen,
+          onToggle: () => handleToggleDailyTaskExecutions(task.id),
+          content: (
+            <div className="space-y-2 text-xs">
+              {executions.length === 0 ? (
+                <div className="text-xs text-gray-400">暂无执行记录</div>
+              ) : (
+                executions.map((execution: any) => {
+                  const style = getExecutionStatusStyle(execution.status);
+                  return (
+                    <div key={String(execution.id)} className="text-xs border border-gray-200 rounded p-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-700">#{execution.id} · {String(execution.trigger_type || '')}</span>
+                        <span className={`px-2 py-0.5 rounded ${style.bg} ${style.text}`}>{style.label}</span>
+                      </div>
+                      <div className="text-gray-500 mt-1">
+                        {execution.created_at ? formatTime(String(execution.created_at)) : '-'}
+                      </div>
+                      {execution.error_message ? (
+                        <div className="text-red-600 mt-1">{String(execution.error_message)}</div>
+                      ) : null}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          ),
+        }}
+      />
+    );
+  };
+
+  const renderGenerationTaskCard = (task: GenerationTask) => {
+    const themeName = task.theme_id ? themeMap.get(task.theme_id) : null;
+    const isRunning = task.status === 'running' || task.status === 'queued';
+    const isCompleted = task.status === 'completed' || task.status === 'done';
+    const progressValue = Math.max(0, Math.min(100, task.progress ?? 0));
+    const durationText = calculateDuration(task.started_at, task.finished_at);
+
+    return (
+      <TaskCard
+        key={task.id}
+        title={themeName ? `${themeName} 生成任务` : `任务 #${task.id}`}
+        statusBadge={getTaskStatusStyle(task.status)}
+        metadata={[
+          { label: '创建', value: formatTime(task.created_at) },
+          { label: '开始', value: formatTime(task.started_at) },
+          { label: '完成', value: formatTime(task.finished_at) },
+          { label: '耗时', value: durationText },
+          { label: '模型', value: task.model || '-' },
+        ]}
+        progress={isRunning ? { value: progressValue, text: progressValue > 0 ? `进度 ${progressValue}%` : '等待执行...' } : undefined}
+        success={isCompleted ? `已完成 · 耗时 ${durationText}` : undefined}
+        error={task.error_message || undefined}
+      />
+    );
+  };
+
+  const renderExecutionCard = (execution: JobExecution) => {
+    const isSelected = selectedExecutionIds.has(execution.id);
+    const isDeleting = deletingExecutionId === execution.id;
+
+    return (
+      <TaskCard
+        key={execution.id}
+        title={`任务 #${execution.job_id}`}
+        statusBadge={getExecutionStatusStyle(execution.status)}
+        metadata={[
+          { label: '触发', value: execution.trigger_type || '-' },
+          { label: '时间', value: formatTime(execution.created_at) },
+          { label: '耗时', value: formatDuration(execution.duration_ms) },
+        ]}
+        error={execution.error_message || undefined}
+        selectable
+        selected={isSelected}
+        onToggleSelect={() => handleToggleSelect(execution.id)}
+        onDelete={() => handleDeleteExecution(execution.id)}
+        deleteLoading={isDeleting}
+      />
+    );
+  };
+
   return (
     <div className="h-full flex flex-col bg-white border border-gray-200 rounded overflow-hidden">
-      <div className="border-b border-gray-200 p-3">
-        <div className="flex items-center gap-2">
-          <div className="ml-auto flex items-center gap-2">
-            <select
-              value={activeTab}
-              onChange={(e) => setActiveTab(e.target.value as 'capture' | 'generation' | 'executions')}
-              className="px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
-            >
-              <option value="capture">抓取调度</option>
-              <option value="generation">生成任务</option>
-              <option value="executions">执行历史</option>
-            </select>
-            <select
-              value={timeRange}
-              onChange={(e) => setTimeRange(e.target.value as '7d' | '30d' | 'all')}
-              className="px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
-            >
-              <option value="7d">最近7天</option>
-              <option value="30d">最近30天</option>
-              <option value="all">全部时间</option>
-            </select>
-
-            {activeTab === 'capture' && (
-              <>
-                <select
-                  value={jobTypeFilter}
-                  onChange={(e) => setJobTypeFilter(e.target.value as 'all' | 'capture' | 'daily_generate')}
-                  className="px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
-                >
-                  <option value="all">全部调度</option>
-                  <option value="capture">抓取任务</option>
-                  <option value="daily_generate">定时生成</option>
-                </select>
-                <select
-                  value={captureStatusFilter}
-                  onChange={(e) => setCaptureStatusFilter(e.target.value as 'all' | 'enabled' | 'paused')}
-                  className="px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
-                >
-                  <option value="all">全部状态</option>
-                  <option value="enabled">启用</option>
-                  <option value="paused">暂停</option>
-                </select>
-                {(jobTypeFilter === 'daily_generate' || jobTypeFilter === 'all') && (
-                  <>
-                    <select
-                      value={dailyThemeId}
-                      onChange={(e) => setDailyThemeId(e.target.value)}
-                      className="px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
-                    >
-                      {themes.length === 0 ? (
-                        <option value="">暂无主题</option>
-                      ) : (
-                        themes.map((theme) => (
-                          <option key={theme.id} value={String(theme.id)}>{theme.name}</option>
-                        ))
-                      )}
-                    </select>
-                    <button
-                      onClick={() => handleOpenTaskForm()}
-                      disabled={!selectedDailyTheme}
-                      className="px-2.5 py-1 text-xs rounded bg-red-50 text-red-600 hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      新建定时
-                    </button>
-                  </>
-                )}
-              </>
-            )}
-
-        {activeTab === 'generation' && (
-              <select
-                value={taskStatusFilter}
-                onChange={(e) => setTaskStatusFilter(e.target.value as typeof taskStatusFilter)}
-                className="px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
-              >
-                <option value="all">全部状态</option>
-                <option value="queued">排队中</option>
-                <option value="running">生成中</option>
-                <option value="completed">已完成</option>
-                <option value="failed">失败</option>
-              </select>
-            )}
-
-            {activeTab === 'executions' && (
-              <select
-                value={executionStatusFilter}
-                onChange={(e) => setExecutionStatusFilter(e.target.value as typeof executionStatusFilter)}
-                className="px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
-              >
-                <option value="all">全部状态</option>
-                <option value="pending">等待</option>
-                <option value="running">执行中</option>
-                <option value="success">成功</option>
-                <option value="failed">失败</option>
-                <option value="canceled">已取消</option>
-                <option value="timeout">超时</option>
-              </select>
-            )}
-          </div>
-        </div>
+      <div className="p-3">
+        <TaskCenterFilters
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          timeRange={timeRange}
+          onTimeRangeChange={setTimeRange}
+          jobTypeFilter={jobTypeFilter}
+          onJobTypeChange={setJobTypeFilter}
+          statusFilter={statusFilter}
+          onStatusChange={setStatusFilter}
+          themes={themes}
+          selectedThemeId={dailyThemeId}
+          onThemeChange={setDailyThemeId}
+          onCreateTask={() => handleOpenTaskForm()}
+          historyStatusFilter={historyStatusFilter}
+          onHistoryStatusChange={setHistoryStatusFilter}
+        />
       </div>
 
-      <div className={`flex-1 p-4 ${activeTab === 'executions' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
-        {activeTab === 'capture' && (
-          <CaptureTabContent
-            captureLoading={captureLoading}
-            jobTypeFilter={jobTypeFilter}
-            unifiedScheduleItems={unifiedScheduleItems}
-            filteredCaptureJobs={filteredCaptureJobs}
-            dailyTasks={dailyTasks}
-            taskSaveError={taskSaveError}
-            taskMutatingId={taskMutatingId}
-            jobExecutionsById={jobExecutionsById}
-            jobExecutionsOpenId={jobExecutionsOpenId}
-            intervalOptions={intervalOptions}
-            editingJobId={editingJobId}
-            setEditingJobId={setEditingJobId}
-            handleUpdateInterval={handleUpdateInterval}
-            handleToggleJob={handleToggleJob}
-            handleTriggerJob={handleTriggerJob}
-            onJumpToTheme={onJumpToTheme}
-            handleOpenTaskForm={handleOpenTaskForm}
-            loadJobExecutions={loadJobExecutions}
-            loadScheduleJobs={loadScheduleJobs}
-            setTaskSaveError={setTaskSaveError}
-            setTaskMutatingId={setTaskMutatingId}
-            setJobExecutionsOpenId={setJobExecutionsOpenId}
-            themeMap={themeMap}
-          />
-        )}
+      <div className={`flex-1 p-4 ${activeTab === 'history' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
+        {activeTab === 'schedule' && (
+          <div className="space-y-4">
+            {taskSaveError ? (
+              <div className="p-2 text-xs bg-red-50 text-red-700 border border-red-200 rounded">
+                {taskSaveError}
+              </div>
+            ) : null}
 
-        {activeTab === 'generation' && (
-          <div className="space-y-2">
-            {generationLoading ? (
+            {captureLoading && generationLoading ? (
               <div className="flex items-center justify-center py-12 text-gray-400">
                 <RefreshCw className="w-4 h-4 animate-spin mr-2" />
                 加载中...
               </div>
-            ) : generationTasks.length === 0 ? (
-              <div className="text-center py-12 text-gray-500">
-                <Activity className="w-10 h-10 mx-auto mb-2 text-gray-300" />
-                <div className="text-sm">暂无生成任务</div>
-                <div className="text-xs mt-1">开始内容生成后将显示在这里</div>
-              </div>
             ) : (
-              generationTasks.map((task) => {
-                const themeName = task.theme_id ? themeMap.get(task.theme_id) : null;
-                const isRunning = task.status === 'running' || task.status === 'queued';
-                const isCompleted = task.status === 'completed' || task.status === 'done';
-                const progressValue = Math.max(0, Math.min(100, task.progress ?? 0));
-                return (
-                  <div key={task.id} className="p-3 border border-gray-200 rounded-lg">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="text-sm font-medium text-gray-900">
-                          {themeName ? `${themeName} 生成任务` : `任务 #${task.id}`}
-                        </div>
-                        <div className="text-xs text-gray-500 mt-1">创建时间 · {formatTime(task.created_at)}</div>
+              <>
+                {/* 调度任务部分 */}
+                {jobTypeFilter === 'all' ? (
+                  <div className="space-y-2">
+                    {unifiedScheduleItems.length === 0 && generationTasks.length === 0 ? (
+                      <div className="text-center py-10 text-gray-500">
+                        <Clock className="w-10 h-10 mx-auto mb-2 text-gray-300" />
+                        <div className="text-sm">暂无调度任务</div>
+                        <div className="text-xs mt-1">可在主题设置中开启定时抓取或新建定时生成</div>
                       </div>
-                      <span className={`px-2 py-0.5 text-xs rounded ${getStatusColor(task.status)}`}>
-                        {getStatusText(task.status)}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs text-gray-600 mt-3">
-                      <div className="flex items-center gap-2">
-                        <span className="text-gray-400">开始</span>
-                        <span className="text-gray-700">{formatTime(task.started_at)}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-gray-400">完成</span>
-                        <span className="text-gray-700">{formatTime(task.finished_at)}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-gray-400">耗时</span>
-                        <span className="text-gray-700">{calculateDuration(task.started_at, task.finished_at)}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-gray-400">模型</span>
-                        <span className="text-gray-700">{task.model || '-'}</span>
-                      </div>
-                    </div>
-
-                    {isRunning && (
-                      <div className="mt-3">
-                        <div className="w-full bg-gray-200 rounded-full h-1.5">
-                          <div
-                            className="bg-blue-600 h-1.5 rounded-full transition-all"
-                            style={{ width: `${progressValue}%` }}
-                          />
-                        </div>
-                        <div className="text-xs text-gray-500 mt-1 flex items-center gap-2">
-                          <Loader className="w-3 h-3 animate-spin" />
-                          {progressValue > 0 ? `进度 ${progressValue}%` : '等待执行...'}
-                        </div>
-                      </div>
-                    )}
-
-                    {isCompleted && (
-                      <div className="text-xs text-green-600 flex items-center gap-1 mt-2">
-                        <CheckCircle2 className="w-3 h-3" />
-                        已完成 · 耗时 {calculateDuration(task.started_at, task.finished_at)}
-                      </div>
-                    )}
-
-                    {task.error_message && (
-                      <div className="flex items-start gap-1 text-xs text-red-600 bg-red-50 px-2 py-1 rounded mt-2">
-                        <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
-                        {task.error_message}
-                      </div>
+                    ) : (
+                      <>
+                        {unifiedScheduleItems.map((item) =>
+                          item.kind === 'capture'
+                            ? renderCaptureJobCard(item.job)
+                            : renderDailyTaskCard(item.task)
+                        )}
+                        {generationTasks.length > 0 && (
+                          <div className="mt-4 pt-4 border-t border-gray-100">
+                            <div className="text-xs text-gray-400 mb-2">生成任务</div>
+                            <div className="space-y-2">
+                              {generationTasks.map(renderGenerationTaskCard)}
+                            </div>
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
-                );
-              })
+                ) : jobTypeFilter === 'capture' ? (
+                  <div className="space-y-2">
+                    {filteredCaptureJobs.length === 0 ? (
+                      <div className="text-center py-10 text-gray-500">
+                        <Clock className="w-10 h-10 mx-auto mb-2 text-gray-300" />
+                        <div className="text-sm">暂无抓取调度任务</div>
+                        <div className="text-xs mt-1">可在主题设置中开启定时抓取</div>
+                      </div>
+                    ) : (
+                      filteredCaptureJobs.map(renderCaptureJobCard)
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {dailyTasks.length === 0 ? (
+                      <div className="text-center py-10 text-gray-500">
+                        <Clock className="w-10 h-10 mx-auto mb-2 text-gray-300" />
+                        <div className="text-sm">暂无定时生成任务</div>
+                        <div className="text-xs mt-1">可在任务中心新建定时生成</div>
+                      </div>
+                    ) : (
+                      dailyTasks.map(renderDailyTaskCard)
+                    )}
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
 
-        {activeTab === 'executions' && (
+        {activeTab === 'history' && (
           <div className="h-full flex flex-col">
+            {/* 批量操作工具栏 */}
+            {executions.length > 0 && (
+              <div className="flex items-center gap-3 mb-3 pb-3 border-b border-gray-100">
+                <button
+                  onClick={handleToggleSelectAll}
+                  className="flex items-center gap-1.5 px-2 py-1 text-xs text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+                >
+                  {executions.every((e) => selectedExecutionIds.has(e.id)) ? (
+                    <CheckSquare className="w-3.5 h-3.5 text-blue-600" />
+                  ) : (
+                    <Square className="w-3.5 h-3.5" />
+                  )}
+                  全选
+                </button>
+                {selectedExecutionIds.size > 0 && (
+                  <>
+                    <span className="text-xs text-gray-400">已选 {selectedExecutionIds.size} 条</span>
+                    <button
+                      onClick={handleBatchDeleteExecutions}
+                      disabled={batchDeleteLoading}
+                      className="flex items-center gap-1 px-2.5 py-1 text-xs bg-red-50 text-red-600 hover:bg-red-100 rounded transition-colors disabled:opacity-50"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      {batchDeleteLoading ? '删除中...' : '批量删除'}
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+
             {executionLoading ? (
               <div className="flex items-center justify-center py-12 text-gray-400">
                 <RefreshCw className="w-4 h-4 animate-spin mr-2" />
@@ -601,36 +884,8 @@ export function TaskCenterPage({
                 <div className="text-xs mt-1">调度执行后将显示在这里</div>
               </div>
             ) : (
-              <div className="space-y-2 flex-1">
-                {executions.map((execution) => (
-                  <div key={execution.id} className="p-3 border border-gray-200 rounded-lg">
-                    <div className="flex items-start justify-between">
-                      <div className="text-sm font-medium text-gray-900">任务 #{execution.job_id}</div>
-                      <span className={`px-2 py-0.5 text-xs rounded ${getExecutionStatusColor(execution.status)}`}>
-                        {getExecutionStatusText(execution.status)}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs text-gray-600 mt-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-gray-400">触发</span>
-                        <span className="text-gray-700">{execution.trigger_type || '-'}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-gray-400">时间</span>
-                        <span className="text-gray-700">{formatTime(execution.created_at)}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-gray-400">耗时</span>
-                        <span className="text-gray-700">{formatDuration(execution.duration_ms)}</span>
-                      </div>
-                    </div>
-
-                    {execution.error_message && (
-                      <div className="text-xs text-red-600 mt-2">{execution.error_message}</div>
-                    )}
-                  </div>
-                ))}
+              <div className="space-y-2 flex-1 overflow-y-auto">
+                {executions.map(renderExecutionCard)}
               </div>
             )}
 

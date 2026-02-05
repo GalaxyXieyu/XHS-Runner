@@ -1,26 +1,26 @@
 // 任务状态样式（生成任务）
 export const TASK_STATUS_STYLES = {
-  queued: { bg: 'bg-gray-100', text: 'text-gray-600', label: '排队中' },
-  running: { bg: 'bg-blue-100', text: 'text-blue-700', label: '生成中' },
-  completed: { bg: 'bg-green-100', text: 'text-green-700', label: '已完成' },
-  done: { bg: 'bg-green-100', text: 'text-green-700', label: '已完成' },
-  failed: { bg: 'bg-red-100', text: 'text-red-700', label: '失败' },
+  queued: { bg: 'bg-gray-100', text: 'text-gray-600', label: '排队中', dot: 'bg-gray-400' },
+  running: { bg: 'bg-blue-100', text: 'text-blue-700', label: '生成中', dot: 'bg-blue-500 animate-pulse' },
+  completed: { bg: 'bg-green-100', text: 'text-green-700', label: '已完成', dot: 'bg-green-500' },
+  done: { bg: 'bg-green-100', text: 'text-green-700', label: '已完成', dot: 'bg-green-500' },
+  failed: { bg: 'bg-red-100', text: 'text-red-700', label: '失败', dot: 'bg-red-500' },
 } as const;
 
 // 执行状态样式
 export const EXECUTION_STATUS_STYLES = {
-  pending: { bg: 'bg-yellow-100', text: 'text-yellow-700', label: '等待' },
-  running: { bg: 'bg-blue-100', text: 'text-blue-700', label: '执行中' },
-  success: { bg: 'bg-green-100', text: 'text-green-700', label: '成功' },
-  failed: { bg: 'bg-red-100', text: 'text-red-700', label: '失败' },
-  canceled: { bg: 'bg-gray-200', text: 'text-gray-600', label: '已取消' },
-  timeout: { bg: 'bg-red-100', text: 'text-red-700', label: '超时' },
+  pending: { bg: 'bg-yellow-100', text: 'text-yellow-700', label: '等待', dot: 'bg-yellow-500' },
+  running: { bg: 'bg-blue-100', text: 'text-blue-700', label: '执行中', dot: 'bg-blue-500 animate-pulse' },
+  success: { bg: 'bg-green-100', text: 'text-green-700', label: '成功', dot: 'bg-green-500' },
+  failed: { bg: 'bg-red-100', text: 'text-red-700', label: '失败', dot: 'bg-red-500' },
+  canceled: { bg: 'bg-gray-200', text: 'text-gray-600', label: '已取消', dot: 'bg-gray-400' },
+  timeout: { bg: 'bg-red-100', text: 'text-red-700', label: '超时', dot: 'bg-red-500' },
 } as const;
 
 // 调度任务启用状态样式
 export const JOB_ENABLED_STYLES = {
-  enabled: { bg: 'bg-green-100', text: 'text-green-700', label: '启用中' },
-  paused: { bg: 'bg-yellow-100', text: 'text-yellow-700', label: '已暂停' },
+  enabled: { bg: 'bg-green-50', text: 'text-green-700', label: '启用中', dot: 'bg-green-500 animate-pulse' },
+  paused: { bg: 'bg-gray-100', text: 'text-gray-600', label: '已暂停', dot: 'bg-gray-400' },
 } as const;
 
 // 任务类型标签样式
@@ -35,6 +35,7 @@ export function getTaskStatusStyle(status: string) {
     bg: 'bg-gray-100',
     text: 'text-gray-600',
     label: status,
+    dot: 'bg-gray-400',
   };
 }
 
@@ -43,6 +44,7 @@ export function getExecutionStatusStyle(status: string) {
     bg: 'bg-gray-100',
     text: 'text-gray-600',
     label: status,
+    dot: 'bg-gray-400',
   };
 }
 

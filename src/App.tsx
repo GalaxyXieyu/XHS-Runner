@@ -117,7 +117,7 @@ export default function App() {
   // CreativeTab 子 tab 状态提升
   const [creativeMainTab, setCreativeMainTab] = useState<'generate' | 'library'>('generate');
   const [taskCenterFocus, setTaskCenterFocus] = useState<{
-    tab?: 'capture' | 'generation' | 'executions';
+    tab?: 'schedule' | 'history';
     jobType?: 'all' | 'capture' | 'daily_generate';
     themeId?: string;
   } | null>(null);
@@ -265,7 +265,7 @@ export default function App() {
   };
 
   const navigateToTaskCenter = (_taskIds?: number[], focus?: {
-    tab?: 'capture' | 'generation' | 'executions';
+    tab?: 'schedule' | 'history';
     jobType?: 'all' | 'capture' | 'daily_generate';
     themeId?: string;
   }) => {

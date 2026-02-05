@@ -1,13 +1,12 @@
 import { Plus } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { FilterDropdown, ActiveFilterPill, TimeRangeDropdown } from './FilterDropdown';
 import type { ThemeSummary } from '../taskCenterTypes';
 
-type TabType = 'capture' | 'generation' | 'executions';
+export type TabType = 'schedule' | 'history';
 type JobTypeFilter = 'all' | 'capture' | 'daily_generate';
-type CaptureStatusFilter = 'all' | 'enabled' | 'paused';
-type TaskStatusFilter = 'all' | 'queued' | 'running' | 'completed' | 'failed';
-type ExecutionStatusFilter = 'all' | 'pending' | 'running' | 'success' | 'failed' | 'canceled' | 'timeout';
+type StatusFilter = 'all' | 'enabled' | 'paused';
+type HistoryStatusFilter = 'all' | 'pending' | 'running' | 'success' | 'failed' | 'canceled' | 'timeout';
 type TimeRange = '7d' | '30d' | 'all';
 
 interface TaskCenterFiltersProps {
@@ -15,21 +14,18 @@ interface TaskCenterFiltersProps {
   onTabChange: (tab: TabType) => void;
   timeRange: TimeRange;
   onTimeRangeChange: (range: TimeRange) => void;
-  // Capture filters
+  // Schedule filters
   jobTypeFilter: JobTypeFilter;
   onJobTypeChange: (type: JobTypeFilter) => void;
-  captureStatusFilter: CaptureStatusFilter;
-  onCaptureStatusChange: (status: CaptureStatusFilter) => void;
+  statusFilter: StatusFilter;
+  onStatusChange: (status: StatusFilter) => void;
   themes: ThemeSummary[];
-  dailyThemeId: string;
-  onDailyThemeChange: (themeId: string) => void;
+  selectedThemeId: string;
+  onThemeChange: (themeId: string) => void;
   onCreateTask: () => void;
-  // Generation filters
-  taskStatusFilter: TaskStatusFilter;
-  onTaskStatusChange: (status: TaskStatusFilter) => void;
-  // Execution filters
-  executionStatusFilter: ExecutionStatusFilter;
-  onExecutionStatusChange: (status: ExecutionStatusFilter) => void;
+  // History filters
+  historyStatusFilter: HistoryStatusFilter;
+  onHistoryStatusChange: (status: HistoryStatusFilter) => void;
 }
 
 export function TaskCenterFilters({
@@ -39,137 +35,146 @@ export function TaskCenterFilters({
   onTimeRangeChange,
   jobTypeFilter,
   onJobTypeChange,
-  captureStatusFilter,
-  onCaptureStatusChange,
+  statusFilter,
+  onStatusChange,
   themes,
-  dailyThemeId,
-  onDailyThemeChange,
+  selectedThemeId,
+  onThemeChange,
   onCreateTask,
-  taskStatusFilter,
-  onTaskStatusChange,
-  executionStatusFilter,
-  onExecutionStatusChange,
+  historyStatusFilter,
+  onHistoryStatusChange,
 }: TaskCenterFiltersProps) {
+  // Build filter groups based on active tab
+  const filterGroups = activeTab === 'schedule'
+    ? [
+        {
+          id: 'type',
+          label: '类型',
+          options: [
+            { id: 'all', label: '全部', value: 'all' },
+            { id: 'capture', label: '抓取', value: 'capture' },
+            { id: 'daily_generate', label: '定时生成', value: 'daily_generate' },
+          ],
+          value: jobTypeFilter,
+          onChange: (v: string) => onJobTypeChange(v as JobTypeFilter),
+        },
+        {
+          id: 'status',
+          label: '状态',
+          options: [
+            { id: 'all', label: '全部', value: 'all' },
+            { id: 'enabled', label: '启用', value: 'enabled' },
+            { id: 'paused', label: '暂停', value: 'paused' },
+          ],
+          value: statusFilter,
+          onChange: (v: string) => onStatusChange(v as StatusFilter),
+        },
+        {
+          id: 'theme',
+          label: '主题',
+          options: themes.map((t) => ({
+            id: String(t.id),
+            label: t.name,
+            value: String(t.id),
+          })),
+          value: selectedThemeId,
+          onChange: onThemeChange,
+        },
+      ]
+    : [
+        {
+          id: 'status',
+          label: '状态',
+          options: [
+            { id: 'all', label: '全部', value: 'all' },
+            { id: 'success', label: '成功', value: 'success' },
+            { id: 'failed', label: '失败', value: 'failed' },
+            { id: 'running', label: '执行中', value: 'running' },
+          ],
+          value: historyStatusFilter,
+          onChange: (v: string) => onHistoryStatusChange(v as HistoryStatusFilter),
+        },
+      ];
+
+  // Build active pills
+  const activePills: Array<{ label: string; onRemove: (() => void) | null }> = [];
+
+  if (activeTab === 'schedule') {
+    if (jobTypeFilter !== 'all') {
+      activePills.push({
+        label: jobTypeFilter === 'capture' ? '抓取' : '定时生成',
+        onRemove: () => onJobTypeChange('all'),
+      });
+    }
+    if (statusFilter !== 'all') {
+      activePills.push({
+        label: statusFilter === 'enabled' ? '启用中' : '已暂停',
+        onRemove: () => onStatusChange('all'),
+      });
+    }
+    const themeName = themes.find((t) => String(t.id) === selectedThemeId)?.name;
+    if (themeName && themes.length > 1) {
+      activePills.push({ label: themeName, onRemove: null });
+    }
+  } else {
+    if (historyStatusFilter !== 'all') {
+      const labels: Record<string, string> = {
+        success: '成功',
+        failed: '失败',
+        running: '执行中',
+        pending: '等待中',
+        canceled: '已取消',
+        timeout: '超时',
+      };
+      activePills.push({
+        label: labels[historyStatusFilter] || historyStatusFilter,
+        onRemove: () => onHistoryStatusChange('all'),
+      });
+    }
+  }
+
   return (
-    <div className="border-b border-gray-200 pb-3 space-y-3">
-      {/* Row 1: Main Tabs + Time Range */}
-      <div className="flex items-center justify-between gap-4">
+    <div className="space-y-3">
+      {/* Row 1: Tabs + Actions */}
+      <div className="flex items-center justify-between">
         <Tabs value={activeTab} onValueChange={(v) => onTabChange(v as TabType)}>
-          <TabsList className="h-8">
-            <TabsTrigger value="capture" className="text-xs px-3">抓取调度</TabsTrigger>
-            <TabsTrigger value="generation" className="text-xs px-3">生成任务</TabsTrigger>
-            <TabsTrigger value="executions" className="text-xs px-3">执行历史</TabsTrigger>
+          <TabsList className="h-8 bg-gray-100/50 p-0.5 rounded-lg">
+            <TabsTrigger
+              value="schedule"
+              className="text-xs px-4 rounded-md data-[state=active]:bg-white data-[state=active]:shadow-sm"
+            >
+              任务调度
+            </TabsTrigger>
+            <TabsTrigger
+              value="history"
+              className="text-xs px-4 rounded-md data-[state=active]:bg-white data-[state=active]:shadow-sm"
+            >
+              执行历史
+            </TabsTrigger>
           </TabsList>
         </Tabs>
 
-        <ToggleGroup
-          type="single"
-          value={timeRange}
-          onValueChange={(v) => v && onTimeRangeChange(v as TimeRange)}
-          variant="outline"
-          size="sm"
-          className="h-7"
-        >
-          <ToggleGroupItem value="7d" className="text-xs px-2 h-7">7天</ToggleGroupItem>
-          <ToggleGroupItem value="30d" className="text-xs px-2 h-7">30天</ToggleGroupItem>
-          <ToggleGroupItem value="all" className="text-xs px-2 h-7">全部</ToggleGroupItem>
-        </ToggleGroup>
+        <div className="flex items-center gap-2">
+          {activeTab === 'schedule' && (
+            <button
+              onClick={onCreateTask}
+              disabled={themes.length === 0}
+              className="h-7 px-3 text-xs rounded-md font-medium bg-gray-900 text-white hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              新建
+            </button>
+          )}
+          <TimeRangeDropdown value={timeRange} onChange={onTimeRangeChange} />
+        </div>
       </div>
 
-      {/* Row 2: Context-specific filters */}
-      <div className="flex items-center gap-3 flex-wrap">
-        {activeTab === 'capture' && (
-          <>
-            <ToggleGroup
-              type="single"
-              value={jobTypeFilter}
-              onValueChange={(v) => v && onJobTypeChange(v as JobTypeFilter)}
-              variant="outline"
-              size="sm"
-              className="h-7"
-            >
-              <ToggleGroupItem value="all" className="text-xs px-2 h-7">全部</ToggleGroupItem>
-              <ToggleGroupItem value="capture" className="text-xs px-2 h-7">抓取</ToggleGroupItem>
-              <ToggleGroupItem value="daily_generate" className="text-xs px-2 h-7">定时生成</ToggleGroupItem>
-            </ToggleGroup>
-
-            <ToggleGroup
-              type="single"
-              value={captureStatusFilter}
-              onValueChange={(v) => v && onCaptureStatusChange(v as CaptureStatusFilter)}
-              variant="outline"
-              size="sm"
-              className="h-7"
-            >
-              <ToggleGroupItem value="all" className="text-xs px-2 h-7">全部</ToggleGroupItem>
-              <ToggleGroupItem value="enabled" className="text-xs px-2 h-7">启用</ToggleGroupItem>
-              <ToggleGroupItem value="paused" className="text-xs px-2 h-7">暂停</ToggleGroupItem>
-            </ToggleGroup>
-
-            {(jobTypeFilter === 'daily_generate' || jobTypeFilter === 'all') && (
-              <>
-                <select
-                  value={dailyThemeId}
-                  onChange={(e) => onDailyThemeChange(e.target.value)}
-                  className="h-7 px-2 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
-                >
-                  {themes.length === 0 ? (
-                    <option value="">暂无主题</option>
-                  ) : (
-                    themes.map((theme) => (
-                      <option key={theme.id} value={String(theme.id)}>{theme.name}</option>
-                    ))
-                  )}
-                </select>
-
-                <button
-                  onClick={onCreateTask}
-                  disabled={themes.length === 0}
-                  className="h-7 px-3 text-xs rounded-md bg-red-50 text-red-600 hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  新建定时
-                </button>
-              </>
-            )}
-          </>
-        )}
-
-        {activeTab === 'generation' && (
-          <ToggleGroup
-            type="single"
-            value={taskStatusFilter}
-            onValueChange={(v) => v && onTaskStatusChange(v as TaskStatusFilter)}
-            variant="outline"
-            size="sm"
-            className="h-7"
-          >
-            <ToggleGroupItem value="all" className="text-xs px-2 h-7">全部</ToggleGroupItem>
-            <ToggleGroupItem value="queued" className="text-xs px-2 h-7">排队</ToggleGroupItem>
-            <ToggleGroupItem value="running" className="text-xs px-2 h-7">生成中</ToggleGroupItem>
-            <ToggleGroupItem value="completed" className="text-xs px-2 h-7">完成</ToggleGroupItem>
-            <ToggleGroupItem value="failed" className="text-xs px-2 h-7">失败</ToggleGroupItem>
-          </ToggleGroup>
-        )}
-
-        {activeTab === 'executions' && (
-          <ToggleGroup
-            type="single"
-            value={executionStatusFilter}
-            onValueChange={(v) => v && onExecutionStatusChange(v as ExecutionStatusFilter)}
-            variant="outline"
-            size="sm"
-            className="h-7"
-          >
-            <ToggleGroupItem value="all" className="text-xs px-2 h-7">全部</ToggleGroupItem>
-            <ToggleGroupItem value="pending" className="text-xs px-2 h-7">等待</ToggleGroupItem>
-            <ToggleGroupItem value="running" className="text-xs px-2 h-7">执行中</ToggleGroupItem>
-            <ToggleGroupItem value="success" className="text-xs px-2 h-7">成功</ToggleGroupItem>
-            <ToggleGroupItem value="failed" className="text-xs px-2 h-7">失败</ToggleGroupItem>
-            <ToggleGroupItem value="canceled" className="text-xs px-2 h-7">取消</ToggleGroupItem>
-            <ToggleGroupItem value="timeout" className="text-xs px-2 h-7">超时</ToggleGroupItem>
-          </ToggleGroup>
-        )}
+      {/* Row 2: Filter Button + Active Pills */}
+      <div className="flex items-center gap-2 min-h-[28px]">
+        <FilterDropdown groups={filterGroups} />
+        {activePills.map((pill, idx) => (
+          <ActiveFilterPill key={idx} label={pill.label} onRemove={pill.onRemove} />
+        ))}
       </div>
     </div>
   );
