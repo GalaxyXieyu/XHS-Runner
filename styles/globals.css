@@ -177,3 +177,42 @@ body {
 .scrollbar-hide::-webkit-scrollbar {
   display: none; /* Chrome, Safari, Opera */
 }
+
+/* AI Fill Button Animations */
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+@keyframes particle-1 {
+  0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  100% { transform: translate(-150%, -200%) scale(0); opacity: 0; }
+}
+
+@keyframes particle-2 {
+  0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  100% { transform: translate(100%, -180%) scale(0); opacity: 0; }
+}
+
+@keyframes particle-3 {
+  0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  100% { transform: translate(50%, 150%) scale(0); opacity: 0; }
+}
+
+.animate-shimmer {
+  animation: shimmer 1.5s infinite;
+}
+
+.animate-particle-1 {
+  animation: particle-1 0.6s ease-out forwards;
+}
+
+.animate-particle-2 {
+  animation: particle-2 0.6s ease-out forwards;
+  animation-delay: 0.1s;
+}
+
+.animate-particle-3 {
+  animation: particle-3 0.6s ease-out forwards;
+  animation-delay: 0.2s;
+}

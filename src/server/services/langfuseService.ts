@@ -174,6 +174,25 @@ export async function isLangfuseEnabled(): Promise<boolean> {
   return config?.enabled ?? false;
 }
 
+/**
+ * 获取 Langfuse 配置（用于 langfuse-langchain CallbackHandler）
+ */
+export async function getLangfuseCallbackConfig(): Promise<{
+  publicKey: string;
+  secretKey: string;
+  baseUrl: string;
+} | null> {
+  const config = await getLangfuseConfig();
+  if (!config?.enabled || !config.secretKey || !config.publicKey) {
+    return null;
+  }
+  return {
+    publicKey: config.publicKey,
+    secretKey: config.secretKey,
+    baseUrl: config.baseUrl,
+  };
+}
+
 function buildDatasetName(agentName: string) {
   return `xhs-dataset-${agentName}`;
 }
