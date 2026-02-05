@@ -47,3 +47,24 @@ export type ThemeSummary = {
 export type UnifiedScheduleItem =
   | { kind: 'capture'; sortAt: string; job: CaptureJob }
   | { kind: 'daily'; sortAt: string; task: AutoTask };
+
+// 统一执行历史类型
+export type UnifiedExecutionType = 'job_execution' | 'generation_task' | 'publish_record';
+
+export type UnifiedExecutionItem = {
+  id: number;
+  type: UnifiedExecutionType;
+  status: string;
+  title: string;
+  subtitle?: string;
+  trigger_type?: string;
+  duration_ms?: number | null;
+  error_message?: string | null;
+  created_at: string;
+  finished_at?: string | null;
+  // 关联数据
+  job_id?: number;
+  theme_id?: number | null;
+  creative_id?: number | null;
+  progress?: number | null;
+};

@@ -7,6 +7,7 @@ export type TabType = 'schedule' | 'history';
 type JobTypeFilter = 'all' | 'capture' | 'daily_generate';
 type StatusFilter = 'all' | 'enabled' | 'paused';
 type HistoryStatusFilter = 'all' | 'pending' | 'running' | 'success' | 'failed' | 'canceled' | 'timeout';
+type HistoryTypeFilter = 'all' | 'job_execution' | 'generation_task' | 'publish_record';
 type TimeRange = '7d' | '30d' | 'all';
 
 interface TaskCenterFiltersProps {
@@ -26,6 +27,8 @@ interface TaskCenterFiltersProps {
   // History filters
   historyStatusFilter: HistoryStatusFilter;
   onHistoryStatusChange: (status: HistoryStatusFilter) => void;
+  historyTypeFilter: HistoryTypeFilter;
+  onHistoryTypeChange: (type: HistoryTypeFilter) => void;
 }
 
 export function TaskCenterFilters({
@@ -43,6 +46,8 @@ export function TaskCenterFilters({
   onCreateTask,
   historyStatusFilter,
   onHistoryStatusChange,
+  historyTypeFilter,
+  onHistoryTypeChange,
 }: TaskCenterFiltersProps) {
   // Build filter groups based on active tab
   const filterGroups = activeTab === 'schedule'
@@ -83,6 +88,18 @@ export function TaskCenterFilters({
       ]
     : [
         {
+          id: 'type',
+          label: '类型',
+          options: [
+            { id: 'all', label: '全部', value: 'all' },
+            { id: 'job_execution', label: '调度执行', value: 'job_execution' },
+            { id: 'generation_task', label: '内容生成', value: 'generation_task' },
+            { id: 'publish_record', label: '发布', value: 'publish_record' },
+          ],
+          value: historyTypeFilter,
+          onChange: (v: string) => onHistoryTypeChange(v as HistoryTypeFilter),
+        },
+        {
           id: 'status',
           label: '状态',
           options: [
@@ -117,6 +134,17 @@ export function TaskCenterFilters({
       activePills.push({ label: themeName, onRemove: null });
     }
   } else {
+    if (historyTypeFilter !== 'all') {
+      const typeLabels: Record<string, string> = {
+        job_execution: '调度执行',
+        generation_task: '内容生成',
+        publish_record: '发布',
+      };
+      activePills.push({
+        label: typeLabels[historyTypeFilter] || historyTypeFilter,
+        onRemove: () => onHistoryTypeChange('all'),
+      });
+    }
     if (historyStatusFilter !== 'all') {
       const labels: Record<string, string> = {
         success: '成功',

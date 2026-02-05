@@ -4,8 +4,8 @@ import type { AutoTask } from '@/features/task-management/types';
 import { TaskFormModal } from '@/features/workspace/components/generation/TaskFormModal';
 import { TaskCard } from './components/TaskCard';
 import { TaskCenterFilters, type TabType } from './components/TaskCenterFilters';
-import { getExecutionStatusStyle, getJobEnabledStyle, getTaskStatusStyle, getTaskTypeStyle } from './constants/statusStyles';
-import type { CaptureJob, GenerationTask, JobExecution, ThemeSummary } from './taskCenterTypes';
+import { getExecutionStatusStyle, getJobEnabledStyle, getTaskStatusStyle, getTaskTypeStyle, getUnifiedExecutionTypeStyle } from './constants/statusStyles';
+import type { CaptureJob, GenerationTask, ThemeSummary, UnifiedExecutionItem } from './taskCenterTypes';
 import { calculateDuration, formatDuration, formatTime, getScheduleText, mapJobToAutoTask, promptProfiles } from './taskCenterUtils';
 
 const getGoalLabel = (goal: AutoTask['config']['goal']) => {
@@ -39,13 +39,14 @@ export function TaskCenterPage({
   const [activeTab, setActiveTab] = useState<TabType>(initialTab || 'schedule');
   const [scheduleJobs, setScheduleJobs] = useState<CaptureJob[]>([]);
   const [generationTasks, setGenerationTasks] = useState<GenerationTask[]>([]);
-  const [executions, setExecutions] = useState<JobExecution[]>([]);
+  const [executions, setExecutions] = useState<UnifiedExecutionItem[]>([]);
   const [captureLoading, setCaptureLoading] = useState(false);
   const [generationLoading, setGenerationLoading] = useState(false);
   const [executionLoading, setExecutionLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'paused'>('all');
   const [jobTypeFilter, setJobTypeFilter] = useState<'all' | 'capture' | 'daily_generate'>(initialJobTypeFilter || 'all');
   const [historyStatusFilter, setHistoryStatusFilter] = useState<'all' | 'pending' | 'running' | 'success' | 'failed' | 'canceled' | 'timeout'>('all');
+  const [historyTypeFilter, setHistoryTypeFilter] = useState<'all' | 'job_execution' | 'generation_task' | 'publish_record'>('all');
   const [timeRange, setTimeRange] = useState<'7d' | '30d' | 'all'>('7d');
   const [executionPage, setExecutionPage] = useState(1);
   const [executionTotal, setExecutionTotal] = useState(0);
@@ -58,10 +59,10 @@ export function TaskCenterPage({
   const [taskMutatingId, setTaskMutatingId] = useState<string | null>(null);
   const [jobExecutionsById, setJobExecutionsById] = useState<Record<string, any[]>>({});
   const [jobExecutionsOpenId, setJobExecutionsOpenId] = useState<string | null>(null);
-  // 批量删除状态
-  const [selectedExecutionIds, setSelectedExecutionIds] = useState<Set<number>>(new Set());
+  // 批量删除状态 - 使用 type-id 作为唯一键
+  const [selectedExecutionKeys, setSelectedExecutionKeys] = useState<Set<string>>(new Set());
   const [batchDeleteLoading, setBatchDeleteLoading] = useState(false);
-  const [deletingExecutionId, setDeletingExecutionId] = useState<number | null>(null);
+  const [deletingExecutionKey, setDeletingExecutionKey] = useState<string | null>(null);
   const focusRef = useRef<string | null>(null);
 
   const intervalOptions = [
@@ -143,11 +144,12 @@ export function TaskCenterPage({
     try {
       const params = new URLSearchParams();
       if (historyStatusFilter !== 'all') params.set('status', historyStatusFilter);
+      if (historyTypeFilter !== 'all') params.set('type', historyTypeFilter);
       params.set('time_range', timeRange);
       params.set('limit', String(executionPageSize));
       params.set('offset', String((executionPage - 1) * executionPageSize));
       params.set('includeTotal', '1');
-      const res = await fetch(`/api/executions?${params.toString()}`);
+      const res = await fetch(`/api/executions/unified?${params.toString()}`);
       const data = await res.json().catch(() => ({}));
       const items = Array.isArray(data) ? data : data.items;
       setExecutions(Array.isArray(items) ? items : []);
@@ -168,12 +170,12 @@ export function TaskCenterPage({
       loadGenerationTasks();
     }
     if (activeTab === 'history') loadExecutions();
-  }, [activeTab, historyStatusFilter, timeRange, executionPage]);
+  }, [activeTab, historyStatusFilter, historyTypeFilter, timeRange, executionPage]);
 
   useEffect(() => {
     if (activeTab !== 'history') return;
     setExecutionPage(1);
-  }, [activeTab, historyStatusFilter, timeRange]);
+  }, [activeTab, historyStatusFilter, historyTypeFilter, timeRange]);
 
   useEffect(() => {
     const totalPages = Math.max(1, Math.ceil(executionTotal / executionPageSize) || 1);
@@ -329,17 +331,31 @@ export function TaskCenterPage({
   };
 
   // 删除单条执行记录
-  const handleDeleteExecution = async (id: number) => {
-    setDeletingExecutionId(id);
+  const handleDeleteExecution = async (type: string, id: number) => {
+    const key = `${type}-${id}`;
+    setDeletingExecutionKey(key);
     try {
-      const res = await fetch(`/api/executions/${id}`, { method: 'DELETE' });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error || '删除失败');
+      // 根据类型调用不同的删除 API
+      let endpoint = '';
+      if (type === 'job_execution') {
+        endpoint = `/api/executions/${id}`;
+      } else if (type === 'generation_task') {
+        endpoint = `/api/tasks/${id}`;
+      } else if (type === 'publish_record') {
+        endpoint = `/api/publish-records/${id}`;
       }
-      setSelectedExecutionIds((prev) => {
+
+      if (endpoint) {
+        const res = await fetch(endpoint, { method: 'DELETE' });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data?.error || '删除失败');
+        }
+      }
+
+      setSelectedExecutionKeys((prev) => {
         const next = new Set(prev);
-        next.delete(id);
+        next.delete(key);
         return next;
       });
       // 重新加载数据
@@ -348,26 +364,76 @@ export function TaskCenterPage({
       console.error('Failed to delete execution:', err);
       setTaskSaveError(err?.message || String(err));
     } finally {
-      setDeletingExecutionId(null);
+      setDeletingExecutionKey(null);
     }
   };
 
   // 批量删除执行记录
   const handleBatchDeleteExecutions = async () => {
-    if (selectedExecutionIds.size === 0) return;
+    if (selectedExecutionKeys.size === 0) return;
     setBatchDeleteLoading(true);
     try {
-      const ids = Array.from(selectedExecutionIds);
-      const res = await fetch('/api/executions/batch-delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids }),
+      // 按类型分组
+      const byType: Record<string, number[]> = {};
+      selectedExecutionKeys.forEach((key) => {
+        const [type, idStr] = key.split('-');
+        const id = Number(idStr);
+        if (!byType[type]) byType[type] = [];
+        byType[type].push(id);
       });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error || '批量删除失败');
+
+      // 并行删除各类型
+      const promises: Promise<void>[] = [];
+
+      if (byType.job_execution?.length) {
+        promises.push(
+          fetch('/api/executions/batch-delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids: byType.job_execution }),
+          }).then(async (res) => {
+            if (!res.ok) {
+              const data = await res.json().catch(() => ({}));
+              throw new Error(data?.error || '删除调度执行失败');
+            }
+          })
+        );
       }
-      setSelectedExecutionIds(new Set());
+
+      // generation_task 批量删除
+      if (byType.generation_task?.length) {
+        promises.push(
+          fetch('/api/tasks/batch-delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids: byType.generation_task }),
+          }).then(async (res) => {
+            if (!res.ok) {
+              const data = await res.json().catch(() => ({}));
+              throw new Error(data?.error || '删除内容生成任务失败');
+            }
+          })
+        );
+      }
+
+      // publish_record 批量删除
+      if (byType.publish_record?.length) {
+        promises.push(
+          fetch('/api/publish-records/batch-delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids: byType.publish_record }),
+          }).then(async (res) => {
+            if (!res.ok) {
+              const data = await res.json().catch(() => ({}));
+              throw new Error(data?.error || '删除发布记录失败');
+            }
+          })
+        );
+      }
+
+      await Promise.all(promises);
+      setSelectedExecutionKeys(new Set());
       // 重新加载数据
       await loadExecutions();
     } catch (err: any) {
@@ -380,27 +446,28 @@ export function TaskCenterPage({
 
   // 全选/取消全选当前页
   const handleToggleSelectAll = () => {
-    const currentIds = new Set(executions.map((e) => e.id));
-    const allSelected = executions.every((e) => selectedExecutionIds.has(e.id));
+    const currentKeys = new Set(executions.map((e) => `${e.type}-${e.id}`));
+    const allSelected = executions.every((e) => selectedExecutionKeys.has(`${e.type}-${e.id}`));
     if (allSelected) {
-      setSelectedExecutionIds((prev) => {
+      setSelectedExecutionKeys((prev) => {
         const next = new Set(prev);
-        currentIds.forEach((id) => next.delete(id));
+        currentKeys.forEach((key) => next.delete(key));
         return next;
       });
     } else {
-      setSelectedExecutionIds((prev) => new Set([...prev, ...currentIds]));
+      setSelectedExecutionKeys((prev) => new Set([...prev, ...currentKeys]));
     }
   };
 
   // 切换单条选择
-  const handleToggleSelect = (id: number) => {
-    setSelectedExecutionIds((prev) => {
+  const handleToggleSelect = (type: string, id: number) => {
+    const key = `${type}-${id}`;
+    setSelectedExecutionKeys((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
+      if (next.has(key)) {
+        next.delete(key);
       } else {
-        next.add(id);
+        next.add(key);
       }
       return next;
     });
@@ -722,25 +789,30 @@ export function TaskCenterPage({
     );
   };
 
-  const renderExecutionCard = (execution: JobExecution) => {
-    const isSelected = selectedExecutionIds.has(execution.id);
-    const isDeleting = deletingExecutionId === execution.id;
+  const renderExecutionCard = (execution: UnifiedExecutionItem) => {
+    const key = `${execution.type}-${execution.id}`;
+    const isSelected = selectedExecutionKeys.has(key);
+    const isDeleting = deletingExecutionKey === key;
+    const typeStyle = getUnifiedExecutionTypeStyle(execution.type);
 
     return (
       <TaskCard
-        key={execution.id}
-        title={`任务 #${execution.job_id}`}
+        key={key}
+        title={execution.title}
+        typeBadge={typeStyle}
         statusBadge={getExecutionStatusStyle(execution.status)}
         metadata={[
-          { label: '触发', value: execution.trigger_type || '-' },
+          { label: '类型', value: typeStyle.label },
+          ...(execution.subtitle ? [{ label: '信息', value: execution.subtitle }] : []),
           { label: '时间', value: formatTime(execution.created_at) },
           { label: '耗时', value: formatDuration(execution.duration_ms) },
         ]}
+        progress={execution.status === 'running' && execution.progress ? { value: execution.progress, text: `进度 ${execution.progress}%` } : undefined}
         error={execution.error_message || undefined}
         selectable
         selected={isSelected}
-        onToggleSelect={() => handleToggleSelect(execution.id)}
-        onDelete={() => handleDeleteExecution(execution.id)}
+        onToggleSelect={() => handleToggleSelect(execution.type, execution.id)}
+        onDelete={() => handleDeleteExecution(execution.type, execution.id)}
         deleteLoading={isDeleting}
       />
     );
@@ -764,6 +836,8 @@ export function TaskCenterPage({
           onCreateTask={() => handleOpenTaskForm()}
           historyStatusFilter={historyStatusFilter}
           onHistoryStatusChange={setHistoryStatusFilter}
+          historyTypeFilter={historyTypeFilter}
+          onHistoryTypeChange={setHistoryTypeFilter}
         />
       </div>
 
@@ -849,16 +923,16 @@ export function TaskCenterPage({
                   onClick={handleToggleSelectAll}
                   className="flex items-center gap-1.5 px-2 py-1 text-xs text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
                 >
-                  {executions.every((e) => selectedExecutionIds.has(e.id)) ? (
+                  {executions.every((e) => selectedExecutionKeys.has(`${e.type}-${e.id}`)) ? (
                     <CheckSquare className="w-3.5 h-3.5 text-blue-600" />
                   ) : (
                     <Square className="w-3.5 h-3.5" />
                   )}
                   全选
                 </button>
-                {selectedExecutionIds.size > 0 && (
+                {selectedExecutionKeys.size > 0 && (
                   <>
-                    <span className="text-xs text-gray-400">已选 {selectedExecutionIds.size} 条</span>
+                    <span className="text-xs text-gray-400">已选 {selectedExecutionKeys.size} 条</span>
                     <button
                       onClick={handleBatchDeleteExecutions}
                       disabled={batchDeleteLoading}

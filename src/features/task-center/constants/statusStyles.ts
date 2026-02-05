@@ -29,6 +29,13 @@ export const TASK_TYPE_STYLES = {
   daily_generate: { bg: 'bg-emerald-50', text: 'text-emerald-600', label: '定时生成' },
 } as const;
 
+// 统一执行历史类型标签样式
+export const UNIFIED_EXECUTION_TYPE_STYLES = {
+  job_execution: { bg: 'bg-indigo-50', text: 'text-indigo-600', label: '调度执行' },
+  generation_task: { bg: 'bg-violet-50', text: 'text-violet-600', label: '内容生成' },
+  publish_record: { bg: 'bg-rose-50', text: 'text-rose-600', label: '发布' },
+} as const;
+
 // 获取状态样式
 export function getTaskStatusStyle(status: string) {
   return TASK_STATUS_STYLES[status as keyof typeof TASK_STATUS_STYLES] || {
@@ -54,4 +61,12 @@ export function getJobEnabledStyle(enabled: boolean) {
 
 export function getTaskTypeStyle(type: 'capture' | 'daily_generate') {
   return TASK_TYPE_STYLES[type];
+}
+
+export function getUnifiedExecutionTypeStyle(type: string) {
+  return UNIFIED_EXECUTION_TYPE_STYLES[type as keyof typeof UNIFIED_EXECUTION_TYPE_STYLES] || {
+    bg: 'bg-gray-50',
+    text: 'text-gray-600',
+    label: type,
+  };
 }
