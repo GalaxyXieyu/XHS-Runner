@@ -3,6 +3,7 @@
  */
 
 import puppeteer, { Browser, Page } from 'puppeteer';
+import { join } from 'path';
 import { Config, Cookie } from '../../shared/types';
 import { BrowserLaunchError, BrowserNavigationError, XHSError } from '../../shared/errors';
 import { getConfig } from '../../shared/config';
@@ -10,6 +11,7 @@ import { loadCookies, saveCookies } from '../../shared/cookies';
 import { logger } from '../../shared/logger';
 import { sleep } from '../../shared/utils';
 import { BrowserPoolService, ManagedBrowser } from './browser-pool.service';
+import { getUserDataPath } from '@/server/runtime/userDataPath';
 
 export class BrowserManager {
   private config: Config;
@@ -118,6 +120,8 @@ export class BrowserManager {
       const launchOptions: any = {
         headless: isHeadless,
         slowMo: this.config.browser.slowmo,
+        // 持久化浏览器数据目录，避免被识别为新设备
+        userDataDir: join(getUserDataPath(), 'browser-data'),
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
@@ -126,6 +130,8 @@ export class BrowserManager {
           '--no-first-run',
           '--no-zygote',
           '--disable-gpu',
+          // 隐藏自动化特征
+          '--disable-blink-features=AutomationControlled',
           // Make the UI less likely to be hidden/overlapped (useful for publish flow)
           '--start-maximized',
           '--window-size=1600,1000',

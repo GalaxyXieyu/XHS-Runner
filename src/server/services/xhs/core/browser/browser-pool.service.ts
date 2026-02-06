@@ -4,11 +4,13 @@
  */
 
 import puppeteer, { Browser, BrowserContext, Page } from 'puppeteer';
+import { join } from 'path';
 import { Config } from '../../shared/types';
 import { BrowserLaunchError, XHSError } from '../../shared/errors';
 import { getConfig } from '../../shared/config';
 import { logger } from '../../shared/logger';
 import { sleep } from '../../shared/utils';
+import { getUserDataPath } from '@/server/runtime/userDataPath';
 
 export interface ManagedBrowser {
   browser: Browser;
@@ -228,10 +230,15 @@ export class BrowserPoolService {
    * Create a new browser instance
    */
   private async createBrowserInstance(): Promise<ManagedBrowser> {
+    // 先生成 ID，用于独立的 userDataDir
+    const id = this.generateBrowserId();
+
     try {
       const launchOptions: any = {
         headless: this.config.browser.headlessDefault,
         slowMo: this.config.browser.slowmo,
+        // 每个 pool 实例使用独立的数据目录，避免多实例冲突
+        userDataDir: join(getUserDataPath(), 'browser-pool-data', id),
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
@@ -240,6 +247,8 @@ export class BrowserPoolService {
           '--no-first-run',
           '--no-zygote',
           '--disable-gpu',
+          // 隐藏自动化特征
+          '--disable-blink-features=AutomationControlled',
           '--disable-background-timer-throttling',
           '--disable-backgrounding-occluded-windows',
           '--disable-renderer-backgrounding',
@@ -249,7 +258,6 @@ export class BrowserPoolService {
       const browser = await puppeteer.launch(launchOptions);
       const context = await browser.createBrowserContext();
 
-      const id = this.generateBrowserId();
       const managedBrowser: ManagedBrowser = {
         browser,
         context,
@@ -343,6 +351,15 @@ export class BrowserPoolService {
       await browser.browser.close();
     } catch (error) {
       logger.warn(`Error closing browser ${browserId}: ${error}`);
+    }
+
+    // 清理该实例的 userDataDir
+    try {
+      const { rm } = await import('fs/promises');
+      const userDataDir = join(getUserDataPath(), 'browser-pool-data', browserId);
+      await rm(userDataDir, { recursive: true, force: true });
+    } catch (error) {
+      logger.debug(`Failed to cleanup browser data dir for ${browserId}: ${error}`);
     }
 
     this.pool.delete(browserId);
