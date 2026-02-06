@@ -1,5 +1,5 @@
 import { db, schema } from '@/server/db';
-import { eq, desc, and, SQL, inArray, asc, notInArray } from 'drizzle-orm';
+import { eq, desc, and, SQL, inArray, asc, notInArray, or, isNotNull, ne } from 'drizzle-orm';
 
 export interface ContentPackage {
   creative: typeof schema.creatives.$inferSelect;
@@ -49,6 +49,14 @@ export async function listContentPackages(filters: {
     conditions.push(notInArray(schema.creatives.status, filters.excludeStatuses));
   }
   if (filters.themeId) conditions.push(eq(schema.creatives.themeId, filters.themeId));
+
+  // 过滤无效记录：必须有标题或内容
+  conditions.push(
+    or(
+      and(isNotNull(schema.creatives.title), ne(schema.creatives.title, '')),
+      and(isNotNull(schema.creatives.content), ne(schema.creatives.content, ''))
+    )!
+  );
 
   const creatives = await db
     .select()
