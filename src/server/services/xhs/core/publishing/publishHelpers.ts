@@ -118,12 +118,12 @@ export async function waitForCondition(
   timeout: number,
   checkInterval: number = 1000,
   errorMessage: string
-): Promise<void> {
+): Promise<boolean> {
   const startTime = Date.now();
 
   while (Date.now() - startTime < timeout) {
     if (await condition()) {
-      return;
+      return true;
     }
     await sleep(checkInterval);
   }

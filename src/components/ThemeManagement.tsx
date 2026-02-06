@@ -247,9 +247,11 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
   };
 
   // 默认选择第一个主题
-  if (!selectedTheme && themes.length > 0) {
-    setSelectedTheme(themes[0]);
-  }
+  useEffect(() => {
+    if (!selectedTheme && themes.length > 0) {
+      setSelectedTheme(themes[0]);
+    }
+  }, [selectedTheme, themes, setSelectedTheme]);
 
   const handleCreateTheme = async (e: React.FormEvent) => {
     e.preventDefault();

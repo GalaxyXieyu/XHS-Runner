@@ -7,7 +7,7 @@ export interface AskUserOption {
 }
 
 export interface AgentEvent {
-  type: 'agent_start' | 'agent_end' | 'tool_call' | 'tool_result' | 'message' | 'progress' | 'ask_user' | 'workflow_paused' | 'intent_detected' | 'content_type_detected' | 'supervisor_decision' | 'state_update' | 'image_progress' | 'content_update' | 'workflow_progress' | 'workflow_complete';
+  type: 'agent_start' | 'agent_end' | 'tool_call' | 'tool_result' | 'message' | 'progress' | 'ask_user' | 'workflow_paused' | 'intent_detected' | 'content_type_detected' | 'supervisor_decision' | 'state_update' | 'image_progress' | 'content_update' | 'workflow_progress' | 'workflow_complete' | 'brief_ready' | 'layout_spec_ready' | 'alignment_map_ready' | 'quality_score';
   agent?: string;
   tool?: string;
   content: string;
@@ -57,6 +57,13 @@ export interface AgentEvent {
   // 工作流完成相关 (新增)
   imageAssetIds?: number[];
   creativeId?: number;
+  // 新增：结构化结果事件
+  brief?: any;
+  layoutSpec?: any[];
+  paragraphImageBindings?: any[];
+  textOverlayPlan?: any[];
+  bodyBlocks?: any[];
+  qualityScores?: any;
 }
 
 export interface ChatMessage {

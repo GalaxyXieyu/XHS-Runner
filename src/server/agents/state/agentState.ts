@@ -2,7 +2,117 @@ import { Annotation } from "@langchain/langgraph";
 import { BaseMessage } from "@langchain/core/messages";
 
 // Agent 类型
-export type AgentType = "supervisor" | "research_agent" | "writer_agent" | "style_analyzer_agent" | "image_planner_agent" | "image_agent" | "review_agent";
+export type AgentType =
+  | "supervisor"
+  | "brief_compiler_agent"
+  | "research_evidence_agent"
+  | "reference_intelligence_agent"
+  | "layout_planner_agent"
+  | "research_agent"
+  | "writer_agent"
+  | "style_analyzer_agent"
+  | "image_planner_agent"
+  | "image_agent"
+  | "review_agent";
+
+export type ReferenceInputType = "style" | "layout" | "content";
+export type ReferenceAnalysisType = "style_ref" | "layout_ref" | "content_ref" | "mixed_ref";
+export type LayoutPreference = "dense" | "balanced" | "visual-first";
+
+export interface CreativeBrief {
+  audience: string;
+  goal: string;
+  keyPoints: string[];
+  callToAction: string;
+  bannedExpressions: string[];
+  tone: string;
+}
+
+export interface EvidenceItem {
+  fact: string;
+  source?: string;
+  quote?: string;
+}
+
+export interface EvidencePack {
+  items: EvidenceItem[];
+  summary: string;
+}
+
+export interface BodyBlock {
+  id: string;
+  text: string;
+  intent: string;
+  keywords: string[];
+}
+
+export interface ReferenceInput {
+  url: string;
+  type?: ReferenceInputType;
+}
+
+export interface ReferenceAnalysis {
+  index: number;
+  url: string;
+  type: ReferenceAnalysisType;
+  confidence: number;
+  styleTokens: {
+    colorPalette: string[];
+    mood: string;
+    lighting: string;
+    styleKeywords: string[];
+  };
+  layoutTokens: {
+    layout: string;
+    textDensity: string;
+    composition: string;
+  };
+  contentTokens: {
+    elements: string[];
+    scene: string;
+  };
+  rawAnalysis: string;
+}
+
+export interface LayoutBlockSpec {
+  area: "title" | "body" | "visual_focus" | "footer";
+  instruction: string;
+}
+
+export interface LayoutSpec {
+  imageSeq: number;
+  role: string;
+  visualFocus: string;
+  textDensity: string;
+  blocks: LayoutBlockSpec[];
+}
+
+export interface ParagraphImageBinding {
+  imageSeq: number;
+  paragraphIds: string[];
+  rationale: string;
+}
+
+export interface TextOverlayPlan {
+  imageSeq: number;
+  titleText?: string;
+  bodyText?: string;
+  placement: "top" | "center" | "bottom";
+}
+
+export interface QualityDimensionScores {
+  infoDensity: number;
+  textImageAlignment: number;
+  styleConsistency: number;
+  readability: number;
+  platformFit: number;
+}
+
+export interface QualityScores {
+  scores: QualityDimensionScores;
+  overall: number;
+  failReasons: string[];
+}
 
 // 风格分析结果类型
 export interface StyleAnalysis {
@@ -32,12 +142,25 @@ export interface ReviewFeedback {
   suggestions: string[];
   targetAgent?: string;
   optimizedPrompts?: string[];
+  scores?: QualityDimensionScores;
+  overall?: number;
+  rerouteTarget?: AgentType;
 }
 
 // HITL 确认类型
 export interface PendingConfirmation {
   type: "image_plans" | "content";
-  data: ImagePlan[] | { title: string; body: string; tags: string[] };
+  data:
+    | ImagePlan[]
+    | {
+        title: string;
+        body: string;
+        tags: string[];
+      }
+    | {
+        layoutSpec: LayoutSpec[];
+        paragraphImageBindings: ParagraphImageBinding[];
+      };
   timestamp: number;
 }
 
@@ -51,7 +174,21 @@ export const AgentState = Annotation.Root({
     value: (_, y) => y,
     default: () => "supervisor" as AgentType,
   }),
+
+  // 任务阶段完成标记
+  briefComplete: Annotation<boolean>({
+    value: (_, y) => y,
+    default: () => false,
+  }),
   researchComplete: Annotation<boolean>({
+    value: (_, y) => y,
+    default: () => false,
+  }),
+  evidenceComplete: Annotation<boolean>({
+    value: (_, y) => y,
+    default: () => false,
+  }),
+  referenceIntelligenceComplete: Annotation<boolean>({
     value: (_, y) => y,
     default: () => false,
   }),
@@ -59,6 +196,12 @@ export const AgentState = Annotation.Root({
     value: (_, y) => y,
     default: () => false,
   }),
+  layoutComplete: Annotation<boolean>({
+    value: (_, y) => y,
+    default: () => false,
+  }),
+
+  // 输入与参考图
   referenceImageUrl: Annotation<string | null>({
     value: (_, y) => y,
     default: () => null,
@@ -67,6 +210,49 @@ export const AgentState = Annotation.Root({
     value: (_, y) => y,
     default: () => [],
   }),
+  referenceInputs: Annotation<ReferenceInput[]>({
+    value: (_, y) => y,
+    default: () => [],
+  }),
+  layoutPreference: Annotation<LayoutPreference>({
+    value: (_, y) => y,
+    default: () => "balanced",
+  }),
+
+  // 结构化中间结果
+  creativeBrief: Annotation<CreativeBrief | null>({
+    value: (_, y) => y,
+    default: () => null,
+  }),
+  evidencePack: Annotation<EvidencePack | null>({
+    value: (_, y) => y,
+    default: () => null,
+  }),
+  bodyBlocks: Annotation<BodyBlock[]>({
+    value: (_, y) => y,
+    default: () => [],
+  }),
+  referenceAnalyses: Annotation<ReferenceAnalysis[]>({
+    value: (_, y) => y,
+    default: () => [],
+  }),
+  layoutSpec: Annotation<LayoutSpec[]>({
+    value: (_, y) => y,
+    default: () => [],
+  }),
+  paragraphImageBindings: Annotation<ParagraphImageBinding[]>({
+    value: (_, y) => y,
+    default: () => [],
+  }),
+  textOverlayPlan: Annotation<TextOverlayPlan[]>({
+    value: (_, y) => y,
+    default: () => [],
+  }),
+  qualityScores: Annotation<QualityScores | null>({
+    value: (_, y) => y,
+    default: () => null,
+  }),
+
   styleAnalysis: Annotation<StyleAnalysis | null>({
     value: (_, y) => y,
     default: () => null,
@@ -83,6 +269,11 @@ export const AgentState = Annotation.Root({
     value: (_, y) => y,
     default: () => null,
   }),
+  lastError: Annotation<string | null>({
+    value: (_, y) => y,
+    default: () => null,
+  }),
+
   imagesComplete: Annotation<boolean>({
     value: (_, y) => y,
     default: () => false,
@@ -99,6 +290,7 @@ export const AgentState = Annotation.Root({
     value: (x, y) => [...x, ...y],
     default: () => [],
   }),
+
   iterationCount: Annotation<number>({
     value: (_, y) => y,
     default: () => 0,
@@ -111,6 +303,7 @@ export const AgentState = Annotation.Root({
     value: (_, y) => y,
     default: () => "jimeng",
   }),
+
   // HITL 相关状态
   pendingConfirmation: Annotation<PendingConfirmation | null>({
     value: (_, y) => y,
@@ -132,16 +325,19 @@ export const AgentState = Annotation.Root({
     value: (_, y) => y,
     default: () => 3,
   }),
+
   // 上下文压缩：对话摘要
   summary: Annotation<string>({
     value: (_, y) => y,
     default: () => "",
   }),
+
   // 内容类型模板
   contentType: Annotation<string>({
     value: (_, y) => y,
     default: () => "product",
   }),
+
   // 生成的内容（统一在流程结束时入库）
   generatedContent: Annotation<{
     title: string;
@@ -167,7 +363,15 @@ export interface AgentEvent {
     | "state_update"
     | "image_progress"
     | "content_update"
-    | "workflow_progress";
+    | "workflow_progress"
+    | "brief_ready"
+    | "layout_spec_ready"
+    | "alignment_map_ready"
+    | "quality_score"
+    | "intent_detected"
+    | "content_type_detected"
+    | "supervisor_decision"
+    | "workflow_complete";
   agent?: string;
   tool?: string;
   content: string;

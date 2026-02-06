@@ -8,29 +8,33 @@ import { managePromptTool, recommendTemplatesTool } from "../tools";
 export async function supervisorNode(state: typeof AgentState.State, model: ChatOpenAI) {
   const threadId = state.threadId || "unknown";
 
-  // 绑定 Prompt 管理工具和模板推荐工具
   const modelWithTools = model.bindTools([managePromptTool, recommendTemplatesTool]);
-
   const compressed = await compressContext(state, model);
 
-  // 构建审核反馈信息
   let reviewFeedbackInfo = state.reviewFeedback
     ? state.reviewFeedback.approved
       ? "已通过"
-      : `需优化: ${state.reviewFeedback.targetAgent || '未知'}\n建议: ${state.reviewFeedback.suggestions.join('; ')}`
+      : `需优化: ${state.reviewFeedback.targetAgent || "未知"}\n建议: ${state.reviewFeedback.suggestions.join("; ")}`
     : "未审核";
 
   const stateVariables = {
     referenceImageUrl: state.referenceImageUrl ? "有" : "无",
     styleAnalysis: state.styleAnalysis ? "已完成" : "未完成",
+    briefComplete: String(state.briefComplete),
     researchComplete: String(state.researchComplete),
+    evidenceComplete: String(state.evidenceComplete),
+    referenceIntelligenceComplete: String(state.referenceIntelligenceComplete),
     contentComplete: String(state.contentComplete),
+    layoutComplete: String(state.layoutComplete),
+    bodyBlocks: state.bodyBlocks.length > 0 ? `已拆分${state.bodyBlocks.length}段` : "未拆分",
     imagePlans: state.imagePlans.length > 0 ? `已规划${state.imagePlans.length}张` : "未规划",
+    bindings: state.paragraphImageBindings.length > 0 ? `已绑定${state.paragraphImageBindings.length}张` : "未绑定",
     imagesComplete: state.imagesComplete ? "已完成" : "未完成",
     reviewFeedback: reviewFeedbackInfo,
+    qualityScores: state.qualityScores ? JSON.stringify(state.qualityScores) : "无",
+    lastError: state.lastError || "无",
     iterationCount: String(state.iterationCount),
     maxIterations: String(state.maxIterations),
-    // 如果审核未通过，传递 feedback 信息供 prompt 优化使用
     needsOptimization:
       state.reviewFeedback && !state.reviewFeedback.approved && state.reviewFeedback.suggestions.length > 0
         ? "是"
@@ -46,10 +50,9 @@ export async function supervisorNode(state: typeof AgentState.State, model: Chat
 
   const response = await modelWithTools.invoke([
     new HumanMessage(systemPrompt),
-    ...safeSliceMessages(compressed.messages, 5),
+    ...safeSliceMessages(compressed.messages, 6),
   ]);
 
-  // 解析决策并记录日志
   const content = typeof response.content === "string" ? response.content : "";
   const nextMatch = content.match(/NEXT:\s*(\S+)/);
   const reasonMatch = content.match(/REASON:\s*(.+?)(?:\n|$)/);

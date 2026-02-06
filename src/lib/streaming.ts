@@ -47,7 +47,7 @@ export type EnhancedAgentEvent =
   | ContentUpdateEvent
   | WorkflowProgressEvent
   | {
-      type: 'agent_start' | 'agent_end' | 'message' | 'tool_call' | 'tool_result' | 'state_update' | 'supervisor_decision';
+      type: 'agent_start' | 'agent_end' | 'message' | 'tool_call' | 'tool_result' | 'state_update' | 'supervisor_decision' | 'brief_ready' | 'layout_spec_ready' | 'alignment_map_ready' | 'quality_score';
       agent?: string;
       content?: string;
       timestamp: number;
@@ -182,11 +182,15 @@ export function reduceStreamingState(
     case 'agent_end':
       // Calculate overall progress based on agent completion
       const agentWeights: Record<string, number> = {
-        research_agent: 0.15,
-        writer_agent: 0.25,
-        style_analyzer_agent: 0.1,
-        image_planner_agent: 0.1,
-        image_agent: 0.3,
+        brief_compiler_agent: 0.08,
+        research_evidence_agent: 0.12,
+        reference_intelligence_agent: 0.1,
+        layout_planner_agent: 0.1,
+        research_agent: 0.1,
+        writer_agent: 0.2,
+        style_analyzer_agent: 0.08,
+        image_planner_agent: 0.12,
+        image_agent: 0.2,
         review_agent: 0.1,
       };
       const weight = agentWeights[event.agent || ''] || 0;

@@ -5,6 +5,10 @@ import { ChatOpenAI } from "@langchain/openai";
 import { AgentState, type StyleAnalysis } from "../state/agentState";
 import {
   supervisorNode,
+  briefCompilerNode,
+  researchEvidenceNode,
+  referenceIntelligenceNode,
+  layoutPlannerNode,
   researchAgentNode,
   writerAgentNode,
   styleAnalyzerNode,
@@ -43,7 +47,7 @@ function createReferenceImageToolNode(baseToolNode: ToolNode) {
       : (state.referenceImageUrl ? [state.referenceImageUrl] : []);
 
     // 支持多张参考图，传递给生成工具
-    const fullReferenceImageUrls = referenceImages; // 数组，保留所有参考图
+    const fullReferenceImageUrls = referenceImages;
     const imageProvider = state.imageGenProvider || "gemini";
 
     const modifiedState = {
@@ -57,7 +61,7 @@ function createReferenceImageToolNode(baseToolNode: ToolNode) {
                 ...tc,
                 args: {
                   ...tc.args,
-                  referenceImageUrls: fullReferenceImageUrls, // 传递数组而非单个 URL
+                  referenceImageUrls: fullReferenceImageUrls,
                   provider: imageProvider,
                 },
               };
@@ -103,35 +107,28 @@ function createReferenceImageToolNode(baseToolNode: ToolNode) {
   };
 }
 
-// ========== 原有代码 ==========
-
 export async function buildGraph(model: ChatOpenAI, hitlConfig?: HITLConfig) {
-  // Tool 节点
   const researchToolNode = new ToolNode(researchTools);
+  const researchEvidenceToolNode = new ToolNode(researchTools);
   const imageToolNode = new ToolNode(imageTools);
   const styleToolNode = new ToolNode(styleTools);
   const supervisorToolNode = new ToolNode([...promptTools, ...intentTools]);
   const baseReferenceImageToolNode = new ToolNode(referenceImageTools);
   const referenceImageToolNode = createReferenceImageToolNode(baseReferenceImageToolNode);
 
-  // 构建 Graph
   const workflow = new StateGraph(AgentState)
-    // Supervisor 节点
+    // Supervisor
     .addNode("supervisor", (state) => supervisorNode(state, model))
     .addNode("supervisor_tools", supervisorToolNode)
-    .addNode("supervisor_route", async (state: typeof AgentState.State) => {
-      console.log("[supervisor_route] 节点执行");
-      console.log("[supervisor_route] 接收到的 state.messages 长度:", state.messages.length);
-      if (state.messages.length > 0) {
-        const lastMsg = state.messages[state.messages.length - 1];
-        console.log("[supervisor_route] 最后一条消息类型:", lastMsg?.constructor?.name);
-        const content = typeof lastMsg?.content === "string" ? lastMsg.content : "";
-        console.log("[supervisor_route] 最后一条消息内容 (前200字符):", content.slice(0, 200));
-      }
-      return {}; // 空返回，不修改状态
-    }) // 空节点，仅用于路由
+    .addNode("supervisor_route", async () => ({}))
 
-    // Agent 节点
+    // Core agents
+    .addNode("brief_compiler_agent", (state) => briefCompilerNode(state, model))
+    .addNode("research_evidence_agent", (state) => researchEvidenceNode(state, model))
+    .addNode("reference_intelligence_agent", referenceIntelligenceNode)
+    .addNode("layout_planner_agent", (state) => layoutPlannerNode(state, model))
+
+    // Backward-compatible agents
     .addNode("research_agent", (state) => researchAgentNode(state, model))
     .addNode("writer_agent", (state) => writerAgentNode(state, model))
     .addNode("style_analyzer_agent", styleAnalyzerNode)
@@ -139,13 +136,14 @@ export async function buildGraph(model: ChatOpenAI, hitlConfig?: HITLConfig) {
     .addNode("image_agent", (state) => imageAgentNode(state, model))
     .addNode("review_agent", reviewAgentNode)
 
-    // Tool 节点
+    // Tool nodes
     .addNode("research_tools", researchToolNode)
+    .addNode("research_evidence_tools", researchEvidenceToolNode)
     .addNode("image_tools", imageToolNode)
     .addNode("style_tools", styleToolNode)
     .addNode("reference_image_tools", referenceImageToolNode)
 
-    // Style 分析后处理
+    // Style post-process
     .addNode("supervisor_with_style", async (state: typeof AgentState.State) => {
       const lastMessage = state.messages[state.messages.length - 1];
       const content = lastMessage && typeof lastMessage.content === "string" ? lastMessage.content : "";
@@ -155,21 +153,23 @@ export async function buildGraph(model: ChatOpenAI, hitlConfig?: HITLConfig) {
         if (jsonMatch) {
           styleAnalysis = JSON.parse(jsonMatch[0]);
         }
-      } catch { }
+      } catch {}
       return { styleAnalysis };
     })
 
-    // 入口边
+    // Entry
     .addEdge(START, "supervisor")
 
-    // Supervisor 路由
+    // Supervisor route
     .addConditionalEdges("supervisor", shouldContinueSupervisor, {
       supervisor_tools: "supervisor_tools",
       route: "supervisor_route",
     })
-
-    // Supervisor 路由到各 Agent
     .addConditionalEdges("supervisor_route", routeFromSupervisor, {
+      brief_compiler_agent: "brief_compiler_agent",
+      research_evidence_agent: "research_evidence_agent",
+      reference_intelligence_agent: "reference_intelligence_agent",
+      layout_planner_agent: "layout_planner_agent",
       research_agent: "research_agent",
       writer_agent: "writer_agent",
       style_analyzer_agent: "style_analyzer_agent",
@@ -179,20 +179,29 @@ export async function buildGraph(model: ChatOpenAI, hitlConfig?: HITLConfig) {
       [END]: END,
     })
 
-    // Supervisor 工具
     .addEdge("supervisor_tools", "supervisor")
 
-    // Research 流程
+    // New phase nodes
+    .addEdge("brief_compiler_agent", "supervisor")
+    .addConditionalEdges("research_evidence_agent", shouldContinueResearch, {
+      research_tools: "research_evidence_tools",
+      supervisor: "supervisor",
+    })
+    .addEdge("research_evidence_tools", "research_evidence_agent")
+    .addEdge("reference_intelligence_agent", "supervisor")
+    .addEdge("layout_planner_agent", "supervisor")
+
+    // Legacy research flow kept for compatibility
     .addConditionalEdges("research_agent", shouldContinueResearch, {
       research_tools: "research_tools",
       supervisor: "supervisor",
     })
     .addEdge("research_tools", "research_agent")
 
-    // Writer 流程
+    // Writer
     .addEdge("writer_agent", "supervisor")
 
-    // Style 流程
+    // Style
     .addConditionalEdges("style_analyzer_agent", shouldContinueStyle, {
       style_tools: "style_tools",
       supervisor: "supervisor",
@@ -201,10 +210,10 @@ export async function buildGraph(model: ChatOpenAI, hitlConfig?: HITLConfig) {
     .addEdge("style_tools", "style_analyzer_agent")
     .addEdge("supervisor_with_style", "supervisor")
 
-    // Image Planner 流程
+    // Image planner
     .addEdge("image_planner_agent", "supervisor")
 
-    // Image 流程
+    // Image
     .addConditionalEdges("image_agent", shouldContinueImage, {
       image_tools: "image_tools",
       reference_image_tools: "reference_image_tools",
@@ -213,13 +222,12 @@ export async function buildGraph(model: ChatOpenAI, hitlConfig?: HITLConfig) {
     .addEdge("image_tools", "image_agent")
     .addEdge("reference_image_tools", "image_agent")
 
-    // Review 流程：approved 直接 END，否则回 supervisor
+    // Review
     .addConditionalEdges("review_agent", shouldContinueReview, {
       [END]: END,
       supervisor: "supervisor",
     });
 
-  // 根据 HITL 配置决定是否启用中断
   if (hitlConfig?.enableHITL) {
     const checkpointer = await getCheckpointer();
     return workflow.compile({

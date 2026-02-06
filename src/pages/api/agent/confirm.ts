@@ -1,6 +1,12 @@
 import { NextApiRequest, NextApiResponse } from "next";
 import { resumeWorkflow } from "@/server/agents/multiAgentSystem";
-import { ImagePlan, AgentEvent } from "@/server/agents/state/agentState";
+import {
+  ImagePlan,
+  AgentEvent,
+  LayoutSpec,
+  ParagraphImageBinding,
+  TextOverlayPlan,
+} from "@/server/agents/state/agentState";
 import { db, schema } from "@/server/db";
 import { conversations, conversationMessages } from "@/server/db/schema";
 import { eq } from "drizzle-orm";
@@ -13,7 +19,15 @@ import { registerProgressCallback, unregisterProgressCallback } from "@/server/a
 interface ConfirmRequest {
   threadId: string;
   action: "approve" | "reject" | "modify";
-  modifiedData?: ImagePlan[] | { title: string; body: string; tags: string[] };
+  modifiedData?:
+    | ImagePlan[]
+    | { title: string; body: string; tags: string[] }
+    | {
+        imagePlans?: ImagePlan[];
+        layoutSpec?: LayoutSpec[];
+        paragraphImageBindings?: ParagraphImageBinding[];
+        textOverlayPlan?: TextOverlayPlan[];
+      };
   userFeedback?: string;
   saveAsTemplate?: {
     name: string;
@@ -259,19 +273,42 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       await saveUserMessage(conversationId, userContent, askUserResponse);
     }
 
+
+    const normalizeModifiedState = () => {
+      if (!modifiedData) return undefined;
+      if (Array.isArray(modifiedData)) {
+        return { imagePlans: modifiedData as ImagePlan[] };
+      }
+      const data = modifiedData as any;
+      const nextState: Record<string, unknown> = {};
+      if (typeof data.title === "string" || typeof data.body === "string") {
+        nextState.generatedContent = {
+          title: String(data.title || ""),
+          body: String(data.body || ""),
+          tags: Array.isArray(data.tags) ? data.tags : [],
+        };
+        nextState.contentComplete = !!String(data.body || "").trim();
+      }
+      if (Array.isArray(data.imagePlans)) nextState.imagePlans = data.imagePlans;
+      if (Array.isArray(data.layoutSpec)) nextState.layoutSpec = data.layoutSpec;
+      if (Array.isArray(data.paragraphImageBindings)) nextState.paragraphImageBindings = data.paragraphImageBindings;
+      if (Array.isArray(data.textOverlayPlan)) nextState.textOverlayPlan = data.textOverlayPlan;
+      return Object.keys(nextState).length > 0 ? nextState : undefined;
+    };
+
     // 根据 action 处理
     let stream;
     switch (action) {
       case "approve":
         // 直接继续执行
         console.log("[/api/agent/confirm] 用户批准，恢复工作流");
-        stream = await resumeWorkflow(threadId, modifiedData ? { imagePlans: modifiedData as ImagePlan[] } : undefined);
+        stream = await resumeWorkflow(threadId, normalizeModifiedState());
         break;
 
       case "modify":
         // 用户手动修改后继续
         console.log("[/api/agent/confirm] 用户修改后继续");
-        stream = await resumeWorkflow(threadId, modifiedData ? { imagePlans: modifiedData as ImagePlan[] } : undefined);
+        stream = await resumeWorkflow(threadId, normalizeModifiedState());
         break;
 
       case "reject":

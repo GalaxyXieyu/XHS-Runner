@@ -115,13 +115,26 @@ export class BrowserManager {
 
   private async launchBrowser(headless?: boolean, executablePath?: string): Promise<Browser> {
     const isHeadless = headless !== undefined ? headless : this.config.browser.headlessDefault;
+    const userDataDir = join(getUserDataPath(), 'browser-data');
+
+    // 清理可能残留的 SingletonLock 文件（浏览器非正常关闭时会留下）
+    try {
+      const { existsSync, unlinkSync } = require('fs');
+      const lockFile = join(userDataDir, 'SingletonLock');
+      if (existsSync(lockFile)) {
+        unlinkSync(lockFile);
+        logger.info('Cleaned up stale SingletonLock file');
+      }
+    } catch (err) {
+      logger.debug(`Failed to cleanup SingletonLock: ${err}`);
+    }
 
     try {
       const launchOptions: any = {
         headless: isHeadless,
         slowMo: this.config.browser.slowmo,
         // 持久化浏览器数据目录，避免被识别为新设备
-        userDataDir: join(getUserDataPath(), 'browser-data'),
+        userDataDir,
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',

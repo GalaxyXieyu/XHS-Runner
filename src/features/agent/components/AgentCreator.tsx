@@ -140,6 +140,10 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
       if (progress > 0) setWorkflowProgress(progress);
       
       const phaseMap: Record<string, string> = {
+        brief_compiler_agent: "正在梳理任务...",
+        research_evidence_agent: "正在提取研究证据...",
+        reference_intelligence_agent: "正在解析参考图...",
+        layout_planner_agent: "正在规划版式...",
         research_agent: "正在检索相关内容...",
         writer_agent: "正在创作文案...",
         image_agent: "正在生成图片...",
@@ -478,6 +482,7 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
             isLoading={isCurrentlyStreaming}
             expanded={expandedProcess}
             onToggle={() => setExpandedProcess(!expandedProcess)}
+            phase={isCurrentlyStreaming ? streamPhase : undefined}
             researchContent={researchContent}
           />
         )}
@@ -511,11 +516,104 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
   const getAgentColor = (agent?: string) => {
     const colorMap: Record<string, string> = {
       supervisor: "text-purple-700 bg-purple-50 border border-purple-100",
+      brief_compiler_agent: "text-indigo-700 bg-indigo-50 border border-indigo-100",
+      research_evidence_agent: "text-blue-700 bg-blue-50 border border-blue-100",
+      reference_intelligence_agent: "text-cyan-700 bg-cyan-50 border border-cyan-100",
+      layout_planner_agent: "text-teal-700 bg-teal-50 border border-teal-100",
       research_agent: "text-blue-700 bg-blue-50 border border-blue-100",
       writer_agent: "text-emerald-700 bg-emerald-50 border border-emerald-100",
+      image_planner_agent: "text-violet-700 bg-violet-50 border border-violet-100",
       image_agent: "text-orange-700 bg-orange-50 border border-orange-100",
+      review_agent: "text-rose-700 bg-rose-50 border border-rose-100",
     };
     return colorMap[agent || ""] || "text-gray-600 bg-gray-50 border border-gray-100";
+  };
+
+  const formatScore = (value: unknown) => {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return "--";
+    return `${Math.round(Math.max(0, Math.min(1, num)) * 100)}分`;
+  };
+
+  const getEventTypeLabel = (eventType: AgentEvent["type"]) => {
+    const map: Record<AgentEvent["type"], string> = {
+      agent_start: "开始",
+      agent_end: "完成",
+      tool_call: "工具调用",
+      tool_result: "工具返回",
+      message: "消息",
+      progress: "进度",
+      ask_user: "确认",
+      workflow_paused: "暂停",
+      intent_detected: "意图",
+      content_type_detected: "类型",
+      supervisor_decision: "路由",
+      state_update: "状态",
+      image_progress: "图片",
+      content_update: "文案",
+      workflow_progress: "阶段",
+      workflow_complete: "完成",
+      brief_ready: "Brief",
+      layout_spec_ready: "版式",
+      alignment_map_ready: "映射",
+      quality_score: "评分",
+    };
+    return map[eventType] || eventType;
+  };
+
+  const getEventDisplayContent = (event: AgentEvent) => {
+    if (event.type === "quality_score") {
+      const quality = (event as any).qualityScores || {};
+      const scores = quality.scores || {};
+      return [
+        `总分 ${formatScore(quality.overall)}`,
+        `信息密度 ${formatScore(scores.infoDensity)} / 图文一致 ${formatScore(scores.textImageAlignment)}`,
+        `风格一致 ${formatScore(scores.styleConsistency)} / 可读性 ${formatScore(scores.readability)} / 平台适配 ${formatScore(scores.platformFit)}`,
+      ].join("\n");
+    }
+
+    if (event.type === "layout_spec_ready") {
+      const count = Array.isArray((event as any).layoutSpec) ? (event as any).layoutSpec.length : 0;
+      return `${event.content || "版式规划完成"}${count ? `，共 ${count} 张` : ""}`;
+    }
+
+    if (event.type === "alignment_map_ready") {
+      const bindings = Array.isArray((event as any).paragraphImageBindings)
+        ? (event as any).paragraphImageBindings.length
+        : 0;
+      const blocks = Array.isArray((event as any).bodyBlocks) ? (event as any).bodyBlocks.length : 0;
+      return `${event.content || "段落映射完成"}${bindings ? `，映射 ${bindings} 条` : ""}${blocks ? `，段落 ${blocks} 个` : ""}`;
+    }
+
+    if (event.type === "brief_ready") {
+      const brief = (event as any).brief || {};
+      const audience = brief.targetAudience || brief.audience;
+      const goal = brief.goal || brief.objective;
+      const detail = [audience ? `受众：${audience}` : "", goal ? `目标：${goal}` : ""]
+        .filter(Boolean)
+        .join("，");
+      return `${event.content || "创作 Brief 已生成"}${detail ? `（${detail}）` : ""}`;
+    }
+
+    if (event.type === "image_progress") {
+      const progress = Number((event as any).progress);
+      const statusMap: Record<string, string> = {
+        queued: "排队中",
+        generating: "生成中",
+        complete: "已完成",
+        failed: "失败",
+      };
+      const status = statusMap[String(event.status || "")] || event.status || "处理中";
+      const progressText = Number.isFinite(progress) ? ` ${Math.round(progress * 100)}%` : "";
+      const errorText = event.errorMessage ? `（${event.errorMessage}）` : "";
+      return `第 ${event.taskId || "?"} 张图片 ${status}${progressText}${errorText}`;
+    }
+
+    if (event.type === "state_update") {
+      return event.changes || event.content || "状态更新";
+    }
+
+    return event.content || "";
   };
 
   return (
@@ -622,6 +720,16 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
                 </div>
               ))}
 
+              {/* 当前阶段条（streaming 全程可见） */}
+              {isStreaming && streamPhase && (
+                <div className="max-w-[80%]">
+                  <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-50 border border-blue-100 text-xs text-blue-700">
+                    <div className="w-3 h-3 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin" />
+                    当前阶段：{streamPhase}
+                  </div>
+                </div>
+              )}
+
               {/* 加载状态 */}
               {isStreaming && messages[messages.length - 1]?.role !== "assistant" && (
                 <div className="max-w-[80%]">
@@ -660,10 +768,11 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
                   )}
                   {events.map((event, idx) => (
                     <div key={idx} className={`p-2 rounded-lg text-xs ${getAgentColor(event.agent)}`}>
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5"> 
                         {event.agent && <span className="font-medium text-[11px]">{getAgentDisplayName(event.agent)}</span>}
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/70 text-gray-500">{getEventTypeLabel(event.type)}</span>
                       </div>
-                      <div className="mt-0.5 text-gray-600 line-clamp-2 text-[11px]">{event.content}</div>
+                      <div className="mt-0.5 text-gray-600 text-[11px] whitespace-pre-wrap break-words">{getEventDisplayContent(event)}</div>
                     </div>
                   ))}
                   <div ref={eventsEndRef} />

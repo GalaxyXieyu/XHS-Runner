@@ -54,6 +54,10 @@ export function getAgentDisplayName(name: string): string {
   const names: Record<string, string> = {
     supervisor: "主管",
     supervisor_route: "任务路由",
+    brief_compiler_agent: "任务梳理",
+    research_evidence_agent: "证据研究",
+    reference_intelligence_agent: "参考图智能",
+    layout_planner_agent: "版式规划",
     research_agent: "研究专家",
     writer_agent: "创作专家",
     style_analyzer_agent: "风格分析",

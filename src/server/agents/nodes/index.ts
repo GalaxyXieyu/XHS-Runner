@@ -1,4 +1,8 @@
 export { supervisorNode } from "./supervisorNode";
+export { briefCompilerNode } from "./briefCompilerNode";
+export { researchEvidenceNode } from "./researchEvidenceNode";
+export { referenceIntelligenceNode } from "./referenceIntelligenceNode";
+export { layoutPlannerNode } from "./layoutPlannerNode";
 export { researchAgentNode } from "./researchNode";
 export { writerAgentNode } from "./writerNode";
 export { styleAnalyzerNode } from "./styleAnalyzerNode";

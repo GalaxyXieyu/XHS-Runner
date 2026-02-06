@@ -29,6 +29,10 @@ const NAME_MAP: Record<string, string> = {
   recommendTemplates: "推荐模板",
   save_creative: "保存创作",
   // Agent 名称
+  brief_compiler_agent: "任务梳理专家",
+  research_evidence_agent: "证据研究专家",
+  reference_intelligence_agent: "参考图智能专家",
+  layout_planner_agent: "版式规划专家",
   research_agent: "研究专家",
   writer_agent: "创作专家",
   image_agent: "图片生成专家",

@@ -1,6 +1,15 @@
 import { END } from "@langchain/langgraph";
 import { AIMessage } from "@langchain/core/messages";
-import { AgentState, type StyleAnalysis } from "../state/agentState";
+import { AgentState, type AgentType, type QualityScores, type StyleAnalysis } from "../state/agentState";
+
+const MODERATE_THRESHOLDS = {
+  infoDensity: 0.65,
+  textImageAlignment: 0.7,
+  styleConsistency: 0.65,
+  readability: 0.7,
+  platformFit: 0.65,
+  overall: 0.72,
+};
 
 // 检查 supervisor 是否有工具调用
 export function shouldContinueSupervisor(state: typeof AgentState.State): string {
@@ -11,104 +20,122 @@ export function shouldContinueSupervisor(state: typeof AgentState.State): string
   return "route";
 }
 
-export function routeFromSupervisor(state: typeof AgentState.State): string {
-  console.log("[routeFromSupervisor] 开始路由决策");
-  console.log("[routeFromSupervisor] state.messages 长度:", state.messages.length);
+function getRerouteTargetByScores(qualityScores: QualityScores | null): AgentType | null {
+  if (!qualityScores) return null;
 
-  const lastMessage = state.messages[state.messages.length - 1];
-  console.log("[routeFromSupervisor] 最后一条消息类型:", lastMessage?.constructor?.name);
-  console.log("[routeFromSupervisor] 最后一条消息内容类型:", typeof lastMessage?.content);
+  const scores = qualityScores.scores;
 
-  const content = lastMessage && typeof lastMessage.content === "string" ? lastMessage.content : "";
-  console.log("[routeFromSupervisor] 提取的内容 (前200字符):", content.slice(0, 200));
-
-  // 从 LLM 决策中提取
-  if (content.includes("NEXT: research_agent")) {
-    console.log("[Router] LLM决策: research_agent");
-    return "research_agent";
+  if (scores.infoDensity < MODERATE_THRESHOLDS.infoDensity) {
+    return "research_evidence_agent";
   }
-  if (content.includes("NEXT: writer_agent")) {
-    console.log("[Router] LLM决策: writer_agent");
-    return "writer_agent";
+  if (scores.textImageAlignment < MODERATE_THRESHOLDS.textImageAlignment) {
+    return "layout_planner_agent";
   }
-  if (content.includes("NEXT: style_analyzer_agent")) {
-    console.log("[Router] LLM决策: style_analyzer_agent");
-    return "style_analyzer_agent";
+  if (scores.styleConsistency < MODERATE_THRESHOLDS.styleConsistency) {
+    return "reference_intelligence_agent";
   }
-  if (content.includes("NEXT: image_planner_agent")) {
-    console.log("[Router] LLM决策: image_planner_agent");
+  if (scores.readability < MODERATE_THRESHOLDS.readability) {
     return "image_planner_agent";
   }
-  if (content.includes("NEXT: image_agent")) {
-    console.log("[Router] LLM决策: image_agent");
+  if (scores.platformFit < MODERATE_THRESHOLDS.platformFit) {
+    return "writer_agent";
+  }
+
+  return null;
+}
+
+function isQualityApproved(qualityScores: QualityScores | null): boolean {
+  if (!qualityScores) return false;
+  return qualityScores.overall >= MODERATE_THRESHOLDS.overall;
+}
+
+export function routeFromSupervisor(state: typeof AgentState.State): string {
+  console.log("[routeFromSupervisor] 开始路由决策");
+
+  const lastMessage = state.messages[state.messages.length - 1];
+  const content = lastMessage && typeof lastMessage.content === "string" ? lastMessage.content : "";
+
+  // 从 LLM 决策中提取
+  if (content.includes("NEXT: brief_compiler_agent")) return "brief_compiler_agent";
+  if (content.includes("NEXT: research_evidence_agent")) return "research_evidence_agent";
+  if (content.includes("NEXT: reference_intelligence_agent")) return "reference_intelligence_agent";
+  if (content.includes("NEXT: layout_planner_agent")) return "layout_planner_agent";
+  if (content.includes("NEXT: research_agent")) return "research_agent";
+  if (content.includes("NEXT: writer_agent")) return "writer_agent";
+  if (content.includes("NEXT: style_analyzer_agent")) return "style_analyzer_agent";
+  if (content.includes("NEXT: image_planner_agent")) return "image_planner_agent";
+  if (content.includes("NEXT: image_agent")) return "image_agent";
+  if (content.includes("NEXT: review_agent")) return "review_agent";
+  if (content.includes("NEXT: END")) return END;
+
+  // 审核回流优先
+  if (state.reviewFeedback && !state.reviewFeedback.approved) {
+    if (state.iterationCount >= state.maxIterations) {
+      return END;
+    }
+
+    if (state.qualityScores) {
+      const reroute = getRerouteTargetByScores(state.qualityScores);
+      if (reroute === "research_evidence_agent") return "research_evidence_agent";
+      if (reroute === "layout_planner_agent") return "layout_planner_agent";
+      if (reroute === "reference_intelligence_agent") return "reference_intelligence_agent";
+      if (reroute === "writer_agent") return "writer_agent";
+      return "image_planner_agent";
+    }
+
+    if (state.reviewFeedback.targetAgent) {
+      if (state.reviewFeedback.targetAgent === "writer_agent") return "writer_agent";
+      if (state.reviewFeedback.targetAgent === "image_planner_agent") return "image_planner_agent";
+      if (state.reviewFeedback.targetAgent === "image_agent") return "image_agent";
+    }
+  }
+
+  // 全流程默认决策
+  if (!state.briefComplete) {
+    return "brief_compiler_agent";
+  }
+
+  if (!state.evidenceComplete) {
+    return "research_evidence_agent";
+  }
+
+  if (!state.referenceIntelligenceComplete) {
+    return "reference_intelligence_agent";
+  }
+
+  if (!state.contentComplete) {
+    return "writer_agent";
+  }
+
+  if (!state.layoutComplete) {
+    return "layout_planner_agent";
+  }
+
+  // image_planner 必须看到正文（分块由 planner 内部 AI 完成）
+  if (!state.generatedContent?.body || !state.generatedContent.body.trim()) {
+    return "writer_agent";
+  }
+
+  if (state.imagePlans.length === 0 || state.paragraphImageBindings.length === 0) {
+    return "image_planner_agent";
+  }
+
+  if (!state.imagesComplete) {
     return "image_agent";
   }
-  if (content.includes("NEXT: review_agent")) {
-    console.log("[Router] LLM决策: review_agent");
+
+  if (!state.reviewFeedback) {
     return "review_agent";
   }
-  if (content.includes("NEXT: END")) {
-    console.log("[Router] LLM决策: END");
+
+  if (state.reviewFeedback.approved) {
+    if (state.qualityScores) {
+      return isQualityApproved(state.qualityScores) ? END : "supervisor";
+    }
     return END;
   }
 
-  // 默认流程
-  const hasReferenceImage = state.referenceImageUrl || state.referenceImages.length > 0;
-  const needsResearch = !state.researchComplete;
-  const needsStyle = hasReferenceImage && !state.styleAnalysis;
-
-  console.log("[Router] 默认流程决策:");
-  console.log("  - 研究完成:", state.researchComplete);
-  console.log("  - 风格分析:", state.styleAnalysis ? "已分析" : "未分析");
-  console.log("  - 内容完成:", state.contentComplete);
-  console.log("  - 图片规划:", state.imagePlans.length > 0 ? `${state.imagePlans.length}张` : "未规划");
-  console.log("  - 图片生成:", state.imagesComplete ? "已完成" : "未完成");
-  console.log("  - 审核反馈:", state.reviewFeedback ? (state.reviewFeedback.approved ? "通过" : "未通过") : "未审核");
-
-  if (needsResearch) {
-    console.log("[Router] → research_agent (需要研究)");
-    return "research_agent";
-  }
-  if (needsStyle) {
-    console.log("[Router] → style_analyzer_agent (需要风格分析)");
-    return "style_analyzer_agent";
-  }
-  if (!state.contentComplete) {
-    console.log("[Router] → writer_agent (需要创作内容)");
-    return "writer_agent";
-  }
-  if (state.imagePlans.length === 0) {
-    console.log("[Router] → image_planner_agent (需要规划图片)");
-    return "image_planner_agent";
-  }
-  if (!state.imagesComplete) {
-    console.log("[Router] → image_agent (需要生成图片)");
-    return "image_agent";
-  }
-  if (!state.reviewFeedback) {
-    console.log("[Router] → review_agent (需要审核)");
-    return "review_agent";
-  }
-
-  // 审核未通过：回 supervisor 重新评估，不直接使用 targetAgent
-  if (state.reviewFeedback && !state.reviewFeedback.approved) {
-    if (state.iterationCount >= state.maxIterations) {
-      console.log("[Router] → END (达到最大迭代次数)");
-      return END;
-    }
-    console.log("[Router] → supervisor (审核未通过，重新评估)");
-    return "supervisor";  // 回 supervisor 重新评估下一步
-  }
-
-  console.log("[Router] 所有条件都不满足，准备返回 END");
-  console.log("[Router] 最终状态检查:");
-  console.log("  - researchComplete:", state.researchComplete);
-  console.log("  - contentComplete:", state.contentComplete);
-  console.log("  - imagePlans.length:", state.imagePlans.length);
-  console.log("  - imagesComplete:", state.imagesComplete);
-  console.log("  - reviewFeedback:", state.reviewFeedback);
-  console.log("[Router] → END (所有步骤完成)");
-  return END;
+  return "supervisor";
 }
 
 export function shouldContinueResearch(state: typeof AgentState.State): string {
@@ -119,12 +146,12 @@ export function shouldContinueResearch(state: typeof AgentState.State): string {
   return "supervisor";
 }
 
-// 跟踪 image_agent 的工具调用次数
-let imageToolCallCount = 0;
+// 按 thread 隔离 image_agent 工具调用次数，避免并发串扰
+const imageToolCallCounterByThread = new Map<string, number>();
 const MAX_IMAGE_TOOL_CALLS = 10;
 
-export function resetImageToolCallCount() {
-  imageToolCallCount = 0;
+export function resetImageToolCallCount(threadId = "global") {
+  imageToolCallCounterByThread.delete(threadId);
 }
 
 export function shouldContinueImage(state: typeof AgentState.State): string {
@@ -133,13 +160,14 @@ export function shouldContinueImage(state: typeof AgentState.State): string {
   }
 
   const lastMessage = state.messages[state.messages.length - 1];
+  const threadId = state.threadId || "global";
 
   if (lastMessage && "tool_calls" in lastMessage && (lastMessage as AIMessage).tool_calls?.length) {
-    imageToolCallCount++;
-    if (imageToolCallCount >= MAX_IMAGE_TOOL_CALLS) {
+    const nextCount = (imageToolCallCounterByThread.get(threadId) || 0) + 1;
+    imageToolCallCounterByThread.set(threadId, nextCount);
+    if (nextCount >= MAX_IMAGE_TOOL_CALLS) {
       return "supervisor";
     }
-    // 统一使用 image_tools 节点（动态工具在 image_agent 内部创建）
     return "image_tools";
   }
 
@@ -165,9 +193,9 @@ export function shouldContinueStyle(state: typeof AgentState.State): string {
   return "supervisor";
 }
 
-// review_agent 路由：approved 直接 END，否则回 supervisor
+// review_agent 路由：质量达标直接 END，否则回 supervisor
 export function shouldContinueReview(state: typeof AgentState.State): string {
-  if (state.reviewFeedback?.approved) {
+  if (state.reviewFeedback?.approved && isQualityApproved(state.qualityScores)) {
     return END;
   }
   return "supervisor";

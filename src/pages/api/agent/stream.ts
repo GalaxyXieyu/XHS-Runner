@@ -23,13 +23,34 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { message, themeId, referenceImageUrl, referenceImages, imageGenProvider, enableHITL } = req.body;
+  const {
+    message,
+    themeId,
+    referenceImageUrl,
+    referenceImages,
+    referenceInputs,
+    layoutPreference,
+    imageGenProvider,
+    enableHITL,
+  } = req.body;
   if (!message) {
     return res.status(400).json({ error: "Message is required" });
   }
 
-  // 支持单个 URL 或多个 URL 数组
-  const refImages: string[] = referenceImages || (referenceImageUrl ? [referenceImageUrl] : []);
+  // 兼容旧字段并归一化参考图输入
+  const normalizedReferenceInputs: Array<{ url: string; type?: "style" | "layout" | "content" }> =
+    Array.isArray(referenceInputs) && referenceInputs.length > 0
+      ? referenceInputs
+          .map((item: any) => ({
+            url: typeof item?.url === "string" ? item.url : "",
+            type: ["style", "layout", "content"].includes(item?.type) ? item.type : undefined,
+          }))
+          .filter((item: any) => item.url)
+      : (Array.isArray(referenceImages)
+          ? referenceImages.map((url: string) => ({ url }))
+          : (referenceImageUrl ? [{ url: referenceImageUrl }] : []));
+
+  const refImages: string[] = normalizedReferenceInputs.map((item) => item.url);
   const hasReferenceImage = refImages.length > 0;
   const provider = imageGenProvider || 'jimeng'; // 默认使用即梦
   const threadId = enableHITL ? uuidv4() : undefined;
@@ -139,6 +160,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     themeId,
     hasReferenceImage,
     referenceImageCount: refImages.length,
+    referenceInputCount: normalizedReferenceInputs.length,
   });
   const traceId = trace?.id;
 
@@ -160,7 +182,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           themeId: themeId ? Number(themeId) : null,
           threadId,
           title: message.slice(0, 50) + (message.length > 50 ? '...' : ''),
-          metadata: { imageGenProvider: provider, referenceImages: refImages },
+          metadata: { imageGenProvider: provider, referenceImages: refImages, referenceInputs: normalizedReferenceInputs, layoutPreference },
           status: 'active',
         })
         .returning();
@@ -242,7 +264,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     // 重置图片生成计数（每次请求独立计数）
-    resetImageToolCallCount();
+    resetImageToolCallCount(threadId || "global");
 
     // 提前创建 creative，确保后续图片能关联到同一条记录
     if (themeId) {
@@ -278,6 +300,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (refImages.length > 0) {
       initialState.referenceImages = refImages;
       initialState.referenceImageUrl = refImages[0]; // 兼容旧代码
+      initialState.referenceInputs = normalizedReferenceInputs;
+    }
+    if (["dense", "balanced", "visual-first"].includes(layoutPreference)) {
+      initialState.layoutPreference = layoutPreference;
     }
 
     const streamConfig: any = { recursionLimit: 100 };
@@ -328,6 +354,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       generatedImageAssetIds: output?.generatedImageAssetIds,
       generatedImagePaths: output?.generatedImagePaths,
       summary: output?.summary,
+      creativeBrief: output?.creativeBrief,
+      evidencePack: output?.evidencePack,
+      referenceAnalyses: output?.referenceAnalyses,
+      layoutSpec: output?.layoutSpec,
+      bodyBlocks: output?.bodyBlocks,
+      paragraphImageBindings: output?.paragraphImageBindings,
+      textOverlayPlan: output?.textOverlayPlan,
+      qualityScores: output?.qualityScores,
     });
 
     for await (const chunk of stream) {
@@ -499,7 +533,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 try {
                   const planMatch = msg.content.match(/```json\s*([\s\S]*?)\s*```/);
                   if (planMatch) {
-                    imagePlans = JSON.parse(planMatch[1]);
+                    const parsed = JSON.parse(planMatch[1]);
+                    imagePlans = Array.isArray(parsed)
+                      ? parsed
+                      : (Array.isArray(parsed.imagePlans) ? parsed.imagePlans : []);
                   }
                 } catch (e) {
                   console.error("Failed to parse image plans:", e);
@@ -520,6 +557,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         if (nodeName !== "supervisor_route") {
           const agentOutput = buildAgentOutput(output);
           agentOutputs.set(nodeName, agentOutput);
+        }
+
+        if (nodeName === "image_planner_agent" && output.imagePlans?.length > 0) {
+          imagePlans = output.imagePlans;
         }
 
         // 记录 agent 执行结果
@@ -579,6 +620,48 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               });
             }
           }
+          if (nodeName === "brief_compiler_agent" && output.creativeBrief) {
+            sendEvent({
+              type: "brief_ready",
+              agent: nodeName,
+              content: "创作 Brief 已生成",
+              brief: output.creativeBrief,
+              timestamp: Date.now(),
+            } as any);
+          }
+
+          if (nodeName === "layout_planner_agent" && output.layoutSpec?.length > 0) {
+            sendEvent({
+              type: "layout_spec_ready",
+              agent: nodeName,
+              content: `版式规划完成 (${output.layoutSpec.length}张)`,
+              layoutSpec: output.layoutSpec,
+              timestamp: Date.now(),
+            } as any);
+          }
+
+          if (nodeName === "image_planner_agent" && output.paragraphImageBindings?.length > 0) {
+            sendEvent({
+              type: "alignment_map_ready",
+              agent: nodeName,
+              content: `段落映射完成 (${output.paragraphImageBindings.length}条)`,
+              paragraphImageBindings: output.paragraphImageBindings,
+              textOverlayPlan: output.textOverlayPlan || [],
+              bodyBlocks: output.bodyBlocks || [],
+              timestamp: Date.now(),
+            } as any);
+          }
+
+          if (nodeName === "review_agent" && output.qualityScores) {
+            sendEvent({
+              type: "quality_score",
+              agent: nodeName,
+              content: `综合评分 ${(Number(output.qualityScores?.overall || 0) * 100).toFixed(0)} 分`,
+              qualityScores: output.qualityScores,
+              timestamp: Date.now(),
+            } as any);
+          }
+
           if (nodeName === "review_agent" && output.reviewFeedback?.approved) {
             stateChanges.push("审核通过 - 流程结束");
           }

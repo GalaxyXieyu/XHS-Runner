@@ -18,6 +18,10 @@ function getAgentDisplayName(name: string): string {
   const names: Record<string, string> = {
     supervisor: "主管",
     supervisor_route: "任务路由",
+    brief_compiler_agent: "任务梳理",
+    research_evidence_agent: "证据研究",
+    reference_intelligence_agent: "参考图智能",
+    layout_planner_agent: "版式规划",
     research_agent: "研究专家",
     writer_agent: "创作专家",
     style_analyzer_agent: "风格分析",
@@ -201,16 +205,12 @@ export async function* processAgentStream(
               console.log("[processAgentStream] 捕获 image_planner_agent 输出");
               try {
                 const planMatch = msg.content.match(/```json\s*([\s\S]*?)\s*```/);
-                console.log("[processAgentStream] planMatch:", !!planMatch);
                 if (planMatch) {
-                  console.log("[processAgentStream] 提取的 JSON:", planMatch[1].slice(0, 200));
-                  imagePlans = JSON.parse(planMatch[1]);
-                  console.log("[processAgentStream] 解析成功, imagePlans 数量:", imagePlans.length);
-                  if (onImagePlansExtracted) {
+                  const parsed = JSON.parse(planMatch[1]);
+                  imagePlans = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.imagePlans) ? parsed.imagePlans : []);
+                  if (onImagePlansExtracted && imagePlans.length > 0) {
                     onImagePlansExtracted(imagePlans);
                   }
-                } else {
-                  console.log("[processAgentStream] 未找到 JSON 代码块，消息内容 (前500字符):", msg.content.slice(0, 500));
                 }
               } catch (e) {
                 console.error("Failed to parse image plans:", e);
