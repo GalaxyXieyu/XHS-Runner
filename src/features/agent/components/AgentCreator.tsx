@@ -54,6 +54,7 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
   
   // 素材库状态
   const [packages, setPackages] = useState<ContentPackage[]>([]);
+  const [packagesLoading, setPackagesLoading] = useState(true);
   const [selectedPackage, setSelectedPackage] = useState<ContentPackage | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
 
@@ -83,6 +84,7 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
 
   // 获取素材库数据
   const fetchPackages = useCallback(async () => {
+    setPackagesLoading(true);
     try {
       const res = await fetch(`/api/creatives?themeId=${theme.id}&withAssets=true&limit=12`);
       if (res.ok) {
@@ -91,6 +93,8 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
       }
     } catch (error) {
       console.error("Failed to fetch packages:", error);
+    } finally {
+      setPackagesLoading(false);
     }
   }, [theme.id]);
 
@@ -636,6 +640,7 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
           autoConfirm={autoConfirm}
           setAutoConfirm={setAutoConfirm}
           packages={packages}
+          packagesLoading={packagesLoading}
           setSelectedPackage={setSelectedPackage}
         />
       )}

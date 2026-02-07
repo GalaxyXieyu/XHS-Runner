@@ -1,18 +1,19 @@
 /**
  * MaterialGallery - 素材库展示组件
- * 
+ *
  * 显示已生成的创作内容素材库
  */
 
-import { Image } from "lucide-react";
+import { Image, Loader2 } from "lucide-react";
 import type { ContentPackage } from "@/features/material-library/types";
 
 interface MaterialGalleryProps {
   packages: ContentPackage[];
+  loading?: boolean;
   onSelect: (pkg: ContentPackage) => void;
 }
 
-export function MaterialGallery({ packages, onSelect }: MaterialGalleryProps) {
+export function MaterialGallery({ packages, loading, onSelect }: MaterialGalleryProps) {
   return (
     <div className="bg-gray-50/50 relative">
       <div className="absolute top-0 left-0 right-0 h-6 bg-gradient-to-b from-white to-transparent pointer-events-none z-10" />
@@ -21,7 +22,7 @@ export function MaterialGallery({ packages, onSelect }: MaterialGalleryProps) {
           <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
             <Image className="w-4 h-4" />
             <span>灵感素材</span>
-            {packages.length > 0 && (
+            {!loading && packages.length > 0 && (
               <span className="px-1.5 py-0.5 bg-gray-200 text-gray-600 rounded text-xs">
                 {packages.length}
               </span>
@@ -31,9 +32,11 @@ export function MaterialGallery({ packages, onSelect }: MaterialGalleryProps) {
             查看更多 →
           </button>
         </div>
-        
+
         <div className="grid grid-cols-4 gap-4">
-          {packages.length > 0 ? (
+          {loading ? (
+            <LoadingState />
+          ) : packages.length > 0 ? (
             packages.slice(0, 12).map((pkg) => (
               <MaterialCard key={pkg.id} pkg={pkg} onClick={() => onSelect(pkg)} />
             ))
@@ -82,6 +85,17 @@ function MaterialCard({ pkg, onClick }: MaterialCardProps) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function LoadingState() {
+  return (
+    <div className="col-span-4 py-12 text-center">
+      <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-100 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-gray-400 animate-spin" />
+      </div>
+      <p className="text-sm text-gray-500">加载中...</p>
     </div>
   );
 }

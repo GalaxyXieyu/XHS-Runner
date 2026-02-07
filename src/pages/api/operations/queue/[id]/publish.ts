@@ -37,17 +37,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const result = await processPublishRecordById(id);
 
     if (!result.processed) {
-      if (result.reason === 'not-found') {
+      const reason = 'reason' in result ? result.reason : 'empty';
+      const status = 'status' in result ? result.status : null;
+
+      if (reason === 'not-found') {
         return res.status(404).json({ error: 'Not found' });
       }
-      if (result.reason === 'not-eligible') {
-        if (result.status === 'running') {
+      if (reason === 'not-eligible') {
+        if (status === 'running') {
           return res.status(400).json({ error: '该记录正在发布中' });
         }
-        if (result.status === 'published') {
+        if (status === 'published') {
           return res.status(400).json({ error: '该记录已发布' });
         }
-        return res.status(400).json({ error: `该记录状态不允许发布: ${result.status || 'unknown'}` });
+        return res.status(400).json({ error: '该记录状态不允许发布: ' + (status || 'unknown') });
       }
       return res.status(400).json({ error: '队列为空' });
     }

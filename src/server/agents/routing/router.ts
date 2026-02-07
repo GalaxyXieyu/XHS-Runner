@@ -11,6 +11,14 @@ const MODERATE_THRESHOLDS = {
   overall: 0.72,
 };
 
+const CRITICAL_RECOVERY_ERRORS = new Set([
+  "MISSING_BODY_FOR_IMAGE_PLANNER",
+  "MISSING_BODY_FOR_LAYOUT",
+  "WRITER_EMPTY_BODY",
+]);
+
+type RouteDecision = AgentType | typeof END | "supervisor";
+
 // 检查 supervisor 是否有工具调用
 export function shouldContinueSupervisor(state: typeof AgentState.State): string {
   const lastMessage = state.messages[state.messages.length - 1];
@@ -46,51 +54,46 @@ function getRerouteTargetByScores(qualityScores: QualityScores | null): AgentTyp
 
 function isQualityApproved(qualityScores: QualityScores | null): boolean {
   if (!qualityScores) return false;
-  return qualityScores.overall >= MODERATE_THRESHOLDS.overall;
+  const scores = qualityScores.scores;
+  return (
+    scores.infoDensity >= MODERATE_THRESHOLDS.infoDensity &&
+    scores.textImageAlignment >= MODERATE_THRESHOLDS.textImageAlignment &&
+    scores.styleConsistency >= MODERATE_THRESHOLDS.styleConsistency &&
+    scores.readability >= MODERATE_THRESHOLDS.readability &&
+    scores.platformFit >= MODERATE_THRESHOLDS.platformFit &&
+    qualityScores.overall >= MODERATE_THRESHOLDS.overall
+  );
 }
 
-export function routeFromSupervisor(state: typeof AgentState.State): string {
-  console.log("[routeFromSupervisor] 开始路由决策");
+function extractNextFromSupervisor(content: string): RouteDecision | null {
+  const nextMatch = content.match(/NEXT:\s*(\S+)/);
+  const next = nextMatch?.[1];
+  if (!next) return null;
 
-  const lastMessage = state.messages[state.messages.length - 1];
-  const content = lastMessage && typeof lastMessage.content === "string" ? lastMessage.content : "";
+  if (next === "END") return END;
 
-  // 从 LLM 决策中提取
-  if (content.includes("NEXT: brief_compiler_agent")) return "brief_compiler_agent";
-  if (content.includes("NEXT: research_evidence_agent")) return "research_evidence_agent";
-  if (content.includes("NEXT: reference_intelligence_agent")) return "reference_intelligence_agent";
-  if (content.includes("NEXT: layout_planner_agent")) return "layout_planner_agent";
-  if (content.includes("NEXT: research_agent")) return "research_agent";
-  if (content.includes("NEXT: writer_agent")) return "writer_agent";
-  if (content.includes("NEXT: style_analyzer_agent")) return "style_analyzer_agent";
-  if (content.includes("NEXT: image_planner_agent")) return "image_planner_agent";
-  if (content.includes("NEXT: image_agent")) return "image_agent";
-  if (content.includes("NEXT: review_agent")) return "review_agent";
-  if (content.includes("NEXT: END")) return END;
+  const allowed: AgentType[] = [
+    "brief_compiler_agent",
+    "research_evidence_agent",
+    "reference_intelligence_agent",
+    "layout_planner_agent",
+    "research_agent",
+    "writer_agent",
+    "style_analyzer_agent",
+    "image_planner_agent",
+    "image_agent",
+    "review_agent",
+    "supervisor",
+  ];
 
-  // 审核回流优先
-  if (state.reviewFeedback && !state.reviewFeedback.approved) {
-    if (state.iterationCount >= state.maxIterations) {
-      return END;
-    }
+  return allowed.includes(next as AgentType) ? (next as AgentType) : null;
+}
 
-    if (state.qualityScores) {
-      const reroute = getRerouteTargetByScores(state.qualityScores);
-      if (reroute === "research_evidence_agent") return "research_evidence_agent";
-      if (reroute === "layout_planner_agent") return "layout_planner_agent";
-      if (reroute === "reference_intelligence_agent") return "reference_intelligence_agent";
-      if (reroute === "writer_agent") return "writer_agent";
-      return "image_planner_agent";
-    }
-
-    if (state.reviewFeedback.targetAgent) {
-      if (state.reviewFeedback.targetAgent === "writer_agent") return "writer_agent";
-      if (state.reviewFeedback.targetAgent === "image_planner_agent") return "image_planner_agent";
-      if (state.reviewFeedback.targetAgent === "image_agent") return "image_agent";
-    }
+function getDeterministicRoute(state: typeof AgentState.State): RouteDecision {
+  if (state.lastError && CRITICAL_RECOVERY_ERRORS.has(state.lastError)) {
+    return "writer_agent";
   }
 
-  // 全流程默认决策
   if (!state.briefComplete) {
     return "brief_compiler_agent";
   }
@@ -103,17 +106,12 @@ export function routeFromSupervisor(state: typeof AgentState.State): string {
     return "reference_intelligence_agent";
   }
 
-  if (!state.contentComplete) {
+  if (!state.contentComplete || !state.generatedContent?.body || !state.generatedContent.body.trim()) {
     return "writer_agent";
   }
 
   if (!state.layoutComplete) {
     return "layout_planner_agent";
-  }
-
-  // image_planner 必须看到正文（分块由 planner 内部 AI 完成）
-  if (!state.generatedContent?.body || !state.generatedContent.body.trim()) {
-    return "writer_agent";
   }
 
   if (state.imagePlans.length === 0 || state.paragraphImageBindings.length === 0) {
@@ -129,13 +127,40 @@ export function routeFromSupervisor(state: typeof AgentState.State): string {
   }
 
   if (state.reviewFeedback.approved) {
-    if (state.qualityScores) {
-      return isQualityApproved(state.qualityScores) ? END : "supervisor";
+    if (isQualityApproved(state.qualityScores)) {
+      return END;
     }
+
+    // 审核“口头通过”但分数未达标时，按低分维度回流。
+    return getRerouteTargetByScores(state.qualityScores) || "review_agent";
+  }
+
+  if (state.iterationCount >= state.maxIterations) {
     return END;
   }
 
-  return "supervisor";
+  return getRerouteTargetByScores(state.qualityScores)
+    || state.reviewFeedback.targetAgent as AgentType
+    || "image_planner_agent";
+}
+
+export function routeFromSupervisor(state: typeof AgentState.State): string {
+  console.log("[routeFromSupervisor] 开始路由决策");
+
+  const lastMessage = state.messages[state.messages.length - 1];
+  const content = lastMessage && typeof lastMessage.content === "string" ? lastMessage.content : "";
+
+  const llmRoute = extractNextFromSupervisor(content);
+  const deterministicRoute = getDeterministicRoute(state);
+
+  // LLM 路由仅作为辅助说明，最终路由以状态机硬约束为准，避免跨阶段跳转导致状态缺失。
+  if (llmRoute && llmRoute !== deterministicRoute) {
+    const llmLabel = llmRoute === END ? "END" : llmRoute;
+    const deterministicLabel = deterministicRoute === END ? "END" : deterministicRoute;
+    console.warn(`[routeFromSupervisor] 忽略不安全 LLM 路由 ${llmLabel}，采用 ${deterministicLabel}`);
+  }
+
+  return deterministicRoute;
 }
 
 export function shouldContinueResearch(state: typeof AgentState.State): string {

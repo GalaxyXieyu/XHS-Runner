@@ -147,8 +147,8 @@ export async function imageAgentNode(state: typeof AgentState.State, model: Chat
     messages,
     currentAgent: "image_agent" as AgentType,
     reviewFeedback: null,
-    generatedImagePaths: [...(state.generatedImagePaths || []), ...generatedPaths],
-    generatedImageAssetIds: [...(state.generatedImageAssetIds || []), ...generatedAssetIds],
+    generatedImagePaths: generatedPaths,
+    generatedImageAssetIds: generatedAssetIds,
     generatedImageCount: (state.generatedImageCount || 0) + successCount,
     imagesComplete: successCount === plans.length,
   };

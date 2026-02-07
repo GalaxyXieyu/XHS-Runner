@@ -21,6 +21,40 @@ function average(scores: QualityDimensionScores): number {
   return values.reduce((sum, v) => sum + v, 0) / values.length;
 }
 
+function normalizeUnitScore(raw: unknown): number {
+  const num = Number(raw);
+  if (!Number.isFinite(num)) return 0;
+
+  // 兼容模型输出 0-100 百分制
+  if (num > 1 && num <= 100) {
+    return Math.max(0, Math.min(1, num / 100));
+  }
+
+  return Math.max(0, Math.min(1, num));
+}
+
+function buildFailReasons(scores: QualityDimensionScores, overall: number): string[] {
+  const failReasons: string[] = [];
+  if (scores.infoDensity < THRESHOLDS.infoDensity) failReasons.push("信息密度不足");
+  if (scores.textImageAlignment < THRESHOLDS.textImageAlignment) failReasons.push("图文映射不足");
+  if (scores.styleConsistency < THRESHOLDS.styleConsistency) failReasons.push("风格一致性不足");
+  if (scores.readability < THRESHOLDS.readability) failReasons.push("文字可读性不足");
+  if (scores.platformFit < THRESHOLDS.platformFit) failReasons.push("平台适配不足");
+  if (overall < THRESHOLDS.overall) failReasons.push("综合评分未达标");
+  return failReasons;
+}
+
+function meetsThresholds(scores: QualityDimensionScores, overall: number): boolean {
+  return (
+    scores.infoDensity >= THRESHOLDS.infoDensity &&
+    scores.textImageAlignment >= THRESHOLDS.textImageAlignment &&
+    scores.styleConsistency >= THRESHOLDS.styleConsistency &&
+    scores.readability >= THRESHOLDS.readability &&
+    scores.platformFit >= THRESHOLDS.platformFit &&
+    overall >= THRESHOLDS.overall
+  );
+}
+
 function fallbackScore(state: typeof AgentState.State): QualityScores {
   const body = state.generatedContent?.body || "";
   const infoDensity = Math.min(0.9, Math.max(0.45, body.length / 700));
@@ -39,17 +73,10 @@ function fallbackScore(state: typeof AgentState.State): QualityScores {
     platformFit,
   };
 
-  const failReasons: string[] = [];
-  if (scores.infoDensity < THRESHOLDS.infoDensity) failReasons.push("信息密度不足");
-  if (scores.textImageAlignment < THRESHOLDS.textImageAlignment) failReasons.push("图文映射不足");
-  if (scores.styleConsistency < THRESHOLDS.styleConsistency) failReasons.push("风格一致性不足");
-  if (scores.readability < THRESHOLDS.readability) failReasons.push("文字可读性不足");
-  if (scores.platformFit < THRESHOLDS.platformFit) failReasons.push("平台适配不足");
-
   return {
     scores,
     overall: average(scores),
-    failReasons,
+    failReasons: buildFailReasons(scores, average(scores)),
   };
 }
 
@@ -63,48 +90,42 @@ function parseReviewResult(content: string): {
 
     const parsed = JSON.parse(jsonMatch[0]);
     const scores: QualityDimensionScores = {
-      infoDensity: Number(parsed?.scores?.infoDensity ?? 0),
-      textImageAlignment: Number(parsed?.scores?.textImageAlignment ?? 0),
-      styleConsistency: Number(parsed?.scores?.styleConsistency ?? 0),
-      readability: Number(parsed?.scores?.readability ?? 0),
-      platformFit: Number(parsed?.scores?.platformFit ?? 0),
+      infoDensity: normalizeUnitScore(parsed?.scores?.infoDensity),
+      textImageAlignment: normalizeUnitScore(parsed?.scores?.textImageAlignment),
+      styleConsistency: normalizeUnitScore(parsed?.scores?.styleConsistency),
+      readability: normalizeUnitScore(parsed?.scores?.readability),
+      platformFit: normalizeUnitScore(parsed?.scores?.platformFit),
     };
 
-    const normalized: QualityDimensionScores = {
-      infoDensity: Math.max(0, Math.min(1, scores.infoDensity)),
-      textImageAlignment: Math.max(0, Math.min(1, scores.textImageAlignment)),
-      styleConsistency: Math.max(0, Math.min(1, scores.styleConsistency)),
-      readability: Math.max(0, Math.min(1, scores.readability)),
-      platformFit: Math.max(0, Math.min(1, scores.platformFit)),
-    };
+    const overallFromModel = normalizeUnitScore(parsed?.overall);
+    const overall = overallFromModel > 0 ? overallFromModel : average(scores);
 
-    const overall = Number.isFinite(parsed.overall)
-      ? Math.max(0, Math.min(1, Number(parsed.overall)))
-      : average(normalized);
-
-    const failReasons = Array.isArray(parsed.failReasons)
+    const modelFailReasons = Array.isArray(parsed.failReasons)
       ? parsed.failReasons.map((v: unknown) => String(v)).slice(0, 8)
       : [];
+
+    const thresholdFailReasons = buildFailReasons(scores, overall);
+    const failReasons = Array.from(new Set([...thresholdFailReasons, ...modelFailReasons])).slice(0, 8);
 
     const suggestions = Array.isArray(parsed.suggestions)
       ? parsed.suggestions.map((v: unknown) => String(v)).slice(0, 8)
       : [];
 
-    const approved = typeof parsed.approved === "boolean"
-      ? parsed.approved
-      : overall >= THRESHOLDS.overall;
+    const approvedByThreshold = meetsThresholds(scores, overall);
+    // 模型可以保守拒绝，但不能绕过阈值直接放行。
+    const approved = approvedByThreshold && parsed.approved !== false;
 
     const feedback: ReviewFeedback = {
       approved,
       suggestions,
       targetAgent: typeof parsed.rerouteTarget === "string" ? parsed.rerouteTarget : undefined,
-      scores: normalized,
+      scores,
       overall,
-      rerouteTarget: parsed.rerouteTarget,
+      rerouteTarget: typeof parsed.rerouteTarget === "string" ? parsed.rerouteTarget : undefined,
     };
 
     const qualityScores: QualityScores = {
-      scores: normalized,
+      scores,
       overall,
       failReasons,
     };
@@ -198,7 +219,7 @@ export async function reviewAgentNode(state: typeof AgentState.State) {
     qualityScores = parsed.qualityScores;
   } else {
     qualityScores = fallbackScore(state);
-    const approved = qualityScores.overall >= THRESHOLDS.overall && qualityScores.failReasons.length === 0;
+    const approved = meetsThresholds(qualityScores.scores, qualityScores.overall);
     const suggestions = qualityScores.failReasons.map((reason) => `请优化：${reason}`);
     feedback = {
       approved,

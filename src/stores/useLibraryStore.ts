@@ -30,7 +30,17 @@ interface LibraryStore {
 function normalizeCreative(row: any): ContentPackage {
   const creative = row.creative || row;
   const assets = row.assets || [];
-  const coverImage = assets[0]?.id ? `/api/assets/${assets[0].id}` : (creative.cover_image || creative.coverImage);
+
+  // 如果 API 已经返回了处理好的 images 数组，直接使用
+  // 否则从 assets 构建
+  let images: string[] = [];
+  if (Array.isArray(row.images) && row.images.length > 0) {
+    images = row.images;
+  } else if (assets.length > 0) {
+    images = assets.map((a: any) => a.id ? `/api/assets/${a.id}` : a).filter(Boolean);
+  }
+
+  const coverImage = images[0] || creative.cover_image || creative.coverImage;
 
   // 解析 tags
   let tags: string[] = [];
@@ -47,6 +57,7 @@ function normalizeCreative(row: any): ContentPackage {
     content: creative.content || creative.body || '',
     tags,
     coverImage,
+    images,
     qualityScore: creative.quality_score || creative.qualityScore || 0,
     predictedMetrics: creative.predicted_metrics || creative.predictedMetrics || { likes: 0, collects: 0, comments: 0 },
     actualMetrics: creative.actual_metrics || creative.actualMetrics,
@@ -83,9 +94,13 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
 
   // 加载内容包列表
   loadPackages: async (themeId: number) => {
-    set({ loading: true });
+    // 切换主题时先清空旧数据，避免显示错误的内容
+    set({ loading: true, allPackages: [] });
     try {
       const res = await fetch(`/api/creatives?themeId=${themeId}&withAssets=true`);
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
       const data = await res.json();
       const list = Array.isArray(data) ? data.map(normalizeCreative) : [];
       set({ allPackages: list });

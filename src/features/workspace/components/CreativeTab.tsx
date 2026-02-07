@@ -28,7 +28,7 @@ export function CreativeTab({
 
   const mainTab = externalMainTab ?? 'generate';
 
-  // 加载数据
+  // 加载数据 - 当 theme.id 变化时总是重新加载
   useEffect(() => {
     loadPackages(Number(theme.id));
   }, [theme.id, loadPackages]);

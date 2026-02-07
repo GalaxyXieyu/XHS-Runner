@@ -20,6 +20,7 @@ interface AgentCreatorEmptyStateProps {
   autoConfirm: boolean;
   setAutoConfirm: (next: boolean) => void;
   packages: ContentPackage[];
+  packagesLoading: boolean;
   setSelectedPackage: (pkg: ContentPackage | null) => void;
 }
 
@@ -39,6 +40,7 @@ export function AgentCreatorEmptyState({
   autoConfirm,
   setAutoConfirm,
   packages,
+  packagesLoading,
   setSelectedPackage,
 }: AgentCreatorEmptyStateProps) {
   return (
@@ -169,6 +171,7 @@ export function AgentCreatorEmptyState({
       {/* 底部素材库预览 */}
       <MaterialGallery
         packages={packages}
+        loading={packagesLoading}
         onSelect={setSelectedPackage}
       />
     </div>

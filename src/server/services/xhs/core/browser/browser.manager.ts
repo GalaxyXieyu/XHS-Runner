@@ -118,12 +118,40 @@ export class BrowserManager {
     const userDataDir = join(getUserDataPath(), 'browser-data');
 
     // 清理可能残留的 SingletonLock 文件（浏览器非正常关闭时会留下）
+    // 但需要先确认没有活跃的浏览器进程在使用这个目录
     try {
-      const { existsSync, unlinkSync } = require('fs');
+      const { existsSync, unlinkSync, readlinkSync } = require('fs');
       const lockFile = join(userDataDir, 'SingletonLock');
       if (existsSync(lockFile)) {
-        unlinkSync(lockFile);
-        logger.info('Cleaned up stale SingletonLock file');
+        // SingletonLock 是一个符号链接，指向 hostname-pid
+        // 检查对应的进程是否还存活
+        let shouldRemove = true;
+        try {
+          const linkTarget = readlinkSync(lockFile);
+          // linkTarget 格式类似: hostname-12345
+          const pidMatch = linkTarget.match(/-(\d+)$/);
+          if (pidMatch) {
+            const pid = parseInt(pidMatch[1], 10);
+            // 检查进程是否存活
+            try {
+              process.kill(pid, 0); // signal 0 只检查进程是否存在，不发送信号
+              // 进程存活，不删除锁文件，让 Chromium 自己处理
+              shouldRemove = false;
+              logger.warn(`Browser process ${pid} still running, will attempt to reuse or wait`);
+            } catch {
+              // 进程不存在，可以安全删除锁文件
+              logger.info(`Stale lock file found (process ${pid} no longer exists), cleaning up`);
+            }
+          }
+        } catch (readErr) {
+          // 无法读取符号链接，可能是普通文件或损坏，尝试删除
+          logger.debug(`Could not read lock file as symlink: ${readErr}`);
+        }
+
+        if (shouldRemove) {
+          unlinkSync(lockFile);
+          logger.info('Cleaned up stale SingletonLock file');
+        }
       }
     } catch (err) {
       logger.debug(`Failed to cleanup SingletonLock: ${err}`);
