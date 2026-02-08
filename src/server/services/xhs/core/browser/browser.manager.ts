@@ -19,7 +19,6 @@ export class BrowserManager {
   private browserPool: BrowserPoolService | null = null;
   private usePool: boolean = false;
   private launchPromise: Promise<Browser> | null = null;
-  private browserLockPath: string | null = null;
 
   constructor(config?: Config, usePool: boolean = false) {
     this.config = config || getConfig();
@@ -117,96 +116,17 @@ export class BrowserManager {
 
   private async launchBrowser(headless?: boolean, executablePath?: string): Promise<Browser> {
     const isHeadless = headless !== undefined ? headless : this.config.browser.headlessDefault;
-    const userDataDir = join(getUserDataPath(), 'browser-data');
-    this.browserLockPath = join(userDataDir, 'xhs-browser.lock');
 
-    // 清理所有可能的旧浏览器实例（包括使用旧路径的孤儿进程）
-    try {
-      await this.cleanupOrphanedBrowserProcesses();
-    } catch (err) {
-      logger.warn(`Failed to cleanup orphaned browser processes: ${err}`);
-    }
-
-    // 清理可能残留的 SingletonLock 文件（浏览器非正常关闭时会留下）
-    try {
-      const { existsSync, unlinkSync, readlinkSync } = require('fs');
-      const lockFile = join(userDataDir, 'SingletonLock');
-      if (existsSync(lockFile)) {
-        // SingletonLock 是一个符号链接，指向 hostname-pid
-        let shouldRemove = true;
-        let orphanedPid: number | null = null;
-        try {
-          const linkTarget = readlinkSync(lockFile);
-          // linkTarget 格式类似: hostname-12345
-          const pidMatch = linkTarget.match(/-(\d+)$/);
-          if (pidMatch) {
-            const pid = parseInt(pidMatch[1], 10);
-            // 检查进程是否存活
-            try {
-              process.kill(pid, 0); // signal 0 只检查进程是否存在，不发送信号
-              // 进程存活，检查是否是孤儿进程（父进程是 launchd/init）
-              try {
-                const { execSync } = require('child_process');
-                const ppid = execSync(`ps -p ${pid} -o ppid=`, { encoding: 'utf8' }).trim();
-                if (ppid === '1') {
-                  // 父进程是 launchd，这是一个孤儿进程，应该被清理
-                  orphanedPid = pid;
-                  logger.info(`Found orphaned browser process ${pid} (parent is launchd), will terminate it`);
-                  shouldRemove = true;
-                } else {
-                  // 进程存活且不是孤儿进程，不删除锁文件
-                  shouldRemove = false;
-                  logger.warn(`Browser process ${pid} still running, will attempt to reuse or wait`);
-                }
-              } catch (ppidError) {
-                // 无法获取父进程 ID，保守处理：不删除锁文件
-                shouldRemove = false;
-                logger.debug(`Could not get parent PID for ${pid}: ${ppidError}`);
-              }
-            } catch {
-              // 进程不存在，可以安全删除锁文件
-              logger.info(`Stale lock file found (process ${pid} no longer exists), cleaning up`);
-            }
-          }
-        } catch (readErr) {
-          // 无法读取符号链接，可能是普通文件或损坏，尝试删除
-          logger.debug(`Could not read lock file as symlink: ${readErr}`);
-        }
-
-        // 如果发现孤儿进程，先杀死它
-        if (orphanedPid) {
-          try {
-            await this.terminateProcess(orphanedPid);
-          } catch (killError) {
-            logger.warn(`Failed to kill orphaned process ${orphanedPid}: ${killError}`);
-          }
-        }
-
-        if (shouldRemove) {
-          unlinkSync(lockFile);
-          logger.info('Cleaned up stale SingletonLock file');
-        }
-      }
-    } catch (err) {
-      logger.debug(`Failed to cleanup SingletonLock: ${err}`);
-    }
-
-    // 进程级锁：防止多个实例同时使用同一份 profile
-    try {
-      await this.acquireBrowserLock();
-    } catch (error) {
-      throw new BrowserLaunchError(
-        `Another instance is already using this browser profile. Please close other XHS Runner processes or remove the lock file at ${this.browserLockPath}.`,
-        { headless: isHeadless, executablePath, userDataDir },
-        error as Error
-      );
-    }
+    // 使用 xhs-generator 专属的持久化目录
+    // 避免和 openclaw 等其他服务冲突，同时保持浏览器指纹稳定
+    const userDataDir = join(getUserDataPath(), 'xhs-generator-browser');
 
     try {
       const launchOptions: any = {
         headless: isHeadless,
         slowMo: this.config.browser.slowmo,
-        // 持久化浏览器数据目录，避免被识别为新设备
+        // 使用专属的持久化目录，保持浏览器指纹稳定
+        // 这样小红书不会检测到"换地方登录"
         userDataDir,
         args: [
           '--no-sandbox',
@@ -229,9 +149,9 @@ export class BrowserManager {
       }
 
       const browser = await puppeteer.launch(launchOptions);
+      logger.info(`Browser launched with persistent profile: ${userDataDir}`);
       return browser;
     } catch (error) {
-      await this.releaseBrowserLock();
       logger.error(`Failed to launch browser: ${error}`);
       throw new BrowserLaunchError(
         `Failed to launch browser: ${error}`,
@@ -375,8 +295,6 @@ export class BrowserManager {
         this.browser = null;
       }
     }
-
-    await this.releaseBrowserLock();
   }
 
   /**
@@ -421,173 +339,6 @@ export class BrowserManager {
       this.launchPromise = null;
     });
     return this.launchPromise;
-  }
-
-  private async acquireBrowserLock(): Promise<void> {
-    if (!this.browserLockPath) {
-      return;
-    }
-    const { writeFileSync, readFileSync, existsSync, unlinkSync } = require('fs');
-    const lockPath = this.browserLockPath;
-    try {
-      writeFileSync(lockPath, String(process.pid), { flag: 'wx' });
-      return;
-    } catch (error: any) {
-      if (error?.code !== 'EEXIST') {
-        throw error;
-      }
-    }
-
-    if (!existsSync(lockPath)) {
-      writeFileSync(lockPath, String(process.pid), { flag: 'wx' });
-      return;
-    }
-
-    const rawPid = readFileSync(lockPath, 'utf8').trim();
-    const pid = parseInt(rawPid, 10);
-    if (pid === process.pid) {
-      return;
-    }
-    if (!Number.isNaN(pid)) {
-      try {
-        process.kill(pid, 0);
-        throw new Error(`Browser lock is held by pid ${pid}`);
-      } catch (err: any) {
-        if (err?.code !== 'ESRCH') {
-          throw err;
-        }
-      }
-    }
-    try {
-      unlinkSync(lockPath);
-    } catch {
-      // ignore cleanup failure
-    }
-    writeFileSync(lockPath, String(process.pid), { flag: 'wx' });
-  }
-
-  private async releaseBrowserLock(): Promise<void> {
-    if (!this.browserLockPath) {
-      return;
-    }
-    const { existsSync, readFileSync, unlinkSync } = require('fs');
-    if (!existsSync(this.browserLockPath)) {
-      return;
-    }
-    try {
-      const rawPid = readFileSync(this.browserLockPath, 'utf8').trim();
-      const pid = parseInt(rawPid, 10);
-      if (pid === process.pid || Number.isNaN(pid)) {
-        unlinkSync(this.browserLockPath);
-      }
-    } catch {
-      // ignore cleanup failure
-    }
-  }
-
-  /**
-   * 清理所有孤儿浏览器进程
-   * 检查所有 Chrome 进程，如果使用了 xhs 相关的 user-data-dir 且父进程是 launchd，则清理
-   */
-  private async cleanupOrphanedBrowserProcesses(): Promise<void> {
-    try {
-      const { execSync } = require('child_process');
-      const { homedir } = require('os');
-
-      // 获取所有可能的 xhs 浏览器数据目录路径
-      const possibleDataDirs = [
-        join(homedir(), '.xhs-runner', 'browser-data'),
-        join(homedir(), 'Library', 'Application Support', 'xhs-generator', 'browser-data'),
-        join(homedir(), 'Library', 'Application Support', 'xhs-runner', 'browser-data'),
-      ];
-
-      // 查找所有使用这些目录的 Chrome 进程
-      const psList = execSync(
-        'ps aux | grep -i "chrome.*user-data-dir" | grep -v grep',
-        { encoding: 'utf8' }
-      );
-
-      const lines = psList.split('\n').filter(Boolean);
-      const orphanedPids: number[] = [];
-
-      for (const line of lines) {
-        // 检查是否使用了我们的数据目录
-        const usesOurDir = possibleDataDirs.some(dir => line.includes(dir));
-        if (!usesOurDir) continue;
-
-        // 提取 PID
-        const parts = line.trim().split(/\s+/);
-        const pid = parseInt(parts[1], 10);
-        if (isNaN(pid)) continue;
-
-        // 检查父进程是否是 launchd (ppid=1)
-        try {
-          const ppid = execSync(`ps -p ${pid} -o ppid=`, { encoding: 'utf8' }).trim();
-          if (ppid === '1') {
-            orphanedPids.push(pid);
-            logger.info(`Found orphaned XHS browser process: ${pid}`);
-          }
-        } catch {
-          // 进程可能已经不存在了
-        }
-      }
-
-      // 终止所有孤儿进程
-      for (const pid of orphanedPids) {
-        try {
-          await this.terminateProcess(pid);
-        } catch (err) {
-          logger.warn(`Failed to terminate orphaned process ${pid}: ${err}`);
-        }
-      }
-
-      if (orphanedPids.length > 0) {
-        logger.info(`Cleaned up ${orphanedPids.length} orphaned browser process(es)`);
-        // 给系统一点时间完全清理
-        await sleep(1000);
-      }
-    } catch (err) {
-      // 如果 ps/grep 命令失败（比如没有找到进程），这是正常的
-      logger.debug(`cleanupOrphanedBrowserProcesses: ${err}`);
-    }
-  }
-
-  /**
-   * 终止指定的进程（先 SIGTERM，如果不退出则 SIGKILL）
-   */
-  private async terminateProcess(pid: number): Promise<void> {
-    logger.info(`Terminating process ${pid}...`);
-
-    try {
-      process.kill(pid, 'SIGTERM');
-    } catch (err) {
-      // 进程可能已经不存在
-      return;
-    }
-
-    // 等待进程退出（最多 5 秒）
-    for (let i = 0; i < 50; i++) {
-      await sleep(100);
-      try {
-        process.kill(pid, 0);
-        // 进程还在，继续等待
-      } catch {
-        // 进程已退出
-        logger.info(`Process ${pid} terminated successfully`);
-        return;
-      }
-    }
-
-    // 如果进程还在，强制杀死
-    try {
-      process.kill(pid, 0);
-      logger.warn(`Process ${pid} still alive after 5s, force killing...`);
-      process.kill(pid, 'SIGKILL');
-      await sleep(500);
-      logger.info(`Process ${pid} force killed`);
-    } catch {
-      // 进程已退出
-    }
   }
 
   private handlePuppeteerError(error: Error, operationName: string): XHSError {
