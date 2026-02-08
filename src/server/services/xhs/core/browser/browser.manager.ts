@@ -121,6 +121,13 @@ export class BrowserManager {
     // 避免和 openclaw 等其他服务冲突，同时保持浏览器指纹稳定
     const userDataDir = join(getUserDataPath(), 'xhs-generator-browser');
 
+    // 清理可能残留的孤儿进程（父进程已退出但 Chrome 还在运行）
+    try {
+      await this.cleanupOrphanedBrowserProcess(userDataDir);
+    } catch (err) {
+      logger.warn(`Failed to cleanup orphaned browser: ${err}`);
+    }
+
     try {
       const launchOptions: any = {
         headless: isHeadless,
@@ -158,6 +165,65 @@ export class BrowserManager {
         { headless: isHeadless, executablePath },
         error as Error
       );
+    }
+  }
+
+  /**
+   * 清理孤儿浏览器进程（检查 SingletonLock 并终止孤儿进程）
+   */
+  private async cleanupOrphanedBrowserProcess(userDataDir: string): Promise<void> {
+    try {
+      const { existsSync, readlinkSync, unlinkSync } = require('fs');
+      const { execSync } = require('child_process');
+
+      const lockFile = join(userDataDir, 'SingletonLock');
+      if (!existsSync(lockFile)) return;
+
+      // 读取锁文件指向的 PID
+      const linkTarget = readlinkSync(lockFile);
+      const pidMatch = linkTarget.match(/-(\d+)$/);
+      if (!pidMatch) return;
+
+      const pid = parseInt(pidMatch[1], 10);
+      if (isNaN(pid)) return;
+
+      // 检查进程是否存活
+      try {
+        process.kill(pid, 0);
+      } catch {
+        // 进程不存在，清理锁文件
+        logger.info(`Cleaning stale lock file (process ${pid} not found)`);
+        unlinkSync(lockFile);
+        return;
+      }
+
+      // 进程存活，检查是否是孤儿进程（父进程是 launchd/init）
+      const ppid = execSync(`ps -p ${pid} -o ppid=`, { encoding: 'utf8' }).trim();
+      if (ppid === '1') {
+        // 孤儿进程，终止它
+        logger.info(`Found orphaned browser process ${pid}, terminating...`);
+        process.kill(pid, 'SIGTERM');
+
+        // 等待进程退出（最多 3 秒）
+        for (let i = 0; i < 30; i++) {
+          await sleep(100);
+          try {
+            process.kill(pid, 0);
+          } catch {
+            logger.info(`Orphaned process ${pid} terminated`);
+            unlinkSync(lockFile);
+            return;
+          }
+        }
+
+        // 强制杀死
+        logger.warn(`Force killing process ${pid}`);
+        process.kill(pid, 'SIGKILL');
+        await sleep(500);
+        unlinkSync(lockFile);
+      }
+    } catch (err) {
+      logger.debug(`cleanupOrphanedBrowserProcess: ${err}`);
     }
   }
 
