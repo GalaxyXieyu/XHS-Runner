@@ -215,18 +215,19 @@ export const managePromptTool = tool(
       action: z
         .enum(["modify", "save", "search", "apply", "list", "optimize", "recordUsage"])
         .describe("操作类型"),
-      agentName: z.string().optional().describe("要修改的 agent 名称"),
-      prompt: z.string().optional().describe("新的 prompt 内容"),
-      feedback: z.string().optional().describe("审核反馈，用于优化 prompt"),
-      templateId: z.number().optional().describe("模板 ID (apply 时使用)"),
-      templateName: z.string().optional().describe("模板名称 (save 时使用)"),
+      agentName: z.string().nullable().optional().describe("要修改的 agent 名称"),
+      prompt: z.string().nullable().optional().describe("新的 prompt 内容"),
+      feedback: z.string().nullable().optional().describe("审核反馈,用于优化 prompt"),
+      templateId: z.number().nullable().optional().describe("模板 ID (apply 时使用)"),
+      templateName: z.string().nullable().optional().describe("模板名称 (save 时使用)"),
       category: z
         .enum(["image_style", "writing_tone", "content_structure"])
+        .nullable()
         .optional()
         .describe("模板分类"),
-      tags: z.array(z.string()).optional().describe("模板标签"),
-      query: z.string().optional().describe("搜索关键词"),
-      success: z.boolean().optional().describe("记录使用时是否成功 (recordUsage 时使用)"),
+      tags: z.array(z.string()).nullable().optional().describe("模板标签"),
+      query: z.string().nullable().optional().describe("搜索关键词"),
+      success: z.boolean().nullable().optional().describe("记录使用时是否成功 (recordUsage 时使用)"),
     }),
   }
 );

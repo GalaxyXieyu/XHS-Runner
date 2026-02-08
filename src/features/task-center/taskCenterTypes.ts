@@ -5,9 +5,11 @@ export type CaptureJob = {
   name: string;
   job_type: string;
   theme_id: number | null;
+  keyword_id?: number | null;
   schedule_type: 'interval' | 'cron';
   interval_minutes: number | null;
   cron_expression: string | null;
+  params_json?: any;
   is_enabled: number | boolean;
   next_run_at: string | null;
   last_status: string | null;
@@ -42,6 +44,7 @@ export type JobExecution = {
 export type ThemeSummary = {
   id: string;
   name: string;
+  keywords?: Array<{ id: number; value?: string; keyword?: string }>;
 };
 
 export type UnifiedScheduleItem =

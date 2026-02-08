@@ -128,6 +128,7 @@ export const recommendTemplatesTool = tool(
       message: z.string().describe("用户输入的消息"),
       category: z
         .enum(["image_style", "writing_tone", "content_structure"])
+        .nullable()
         .optional()
         .describe("指定模板分类（可选）"),
       limit: z.number().default(5).describe("返回模板数量"),

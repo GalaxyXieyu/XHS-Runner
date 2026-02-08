@@ -5,17 +5,19 @@
 
 import puppeteer, { Browser, BrowserContext, Page } from 'puppeteer';
 import { join } from 'path';
+import { tmpdir } from 'os';
+import { mkdtemp, rm } from 'fs/promises';
 import { Config } from '../../shared/types';
 import { BrowserLaunchError, XHSError } from '../../shared/errors';
 import { getConfig } from '../../shared/config';
 import { logger } from '../../shared/logger';
 import { sleep } from '../../shared/utils';
-import { getUserDataPath } from '@/server/runtime/userDataPath';
 
 export interface ManagedBrowser {
   browser: Browser;
   context: BrowserContext;
   id: string;
+  userDataDir: string;
   createdAt: Date;
   lastUsed: Date;
   isAvailable: boolean;
@@ -232,13 +234,14 @@ export class BrowserPoolService {
   private async createBrowserInstance(): Promise<ManagedBrowser> {
     // 先生成 ID，用于独立的 userDataDir
     const id = this.generateBrowserId();
+    const userDataDir = await mkdtemp(join(tmpdir(), 'xhs-generator-pool-'));
 
     try {
       const launchOptions: any = {
         headless: this.config.browser.headlessDefault,
         slowMo: this.config.browser.slowmo,
         // 每个 pool 实例使用独立的数据目录，避免多实例冲突
-        userDataDir: join(getUserDataPath(), 'browser-pool-data', id),
+        userDataDir,
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
@@ -262,6 +265,7 @@ export class BrowserPoolService {
         browser,
         context,
         id,
+        userDataDir,
         createdAt: new Date(),
         lastUsed: new Date(),
         isAvailable: true,
@@ -355,9 +359,7 @@ export class BrowserPoolService {
 
     // 清理该实例的 userDataDir
     try {
-      const { rm } = await import('fs/promises');
-      const userDataDir = join(getUserDataPath(), 'browser-pool-data', browserId);
-      await rm(userDataDir, { recursive: true, force: true });
+      await rm(browser.userDataDir, { recursive: true, force: true });
     } catch (error) {
       logger.debug(`Failed to cleanup browser data dir for ${browserId}: ${error}`);
     }

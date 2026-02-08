@@ -15,6 +15,7 @@ import { deleteCookiesFile, getCookiesInfo, saveCookies } from '../../shared/coo
 import { isLoggedIn, getLoginStatusWithProfile } from '../../shared/xhs.utils';
 import { logger } from '../../shared/logger';
 import { sleep } from '../../shared/utils';
+import { BrowserManager } from '../browser/browser.manager';
 
 export interface QRCodeResult {
   success: boolean;
@@ -37,9 +38,22 @@ export class AuthService extends BaseService {
   private qrCodeSessionActive: boolean = false;
   private lastQRCodeHash: string | null = null; // 用于检测二维码变化
   private verificationRound: number = 1; // 当前验证轮次
+  private qrBrowserManager: BrowserManager | null = null;
 
   constructor(config: Config) {
     super(config);
+  }
+
+  private async cleanupQrBrowser(): Promise<void> {
+    if (this.qrBrowserManager) {
+      try {
+        await this.qrBrowserManager.cleanup();
+      } catch (error) {
+        logger.warn(`Failed to cleanup QR browser: ${error}`);
+      } finally {
+        this.qrBrowserManager = null;
+      }
+    }
   }
 
   /**
@@ -54,9 +68,12 @@ export class AuthService extends BaseService {
         } catch {}
         this.qrCodePage = null;
       }
+      await this.cleanupQrBrowser();
 
       // 创建 headless 浏览器页面（不加载 cookies，因为要登录）
-      const page = await this.getBrowserManager().createPage(true, browserPath, false);
+      const browserManager = new BrowserManager(this.getConfig());
+      this.qrBrowserManager = browserManager;
+      const page = await browserManager.createPage(true, browserPath, false);
       this.qrCodePage = page;
       this.qrCodeSessionActive = true;
       this.verificationRound = 1; // 重置验证轮次
@@ -81,6 +98,7 @@ export class AuthService extends BaseService {
         await page.close();
         this.qrCodePage = null;
         this.qrCodeSessionActive = false;
+        await this.cleanupQrBrowser();
         return {
           success: true,
           message: 'already_logged_in',
@@ -155,6 +173,7 @@ export class AuthService extends BaseService {
         this.qrCodePage = null;
       }
       this.qrCodeSessionActive = false;
+      await this.cleanupQrBrowser();
       return {
         success: false,
         message: error instanceof Error ? error.message : '获取二维码失败',
@@ -177,13 +196,30 @@ export class AuthService extends BaseService {
       }
 
       const page = this.qrCodePage;
+      const browserManager = this.qrBrowserManager;
+      if (!browserManager) {
+        return {
+          success: false,
+          loggedIn: false,
+          message: 'no_active_session',
+        };
+      }
 
       // 检查是否已登录
       const loggedIn = await isLoggedIn(page);
+      const currentUrl = page.url();
+      const urlLooksLoggedOut = currentUrl.includes('/login') || currentUrl.includes('/signin');
+      let hasSessionCookie = false;
+      try {
+        const cookies = await page.cookies('https://www.xiaohongshu.com');
+        hasSessionCookie = cookies.some((cookie) => cookie.name === 'web_session' && Boolean(cookie.value));
+      } catch {
+        // ignore cookie read errors
+      }
 
-      if (loggedIn) {
+      if (loggedIn || (hasSessionCookie && !urlLooksLoggedOut)) {
         // 保存 cookies
-        await this.getBrowserManager().saveCookiesFromPage(page);
+        await browserManager.saveCookiesFromPage(page);
 
         // 获取用户信息
         let profile: any = undefined;
@@ -216,6 +252,7 @@ export class AuthService extends BaseService {
         this.qrCodePage = null;
         this.qrCodeSessionActive = false;
         this.lastQRCodeHash = null;
+        await this.cleanupQrBrowser();
 
         return {
           success: true,
@@ -317,15 +354,17 @@ export class AuthService extends BaseService {
       this.qrCodePage = null;
     }
     this.qrCodeSessionActive = false;
+    await this.cleanupQrBrowser();
   }
 
   async login(browserPath?: string, timeout: number = 300): Promise<LoginResult> {
+    const browserManager = new BrowserManager(this.getConfig());
     try {
-      const page = await this.getBrowserManager().createPage(false, browserPath, true);
+      const page = await browserManager.createPage(false, browserPath, true);
 
       try {
         // Navigate to explore page
-        await this.getBrowserManager().navigateWithRetry(page, this.getConfig().xhs.exploreUrl);
+        await browserManager.navigateWithRetry(page, this.getConfig().xhs.exploreUrl);
 
         // Check if already logged in
         if (await isLoggedIn(page)) {
@@ -409,7 +448,7 @@ export class AuthService extends BaseService {
         }
 
         // Save cookies after successful login
-        await this.getBrowserManager().saveCookiesFromPage(page);
+        await browserManager.saveCookiesFromPage(page);
 
         // Verify login success and get profile information
         await sleep(1000); // Brief wait for page to update
@@ -469,6 +508,8 @@ export class AuthService extends BaseService {
       }
       logger.error(`Login failed with unexpected error: ${error}`);
       throw new XHSError(`Login failed: ${error}`, 'LoginError', { timeout }, error as Error);
+    } finally {
+      await browserManager.cleanup();
     }
   }
 
@@ -503,12 +544,23 @@ export class AuthService extends BaseService {
   }
 
   async checkStatus(browserPath?: string): Promise<StatusResult> {
+    const browserManager = new BrowserManager(this.getConfig());
     try {
-      const page = await this.getBrowserManager().createPage(true, browserPath, true);
+      const page = await browserManager.createPage(true, browserPath, true);
 
       try {
-        await this.getBrowserManager().navigateWithRetry(page, this.getConfig().xhs.exploreUrl);
+        await browserManager.navigateWithRetry(page, this.getConfig().xhs.exploreUrl);
         await sleep(1000); // Wait for page to load
+
+        const currentUrl = page.url();
+        if (currentUrl.includes('/login') || currentUrl.includes('/signin')) {
+          return {
+            success: true,
+            loggedIn: false,
+            status: 'logged_out',
+            urlChecked: this.getConfig().xhs.exploreUrl,
+          };
+        }
 
         // First check if logged in
         const loggedIn = await isLoggedIn(page);
@@ -567,6 +619,8 @@ export class AuthService extends BaseService {
     } catch (error) {
       logger.error(`Status check failed: ${error}`);
       throw new XHSError(`Status check failed: ${error}`, 'StatusCheckError', {}, error as Error);
+    } finally {
+      await browserManager.cleanup();
     }
   }
 

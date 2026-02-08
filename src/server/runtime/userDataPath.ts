@@ -41,12 +41,6 @@ function getDefaultUserDataPath(): string {
 }
 
 export function getUserDataPath(): string {
-  // 优先使用环境变量（最高优先级，避免缓存问题）
-  const envPath = process.env.XHS_USER_DATA_PATH;
-  if (envPath) {
-    return envPath;
-  }
-
   // 检查是否在 Electron 环境
   const electronPath = resolveFromElectron();
   if (electronPath) {

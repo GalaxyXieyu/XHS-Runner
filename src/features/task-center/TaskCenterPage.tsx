@@ -21,6 +21,13 @@ const getGoalLabel = (goal: AutoTask['config']['goal']) => {
   }
 };
 
+type CaptureRunState = {
+  running?: boolean;
+  progress?: { value: number; text?: string };
+  success?: string;
+  error?: string;
+};
+
 interface TaskCenterPageProps {
   themes: ThemeSummary[];
   onJumpToTheme: (themeId: string) => void;
@@ -59,6 +66,8 @@ export function TaskCenterPage({
   const [taskMutatingId, setTaskMutatingId] = useState<string | null>(null);
   const [jobExecutionsById, setJobExecutionsById] = useState<Record<string, any[]>>({});
   const [jobExecutionsOpenId, setJobExecutionsOpenId] = useState<string | null>(null);
+  const [canTriggerJob, setCanTriggerJob] = useState(false);
+  const [captureRunState, setCaptureRunState] = useState<Record<string, CaptureRunState>>({});
   // 批量删除状态 - 使用 type-id 作为唯一键
   const [selectedExecutionKeys, setSelectedExecutionKeys] = useState<Set<string>>(new Set());
   const [batchDeleteLoading, setBatchDeleteLoading] = useState(false);
@@ -105,12 +114,92 @@ export function TaskCenterPage({
     if (initialThemeId) setDailyThemeId(String(initialThemeId));
   }, [initialTab, initialJobTypeFilter, initialThemeId]);
 
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setCanTriggerJob(true);
+    }
+  }, []);
+
+  const updateCaptureRunState = (jobId: string, patch: Partial<CaptureRunState>) => {
+    setCaptureRunState((prev) => ({
+      ...prev,
+      [jobId]: { ...(prev[jobId] || {}), ...patch },
+    }));
+  };
+
+  const parseJobParams = (job: CaptureJob) => {
+    const raw = (job as any)?.params_json;
+    if (!raw) return {};
+    if (typeof raw === 'object') return raw;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  };
+
+  const resolveCaptureLimit = (job: CaptureJob) => {
+    const params = parseJobParams(job);
+    const raw = Number(params?.limit ?? 20);
+    const limit = Number.isFinite(raw) ? raw : 20;
+    return Math.min(50, Math.max(1, limit));
+  };
+
+  const resolveThemeKeywords = (themeId?: number | null) => {
+    if (!themeId) return [] as Array<{ id: number; value: string }>;
+    const theme = themes.find((item) => String(item.id) === String(themeId));
+    const rawKeywords = Array.isArray((theme as any)?.keywords) ? (theme as any).keywords : [];
+    return rawKeywords
+      .map((entry: any) => {
+        if (!entry || typeof entry !== 'object') return null;
+        const id = Number(entry.id);
+        if (!Number.isFinite(id) || id <= 0) return null;
+        const value = entry.value || entry.keyword || `关键词#${id}`;
+        return { id, value: String(value) };
+      })
+      .filter(Boolean) as Array<{ id: number; value: string }>;
+  };
+
+  const getKeywordLabel = (keywordId: number, themeId?: number | null) => {
+    const keywords = resolveThemeKeywords(themeId);
+    const match = keywords.find((kw) => kw.id === keywordId);
+    return match?.value || `关键词#${keywordId}`;
+  };
+
+  const runCaptureForKeyword = async (keywordId: number, limit: number) => {
+    if ((window as any).capture?.run) {
+      return (window as any).capture.run({ keywordId, limit });
+    }
+    const res = await fetch('/api/capture/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keywordId, limit }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error || '抓取失败');
+    return data;
+  };
+
+  const summarizeCaptureResult = (result: any) => {
+    if (result?.status === 'cached') {
+      const count = Array.isArray(result.items) ? result.items.length : 0;
+      return { total: count, inserted: 0, cached: true };
+    }
+    return {
+      total: Number(result?.total || 0),
+      inserted: Number(result?.inserted || 0),
+      cached: false,
+    };
+  };
+
   const loadScheduleJobs = async () => {
+    console.log('[TaskCenter] Loading schedule jobs...');
     setCaptureLoading(true);
     try {
       const res = await fetch('/api/jobs');
       const data = await res.json();
       const jobs = Array.isArray(data) ? data : [];
+      console.log('[TaskCenter] Loaded schedule jobs:', jobs.length);
       setScheduleJobs(jobs);
     } catch (error) {
       console.error('Failed to load capture jobs:', error);
@@ -122,6 +211,7 @@ export function TaskCenterPage({
 
   const loadGenerationTasks = async (isBackgroundPoll = false) => {
     if (!isBackgroundPoll) {
+      console.log('[TaskCenter] Loading generation tasks...');
       setGenerationLoading(true);
     }
     try {
@@ -130,6 +220,7 @@ export function TaskCenterPage({
       params.set('limit', '50');
       const res = await fetch(`/api/tasks?${params.toString()}`);
       const data = await res.json();
+      console.log('[TaskCenter] Loaded generation tasks:', data.length);
       setGenerationTasks(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Failed to load generation tasks:', error);
@@ -140,6 +231,7 @@ export function TaskCenterPage({
   };
 
   const loadExecutions = async () => {
+    console.log('[TaskCenter] Loading executions...');
     setExecutionLoading(true);
     try {
       const params = new URLSearchParams();
@@ -152,6 +244,7 @@ export function TaskCenterPage({
       const res = await fetch(`/api/executions/unified?${params.toString()}`);
       const data = await res.json().catch(() => ({}));
       const items = Array.isArray(data) ? data : data.items;
+      console.log('[TaskCenter] Loaded executions:', items?.length || 0);
       setExecutions(Array.isArray(items) ? items : []);
       const total = Array.isArray(data) ? items?.length ?? 0 : Number(data.total || 0);
       setExecutionTotal(Number.isFinite(total) ? total : 0);
@@ -164,12 +257,19 @@ export function TaskCenterPage({
     }
   };
 
+  // 加载调度任务数据
   useEffect(() => {
-    if (activeTab === 'schedule') {
-      loadScheduleJobs();
-      loadGenerationTasks();
-    }
-    if (activeTab === 'history') loadExecutions();
+    console.log('[TaskCenter] useEffect triggered - activeTab:', activeTab, 'timeRange:', timeRange);
+    if (activeTab !== 'schedule') return;
+    loadScheduleJobs();
+    loadGenerationTasks();
+  }, [activeTab, timeRange]); // 只依赖 activeTab 和 timeRange
+
+  // 加载执行历史数据
+  useEffect(() => {
+    console.log('[TaskCenter] useEffect triggered (history) - activeTab:', activeTab);
+    if (activeTab !== 'history') return;
+    loadExecutions();
   }, [activeTab, historyStatusFilter, historyTypeFilter, timeRange, executionPage]);
 
   useEffect(() => {
@@ -218,12 +318,76 @@ export function TaskCenterPage({
 
   const handleTriggerJob = async (job: CaptureJob) => {
     try {
-      if ((window as any).jobs?.trigger) {
-        await (window as any).jobs.trigger({ id: job.id });
+      const isCaptureJob = job.job_type === 'capture_theme' || job.job_type === 'capture_keyword';
+      if (!isCaptureJob) {
+        if ((window as any).jobs?.trigger) {
+          await (window as any).jobs.trigger({ id: job.id });
+        } else {
+          const res = await fetch(`/api/jobs/${job.id}/trigger`, { method: 'POST' });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data?.error || '触发执行失败');
+        }
         await loadScheduleJobs();
+        return;
       }
+
+      const jobKey = String(job.id);
+      const limit = resolveCaptureLimit(job);
+      updateCaptureRunState(jobKey, {
+        running: true,
+        progress: { value: 0, text: '准备抓取...' },
+        success: undefined,
+        error: undefined,
+      });
+
+      let totalFetched = 0;
+      let totalInserted = 0;
+      let cachedCount = 0;
+
+      if (job.job_type === 'capture_keyword') {
+        const keywordId = Number((job as any).keyword_id);
+        if (!Number.isFinite(keywordId) || keywordId <= 0) {
+          throw new Error('任务缺少关键词 ID');
+        }
+        updateCaptureRunState(jobKey, {
+          progress: { value: 10, text: `正在抓取: ${getKeywordLabel(keywordId, job.theme_id)} (1/1)` },
+        });
+        const result = await runCaptureForKeyword(keywordId, limit);
+        const summary = summarizeCaptureResult(result);
+        totalFetched += summary.total;
+        totalInserted += summary.inserted;
+        if (summary.cached) cachedCount += summary.total;
+      } else {
+        const keywords = resolveThemeKeywords(job.theme_id);
+        if (keywords.length === 0) {
+          throw new Error('该主题没有关键词，无法抓取');
+        }
+        for (let i = 0; i < keywords.length; i += 1) {
+          const kw = keywords[i];
+          const progressValue = Math.round((i / keywords.length) * 100);
+          updateCaptureRunState(jobKey, {
+            progress: { value: progressValue, text: `正在抓取: ${kw.value} (${i + 1}/${keywords.length})` },
+          });
+          const result = await runCaptureForKeyword(kw.id, limit);
+          const summary = summarizeCaptureResult(result);
+          totalFetched += summary.total;
+          totalInserted += summary.inserted;
+          if (summary.cached) cachedCount += summary.total;
+        }
+      }
+
+      const allCached = cachedCount > 0 && cachedCount === totalFetched && totalInserted === 0;
+      const successText = allCached
+        ? `命中缓存: 近 ${cachedCount} 条`
+        : `抓取完成: 获取 ${totalFetched} 条，新增 ${totalInserted} 条`;
+      updateCaptureRunState(jobKey, { running: false, progress: undefined, success: successText });
     } catch (error) {
       console.error('Failed to trigger job:', error);
+      updateCaptureRunState(String(job.id), {
+        running: false,
+        progress: undefined,
+        error: (error as Error)?.message || '抓取失败',
+      });
     }
   };
 
@@ -611,8 +775,6 @@ export function TaskCenterPage({
     return pages;
   }, [executionPage, executionTotalPages]);
 
-  const canTriggerJob = typeof window !== 'undefined' && Boolean((window as any).jobs?.trigger);
-
   const renderCaptureJobCard = (job: CaptureJob) => {
     const enabled = job.is_enabled === true || job.is_enabled === 1;
     const themeName = job.theme_id ? themeMap.get(job.theme_id) : null;
@@ -638,11 +800,14 @@ export function TaskCenterPage({
       </button>
     );
 
+    const runState = captureRunState[String(job.id)];
+    const isRunning = !!runState?.running;
     const actions: Array<{
       label: string;
       onClick: () => void | Promise<void>;
       variant: 'primary' | 'warning' | 'danger' | 'default';
       disabled?: boolean;
+      loading?: boolean;
     }> = [
       {
         label: enabled ? '暂停' : '启用',
@@ -650,10 +815,11 @@ export function TaskCenterPage({
         variant: enabled ? 'warning' : 'primary',
       },
       {
-        label: '立即执行',
+        label: isRunning ? '抓取中...' : '立即执行',
         onClick: () => handleTriggerJob(job),
         variant: 'primary',
-        disabled: !canTriggerJob,
+        disabled: !canTriggerJob || isRunning,
+        loading: isRunning,
       },
     ];
 
@@ -680,6 +846,9 @@ export function TaskCenterPage({
           { label: '上次', value: job.last_status || '-' },
         ]}
         actions={actions}
+        progress={isRunning ? runState?.progress : undefined}
+        success={!isRunning ? runState?.success : undefined}
+        error={!isRunning ? runState?.error : undefined}
         onDelete={() => handleDeleteCaptureJob(job)}
         deleteLoading={isMutating}
       />

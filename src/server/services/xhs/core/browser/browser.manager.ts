@@ -4,6 +4,8 @@
 
 import puppeteer, { Browser, Page } from 'puppeteer';
 import { join } from 'path';
+import { tmpdir } from 'os';
+import { mkdtemp, rm } from 'fs/promises';
 import { Config, Cookie } from '../../shared/types';
 import { BrowserLaunchError, BrowserNavigationError, XHSError } from '../../shared/errors';
 import { getConfig } from '../../shared/config';
@@ -11,7 +13,6 @@ import { loadCookies, saveCookies } from '../../shared/cookies';
 import { logger } from '../../shared/logger';
 import { sleep } from '../../shared/utils';
 import { BrowserPoolService, ManagedBrowser } from './browser-pool.service';
-import { getUserDataPath } from '@/server/runtime/userDataPath';
 
 export class BrowserManager {
   private config: Config;
@@ -19,6 +20,7 @@ export class BrowserManager {
   private browserPool: BrowserPoolService | null = null;
   private usePool: boolean = false;
   private launchPromise: Promise<Browser> | null = null;
+  private userDataDir: string | null = null;
 
   constructor(config?: Config, usePool: boolean = false) {
     this.config = config || getConfig();
@@ -117,23 +119,14 @@ export class BrowserManager {
   private async launchBrowser(headless?: boolean, executablePath?: string): Promise<Browser> {
     const isHeadless = headless !== undefined ? headless : this.config.browser.headlessDefault;
 
-    // 使用 xhs-generator 专属的持久化目录
-    // 避免和 openclaw 等其他服务冲突，同时保持浏览器指纹稳定
-    const userDataDir = join(getUserDataPath(), 'xhs-generator-browser');
-
-    // 清理可能残留的孤儿进程（父进程已退出但 Chrome 还在运行）
-    try {
-      await this.cleanupOrphanedBrowserProcess(userDataDir);
-    } catch (err) {
-      logger.warn(`Failed to cleanup orphaned browser: ${err}`);
-    }
+    const userDataDir = await mkdtemp(join(tmpdir(), 'xhs-generator-'));
+    this.userDataDir = userDataDir;
 
     try {
       const launchOptions: any = {
         headless: isHeadless,
         slowMo: this.config.browser.slowmo,
-        // 使用专属的持久化目录，保持浏览器指纹稳定
-        // 这样小红书不会检测到"换地方登录"
+        // 使用临时 profile，每次启动都是新的目录，避免锁冲突
         userDataDir,
         args: [
           '--no-sandbox',
@@ -156,7 +149,7 @@ export class BrowserManager {
       }
 
       const browser = await puppeteer.launch(launchOptions);
-      logger.info(`Browser launched with persistent profile: ${userDataDir}`);
+      logger.info(`Browser launched with fresh profile: ${userDataDir}`);
       return browser;
     } catch (error) {
       logger.error(`Failed to launch browser: ${error}`);
@@ -165,65 +158,6 @@ export class BrowserManager {
         { headless: isHeadless, executablePath },
         error as Error
       );
-    }
-  }
-
-  /**
-   * 清理孤儿浏览器进程（检查 SingletonLock 并终止孤儿进程）
-   */
-  private async cleanupOrphanedBrowserProcess(userDataDir: string): Promise<void> {
-    try {
-      const { existsSync, readlinkSync, unlinkSync } = require('fs');
-      const { execSync } = require('child_process');
-
-      const lockFile = join(userDataDir, 'SingletonLock');
-      if (!existsSync(lockFile)) return;
-
-      // 读取锁文件指向的 PID
-      const linkTarget = readlinkSync(lockFile);
-      const pidMatch = linkTarget.match(/-(\d+)$/);
-      if (!pidMatch) return;
-
-      const pid = parseInt(pidMatch[1], 10);
-      if (isNaN(pid)) return;
-
-      // 检查进程是否存活
-      try {
-        process.kill(pid, 0);
-      } catch {
-        // 进程不存在，清理锁文件
-        logger.info(`Cleaning stale lock file (process ${pid} not found)`);
-        unlinkSync(lockFile);
-        return;
-      }
-
-      // 进程存活，检查是否是孤儿进程（父进程是 launchd/init）
-      const ppid = execSync(`ps -p ${pid} -o ppid=`, { encoding: 'utf8' }).trim();
-      if (ppid === '1') {
-        // 孤儿进程，终止它
-        logger.info(`Found orphaned browser process ${pid}, terminating...`);
-        process.kill(pid, 'SIGTERM');
-
-        // 等待进程退出（最多 3 秒）
-        for (let i = 0; i < 30; i++) {
-          await sleep(100);
-          try {
-            process.kill(pid, 0);
-          } catch {
-            logger.info(`Orphaned process ${pid} terminated`);
-            unlinkSync(lockFile);
-            return;
-          }
-        }
-
-        // 强制杀死
-        logger.warn(`Force killing process ${pid}`);
-        process.kill(pid, 'SIGKILL');
-        await sleep(500);
-        unlinkSync(lockFile);
-      }
-    } catch (err) {
-      logger.debug(`cleanupOrphanedBrowserProcess: ${err}`);
     }
   }
 
@@ -359,6 +293,16 @@ export class BrowserManager {
         logger.warn(`Error closing browser: ${error}`);
       } finally {
         this.browser = null;
+      }
+    }
+
+    if (this.userDataDir) {
+      try {
+        await rm(this.userDataDir, { recursive: true, force: true });
+      } catch (error) {
+        logger.warn(`Error removing browser profile dir: ${error}`);
+      } finally {
+        this.userDataDir = null;
       }
     }
   }

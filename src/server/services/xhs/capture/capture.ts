@@ -1,7 +1,7 @@
 import { getDatabase } from '../../../db';
 import { getSetting, getSettings, setSetting } from '../../../settings';
 import { fetchTopNotes, fetchNoteDetail } from './xhsClient';
-import { enqueueImageDownload } from './imageDownloadService';
+import { enqueueImageDownload, drainImageDownloadQueue } from './imageDownloadService';
 
 // 检测小红书安全限制
 const RATE_LIMIT_KEYWORDS = ['安全限制', '访问频次异常', '请勿频繁操作', '300013'];
@@ -317,6 +317,7 @@ export async function runCapture(keywordId: number, limit = 50) {
 
   let inserted = 0;
   let skipped = 0;
+  let enqueued = 0;
   for (let i = 0; i < notes.length; i++) {
     const note = notes[i];
     if (note && note.id) {
@@ -365,7 +366,8 @@ export async function runCapture(keywordId: number, limit = 50) {
         const mediaUrls = Array.isArray(enrichedNote.media_urls)
           ? enrichedNote.media_urls
           : null;
-        await enqueueImageDownload(rowId, enrichedNote.cover_url || null, mediaUrls);
+        const added = await enqueueImageDownload(rowId, enrichedNote.cover_url || null, mediaUrls);
+        enqueued += added;
       }
     }
   }
@@ -373,5 +375,11 @@ export async function runCapture(keywordId: number, limit = 50) {
   const now = new Date().toISOString();
   await Promise.all([setSetting(cacheKey, now), setSetting('capture:lastRequestAt', now)]);
 
-  return { status: 'fetched', total: notes.length, inserted, skipped };
+  // 抓取任务需要等待图片全部入库
+  let imageDownload: { processed: number; success: number; failed: number } | null = null;
+  if (enqueued > 0) {
+    imageDownload = await drainImageDownloadQueue();
+  }
+
+  return { status: 'fetched', total: notes.length, inserted, skipped, imageDownload };
 }

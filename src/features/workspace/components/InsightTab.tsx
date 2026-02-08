@@ -134,22 +134,19 @@ export function InsightTab({ theme }: InsightTabProps) {
     return 0;
   }, []);
 
-  const buildImageProxySrc = useCallback((url?: string | null, referer?: string | null) => {
-    if (!url) return null;
-    try {
-      const parsed = new URL(url);
-      const hostname = parsed.hostname.toLowerCase();
-      const isXhsHost = hostname === 'xhscdn.com'
-        || hostname.endsWith('.xhscdn.com')
-        || hostname === 'xiaohongshu.com'
-        || hostname.endsWith('.xiaohongshu.com');
-      if (!isXhsHost) return url;
-    } catch {
-      return url;
+  const PLACEHOLDER_IMG =
+    'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYwIiBoZWlnaHQ9IjE2MCIgdmlld0JveD0iMCAwIDE2MCAxNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjE2MCIgaGVpZ2h0PSIxNjAiIGZpbGw9IiNmM2Y0ZjYiLz48cGF0aCBkPSJNNTAgMTIyVjQwYzAtNC40IDMuNi04IDgtOGg0NGM0LjQgMCA4IDMuNiA4IDh2ODIiIHN0cm9rZT0iI2QxZDVkYiIgc3Ryb2tlLXdpZHRoPSI0IiBmaWxsPSJub25lIi8+PGNpcmNsZSBjeD0iMTAyIiBjeT0iNjgiIHI9IjEwIiBmaWxsPSIjZDFlNWZiIi8+PHBhdGggZD0iTTU4IDEwOGwyMC0yMCAzMiAzMiIgc3Ryb2tlPSIjZDFlNWZiIiBzdHJva2Utd2lkdGg9IjQiIGZpbGw9Im5vbmUiLz48L3N2Zz4=';
+
+  const buildImageProxySrc = useCallback((url?: string | null, _referer?: string | null) => {
+    if (!url) return PLACEHOLDER_IMG;
+    if (url.startsWith('/api/image?path=')) return url;
+    if (url.startsWith('/api/assets/')) return url;
+    if (url.startsWith('data:image/')) return url;
+    if (url.startsWith('/api/storage/')) {
+      const objectPath = url.replace(/^\/api\/storage\//, '');
+      return `/api/image?path=${encodeURIComponent(objectPath)}`;
     }
-    const qs = new URLSearchParams({ url });
-    if (referer) qs.set('referer', referer);
-    return `/api/image?${qs.toString()}`;
+    return PLACEHOLDER_IMG;
   }, []);
 
   // Convert topic to NoteDetailData for modal
