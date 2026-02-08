@@ -18,6 +18,8 @@ export class BrowserManager {
   private browser: Browser | null = null;
   private browserPool: BrowserPoolService | null = null;
   private usePool: boolean = false;
+  private launchPromise: Promise<Browser> | null = null;
+  private browserLockPath: string | null = null;
 
   constructor(config?: Config, usePool: boolean = false) {
     this.config = config || getConfig();
@@ -40,9 +42,9 @@ export class BrowserManager {
       }
 
       // Fallback to traditional browser management
-      // Launch browser if not already launched
+      // Launch browser if not already launched (serialize concurrent calls)
       if (!this.browser) {
-        this.browser = await this.launchBrowser(headless, executablePath);
+        this.browser = await this.getOrLaunchBrowser(headless, executablePath);
       }
 
       // Create new page
@@ -116,6 +118,7 @@ export class BrowserManager {
   private async launchBrowser(headless?: boolean, executablePath?: string): Promise<Browser> {
     const isHeadless = headless !== undefined ? headless : this.config.browser.headlessDefault;
     const userDataDir = join(getUserDataPath(), 'browser-data');
+    this.browserLockPath = join(userDataDir, 'xhs-browser.lock');
 
     // 清理可能残留的 SingletonLock 文件（浏览器非正常关闭时会留下）
     // 但需要先确认没有活跃的浏览器进程在使用这个目录
@@ -157,6 +160,17 @@ export class BrowserManager {
       logger.debug(`Failed to cleanup SingletonLock: ${err}`);
     }
 
+    // 进程级锁：防止多个实例同时使用同一份 profile
+    try {
+      await this.acquireBrowserLock();
+    } catch (error) {
+      throw new BrowserLaunchError(
+        `Another instance is already using this browser profile. Please close other XHS Runner processes or remove the lock file at ${this.browserLockPath}.`,
+        { headless: isHeadless, executablePath, userDataDir },
+        error as Error
+      );
+    }
+
     try {
       const launchOptions: any = {
         headless: isHeadless,
@@ -184,9 +198,9 @@ export class BrowserManager {
       }
 
       const browser = await puppeteer.launch(launchOptions);
-
       return browser;
     } catch (error) {
+      await this.releaseBrowserLock();
       logger.error(`Failed to launch browser: ${error}`);
       throw new BrowserLaunchError(
         `Failed to launch browser: ${error}`,
@@ -330,6 +344,8 @@ export class BrowserManager {
         this.browser = null;
       }
     }
+
+    await this.releaseBrowserLock();
   }
 
   /**
@@ -360,6 +376,81 @@ export class BrowserManager {
       await this.browserPool.cleanup();
       this.browserPool = null;
       this.usePool = false;
+    }
+  }
+
+  private async getOrLaunchBrowser(headless?: boolean, executablePath?: string): Promise<Browser> {
+    if (this.browser) {
+      return this.browser;
+    }
+    if (this.launchPromise) {
+      return this.launchPromise;
+    }
+    this.launchPromise = this.launchBrowser(headless, executablePath).finally(() => {
+      this.launchPromise = null;
+    });
+    return this.launchPromise;
+  }
+
+  private async acquireBrowserLock(): Promise<void> {
+    if (!this.browserLockPath) {
+      return;
+    }
+    const { writeFileSync, readFileSync, existsSync, unlinkSync } = require('fs');
+    const lockPath = this.browserLockPath;
+    try {
+      writeFileSync(lockPath, String(process.pid), { flag: 'wx' });
+      return;
+    } catch (error: any) {
+      if (error?.code !== 'EEXIST') {
+        throw error;
+      }
+    }
+
+    if (!existsSync(lockPath)) {
+      writeFileSync(lockPath, String(process.pid), { flag: 'wx' });
+      return;
+    }
+
+    const rawPid = readFileSync(lockPath, 'utf8').trim();
+    const pid = parseInt(rawPid, 10);
+    if (pid === process.pid) {
+      return;
+    }
+    if (!Number.isNaN(pid)) {
+      try {
+        process.kill(pid, 0);
+        throw new Error(`Browser lock is held by pid ${pid}`);
+      } catch (err: any) {
+        if (err?.code !== 'ESRCH') {
+          throw err;
+        }
+      }
+    }
+    try {
+      unlinkSync(lockPath);
+    } catch {
+      // ignore cleanup failure
+    }
+    writeFileSync(lockPath, String(process.pid), { flag: 'wx' });
+  }
+
+  private async releaseBrowserLock(): Promise<void> {
+    if (!this.browserLockPath) {
+      return;
+    }
+    const { existsSync, readFileSync, unlinkSync } = require('fs');
+    if (!existsSync(this.browserLockPath)) {
+      return;
+    }
+    try {
+      const rawPid = readFileSync(this.browserLockPath, 'utf8').trim();
+      const pid = parseInt(rawPid, 10);
+      if (pid === process.pid || Number.isNaN(pid)) {
+        unlinkSync(this.browserLockPath);
+      }
+    } catch {
+      // ignore cleanup failure
     }
   }
 
