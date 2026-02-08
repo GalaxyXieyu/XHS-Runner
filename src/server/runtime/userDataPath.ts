@@ -41,18 +41,26 @@ function getDefaultUserDataPath(): string {
 }
 
 export function getUserDataPath(): string {
-  if (cachedUserDataPath) {
-    return cachedUserDataPath;
-  }
+  // 优先使用环境变量（最高优先级，避免缓存问题）
   const envPath = process.env.XHS_USER_DATA_PATH;
   if (envPath) {
     return envPath;
   }
+
+  // 检查是否在 Electron 环境
   const electronPath = resolveFromElectron();
   if (electronPath) {
+    // 只有在 Electron 环境下才使用缓存
+    if (cachedUserDataPath) {
+      return cachedUserDataPath;
+    }
+    // 缓存 Electron 路径
+    cachedUserDataPath = electronPath;
     return electronPath;
   }
-  // 纯 Next.js 环境：使用跨平台用户数据目录
+
+  // 纯 Next.js 环境：使用跨平台用户数据目录（不使用缓存）
+  // 这样避免被 Electron 的缓存污染
   return getDefaultUserDataPath();
 }
 
