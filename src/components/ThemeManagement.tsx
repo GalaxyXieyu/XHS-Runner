@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Plus, Search, MoreVertical, Play, Pause, Archive, Trash2, Edit2, TrendingUp, ChevronDown, ChevronUp, Download, Loader2 } from 'lucide-react';
 import { Theme } from '../App';
 import { InsightTab } from '@/features/workspace/components/InsightTab';
@@ -30,6 +30,8 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
   const [captureResult, setCaptureResult] = useState<{ themeId: string; total: number; inserted: number } | null>(null);
   const [promptProfiles, setPromptProfiles] = useState<any[]>([]);
   const [formData, setFormData] = useState<ThemeFormData>(createEmptyFormData);
+  const [openMenuThemeId, setOpenMenuThemeId] = useState<string | null>(null);
+  const menuCloseTimer = useRef<number | null>(null);
 
   useEffect(() => {
     const loadProfiles = async () => {
@@ -52,6 +54,33 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
     };
     loadProfiles();
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (menuCloseTimer.current !== null) {
+        window.clearTimeout(menuCloseTimer.current);
+      }
+    };
+  }, []);
+
+  const clearMenuCloseTimer = () => {
+    if (menuCloseTimer.current !== null) {
+      window.clearTimeout(menuCloseTimer.current);
+      menuCloseTimer.current = null;
+    }
+  };
+
+  const openMenu = (themeId: string) => {
+    clearMenuCloseTimer();
+    setOpenMenuThemeId(themeId);
+  };
+
+  const scheduleCloseMenu = (themeId: string) => {
+    clearMenuCloseTimer();
+    menuCloseTimer.current = window.setTimeout(() => {
+      setOpenMenuThemeId((current) => (current === themeId ? null : current));
+    }, 180);
+  };
 
   const toNumber = (value: string, fallback?: number) => {
     if (!value) return fallback;
@@ -503,87 +532,104 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
 
                     {/* Actions */}
                     <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity z-20">
-                      <div className="relative group/menu">
+                      <div
+                        className="relative"
+                        onMouseEnter={() => openMenu(theme.id)}
+                        onMouseLeave={() => scheduleCloseMenu(theme.id)}
+                      >
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
+                            if (openMenuThemeId === theme.id) {
+                              setOpenMenuThemeId(null);
+                              return;
+                            }
+                            openMenu(theme.id);
                           }}
                           className="p-1 hover:bg-gray-100 rounded transition-colors"
                         >
                           <MoreVertical className="w-3.5 h-3.5 text-gray-500" />
                         </button>
-                        <div className="hidden group-hover/menu:block absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg py-1 z-50 min-w-[120px]">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleEditTheme(theme);
-                            }}
-                            className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-1.5"
-                          >
-                            <Edit2 className="w-3 h-3" />
-                            编辑
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleCapture(theme);
-                            }}
-                            disabled={capturing === theme.id}
-                            className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-1.5 disabled:opacity-50"
-                          >
-                            {capturing === theme.id ? (
-                              <Loader2 className="w-3 h-3 animate-spin" />
-                            ) : (
-                              <Download className="w-3 h-3" />
+                        {openMenuThemeId === theme.id && (
+                          <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg py-1 z-50 min-w-[120px]">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenMenuThemeId(null);
+                                handleEditTheme(theme);
+                              }}
+                              className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-1.5"
+                            >
+                              <Edit2 className="w-3 h-3" />
+                              编辑
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenMenuThemeId(null);
+                                handleCapture(theme);
+                              }}
+                              disabled={capturing === theme.id}
+                              className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-1.5 disabled:opacity-50"
+                            >
+                              {capturing === theme.id ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <Download className="w-3 h-3" />
+                              )}
+                              {capturing === theme.id ? '抓取中...' : '抓取笔记'}
+                            </button>
+                            {theme.status === 'active' && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setOpenMenuThemeId(null);
+                                  handleUpdateStatus(theme.id, 'paused');
+                                }}
+                                className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-1.5"
+                              >
+                                <Pause className="w-3 h-3" />
+                                暂停
+                              </button>
                             )}
-                            {capturing === theme.id ? '抓取中...' : '抓取笔记'}
-                          </button>
-                          {theme.status === 'active' && (
+                            {theme.status === 'paused' && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setOpenMenuThemeId(null);
+                                  handleUpdateStatus(theme.id, 'active');
+                                }}
+                                className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-1.5"
+                              >
+                                <Play className="w-3 h-3" />
+                                继续
+                              </button>
+                            )}
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleUpdateStatus(theme.id, 'paused');
+                                setOpenMenuThemeId(null);
+                                handleUpdateStatus(theme.id, 'completed');
                               }}
                               className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-1.5"
                             >
-                              <Pause className="w-3 h-3" />
-                              暂停
+                              <Archive className="w-3 h-3" />
+                              归档
                             </button>
-                          )}
-                          {theme.status === 'paused' && (
+                            <div className="border-t border-gray-100 my-1"></div>
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleUpdateStatus(theme.id, 'active');
+                                setOpenMenuThemeId(null);
+                                handleDeleteTheme(theme.id);
                               }}
-                              className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-1.5"
+                              className="w-full text-left px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 flex items-center gap-1.5"
                             >
-                              <Play className="w-3 h-3" />
-                              继续
+                              <Trash2 className="w-3 h-3" />
+                              删除
                             </button>
-                          )}
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleUpdateStatus(theme.id, 'completed');
-                            }}
-                            className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-1.5"
-                          >
-                            <Archive className="w-3 h-3" />
-                            归档
-                          </button>
-                          <div className="border-t border-gray-100 my-1"></div>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteTheme(theme.id);
-                            }}
-                            className="w-full text-left px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 flex items-center gap-1.5"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                            删除
-                          </button>
-                        </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

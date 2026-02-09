@@ -24,6 +24,7 @@ import {
   SupervisorRouteCard,
   AgentWorkingCard,
   AgentCompletedCard,
+  type AgentState,
 } from "./AgentStatusCards";
 
 interface AgentCreatorProps {
@@ -47,12 +48,13 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
   const [conversationId, setConversationId] = useState<number | null>(null);
   
   // UI 状态
-  const [expandedProcess, setExpandedProcess] = useState(false);
   const [expandedLoading, setExpandedLoading] = useState(true);
   const [imageTasks, setImageTasks] = useState<ImageTask[]>([]);
   const [imageGenProvider, setImageGenProvider] = useState<ImageGenProvider>('jimeng');
   const [autoConfirm, setAutoConfirm] = useState(false);
   const [workflowProgress, setWorkflowProgress] = useState(0);
+  const [expandedHistory, setExpandedHistory] = useState(false);
+  const [expandedOutputItems, setExpandedOutputItems] = useState<Record<string, boolean>>({});
 
   // 引用
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -416,6 +418,27 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
     }
   };
 
+  type OutputItem = {
+    key: string;
+    title: string;
+    agentKey: string;
+    agentLabel: string;
+    timestamp: number;
+    render: (isLatest: boolean, expanded: boolean, onToggle: () => void) => JSX.Element;
+  };
+
+  const toggleOutputItem = (key: string) => {
+    setExpandedOutputItems((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  };
+
+  const isOutputExpanded = (key: string, defaultExpanded = false) => {
+    const value = expandedOutputItems[key];
+    return typeof value === 'boolean' ? value : defaultExpanded;
+  };
+
   // 渲染消息内容
   const renderMessageContent = (msg: ChatMessage, idx: number) => {
     const msgEvents = msg.events || [];
@@ -471,10 +494,7 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
       (idx < messages.length - 1 && messages[idx + 1].role !== 'assistant');
     const isWorkflowComplete = !!workflowCompleteEvent;
     const isHITLRequest = !!msg.askUser; // 是否是 HITL 请求消息
-    const showResearchCard =
-      (researchContent || toolEvents.length > 0 || isCurrentlyStreaming) &&
-      isLastAssistantMessage &&
-      !isWorkflowComplete;
+    const shouldIncludeResearch = researchContent || toolEvents.length > 0;
 
     // 只有满足以下条件才显示图片：
     // 1. workflow_complete 事件存在（最终结果）
@@ -487,7 +507,7 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
     // 如果有 workflow_complete 事件，使用其中的图片 asset IDs
     // 中间步骤（如 HITL 确认）不显示图片
     const finalImageTasks = shouldShowImages
-      ? (workflowCompleteEvent?.imageAssetIds?.length 
+      ? (workflowCompleteEvent?.imageAssetIds?.length
           ? workflowCompleteEvent.imageAssetIds.map((assetId: number, i: number) => ({
               id: i + 1,
               prompt: "",
@@ -497,62 +517,469 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
           : imageTasks)
       : [];
 
-    return (
-      <div className="space-y-3 max-w-[80%]">
-        {/* Supervisor 路由决策卡片 */}
-        {supervisorDecisions.map((decision, i) => (
-          <SupervisorRouteCard key={`supervisor-${i}`} event={decision} />
-        ))}
+    const findLastEvent = (predicate: (event: AgentEvent) => boolean) => {
+      for (let i = effectiveEvents.length - 1; i >= 0; i -= 1) {
+        const event = effectiveEvents[i];
+        if (predicate(event)) return event;
+      }
+      return null;
+    };
 
-        {/* Agent 状态卡片（工作中/已完成） */}
-        {Array.from(agentStates.values()).map((state) => {
-          // 特殊 agent 使用专用展示（研究、文案、图片规划）
-          const isSpecialAgent = [
-            'research_agent',
-            'research_evidence_agent',
-            'writer_agent',
-            'image_planner_agent',
-            'image_agent',
-          ].includes(state.agent);
+    const briefState = agentStates.get('brief_compiler_agent');
+    const layoutState = agentStates.get('layout_planner_agent');
+    const imagePlannerState = agentStates.get('image_planner_agent');
+    const reviewState = agentStates.get('review_agent');
+    const writerState = agentStates.get('writer_agent');
+    const researchState = agentStates.get('research_evidence_agent') || agentStates.get('research_agent');
 
-          // 特殊 agent 的内容由下面的专用卡片展示，这里只显示状态
-          if (isSpecialAgent && state.status === 'completed') {
-            return null; // 不显示通用完成卡片，使用下面的专用卡片
-          }
+    const briefTimestamp = findLastEvent((event) => event.type === 'brief_ready')?.timestamp
+      || briefState?.endTime
+      || 0;
+    const layoutTimestamp = findLastEvent((event) => event.type === 'layout_spec_ready')?.timestamp
+      || layoutState?.endTime
+      || 0;
+    const alignmentTimestamp = findLastEvent((event) => event.type === 'alignment_map_ready')?.timestamp
+      || imagePlannerState?.endTime
+      || 0;
+    const reviewTimestamp = findLastEvent((event) => event.type === 'quality_score')?.timestamp
+      || reviewState?.endTime
+      || 0;
+    const researchTimestamp = researchState?.endTime
+      || researchEvents[researchEvents.length - 1]?.timestamp
+      || 0;
+    const writerTimestamp = workflowCompleteEvent?.timestamp
+      || writerState?.endTime
+      || writerEvents[writerEvents.length - 1]?.timestamp
+      || 0;
+    const imagePlanTimestamp = imagePlannerEvents[imagePlannerEvents.length - 1]?.timestamp
+      || imagePlannerState?.endTime
+      || 0;
 
-          return state.status === 'working' ? (
-            <AgentWorkingCard key={state.agent} state={state} />
-          ) : (
-            <AgentCompletedCard key={state.agent} state={state} />
-          );
-        })}
+    const outputItems: OutputItem[] = [];
+    const pushOutput = (item: OutputItem) => {
+      if (!Number.isFinite(item.timestamp) || item.timestamp <= 0) return;
+      outputItems.push(item);
+    };
 
-        {/* 研究过程卡片（工作流完成后折叠） */}
-        {showResearchCard && (
+    if (briefState?.result) {
+      pushOutput({
+        key: 'brief',
+        title: 'Brief',
+        agentKey: briefState.agent || 'brief_compiler_agent',
+        agentLabel: getAgentDisplayName(briefState.agent || 'brief_compiler_agent'),
+        timestamp: briefTimestamp,
+        render: (_isLatest, expanded, onToggle) => (
+          <AgentCompletedCard
+            state={briefState}
+            expanded={expanded}
+            onToggle={onToggle}
+          />
+        ),
+      });
+    }
+
+    if (shouldIncludeResearch) {
+      pushOutput({
+        key: 'research',
+        title: '研究过程',
+        agentKey: researchState?.agent || 'research_evidence_agent',
+        agentLabel: getAgentDisplayName(researchState?.agent || 'research_evidence_agent'),
+        timestamp: researchTimestamp,
+        render: (isLatest, expanded, onToggle) => (
           <CollapsibleToolCard
             title="研究过程"
             events={effectiveEvents}
-            isLoading={isCurrentlyStreaming}
-            expanded={expandedProcess}
-            onToggle={() => setExpandedProcess(!expandedProcess)}
-            phase={isCurrentlyStreaming ? streamPhase : undefined}
+            isLoading={isLatest && isCurrentlyStreaming}
+            expanded={expanded}
+            onToggle={onToggle}
+            phase={isLatest && isCurrentlyStreaming ? streamPhase : undefined}
             researchContent={researchContent}
           />
-        )}
+        ),
+      });
+    }
 
-        {/* 创作内容卡片（最终结果） */}
-        {parsed && (
+    if (parsed) {
+      pushOutput({
+        key: 'content',
+        title: isWorkflowComplete ? '创作完成' : '创作输出',
+        agentKey: 'writer_agent',
+        agentLabel: getAgentDisplayName('writer_agent'),
+        timestamp: writerTimestamp,
+        render: () => (
           <ContentCard
             content={parsed}
             imageTasks={finalImageTasks}
             isStreaming={isStreaming && !isWorkflowComplete}
             onImageClick={setPreviewImage}
           />
+        ),
+      });
+    }
+
+    if (parsedImagePlan) {
+      pushOutput({
+        key: 'image_plan',
+        title: '图片规划',
+        agentKey: imagePlannerState?.agent || 'image_planner_agent',
+        agentLabel: getAgentDisplayName(imagePlannerState?.agent || 'image_planner_agent'),
+        timestamp: imagePlanTimestamp,
+        render: () => (
+          <ImagePlanCard imagePlan={parsedImagePlan} />
+        ),
+      });
+    }
+
+    if (layoutState?.result) {
+      pushOutput({
+        key: 'layout',
+        title: '版式规划',
+        agentKey: layoutState.agent || 'layout_planner_agent',
+        agentLabel: getAgentDisplayName(layoutState.agent || 'layout_planner_agent'),
+        timestamp: layoutTimestamp,
+        render: (_isLatest, expanded, onToggle) => (
+          <AgentCompletedCard
+            state={layoutState}
+            expanded={expanded}
+            onToggle={onToggle}
+          />
+        ),
+      });
+    }
+
+    if (imagePlannerState?.result) {
+      pushOutput({
+        key: 'alignment',
+        title: '图文段落绑定',
+        agentKey: imagePlannerState.agent || 'image_planner_agent',
+        agentLabel: getAgentDisplayName(imagePlannerState.agent || 'image_planner_agent'),
+        timestamp: alignmentTimestamp,
+        render: (_isLatest, expanded, onToggle) => (
+          <AgentCompletedCard
+            state={imagePlannerState}
+            expanded={expanded}
+            onToggle={onToggle}
+          />
+        ),
+      });
+    }
+
+    if (reviewState?.result) {
+      pushOutput({
+        key: 'review',
+        title: '质量审核',
+        agentKey: reviewState.agent || 'review_agent',
+        agentLabel: getAgentDisplayName(reviewState.agent || 'review_agent'),
+        timestamp: reviewTimestamp,
+        render: (_isLatest, expanded, onToggle) => (
+          <AgentCompletedCard
+            state={reviewState}
+            expanded={expanded}
+            onToggle={onToggle}
+          />
+        ),
+      });
+    }
+
+    outputItems.sort((a, b) => a.timestamp - b.timestamp);
+    const latestOutput = outputItems[outputItems.length - 1];
+
+    type DecisionBlock = {
+      key: string;
+      decision?: AgentEvent;
+      outputs: OutputItem[];
+      workingStates: AgentState[];
+    };
+
+    type AgentOutputGroup = {
+      key: string;
+      agentLabel: string;
+      outputs: OutputItem[];
+      workingStates: AgentState[];
+      containsLatest: boolean;
+      order: number;
+    };
+
+    const decisionEvents = supervisorDecisions;
+    const decisionBlocksBase: DecisionBlock[] = decisionEvents.map((event, index) => ({
+      key: `decision-${index}`,
+      decision: event,
+      outputs: [],
+      workingStates: [],
+    }));
+
+    const preBlock: DecisionBlock = {
+      key: 'decision-pre',
+      decision: undefined,
+      outputs: [],
+      workingStates: [],
+    };
+
+    const findDecisionIndex = (timestamp: number) => {
+      for (let i = decisionEvents.length - 1; i >= 0; i -= 1) {
+        if (decisionEvents[i].timestamp <= timestamp) return i;
+      }
+      return -1;
+    };
+
+    const getBlockForTimestamp = (timestamp: number) => {
+      if (decisionBlocksBase.length === 0) return preBlock;
+      const index = findDecisionIndex(timestamp);
+      if (index >= 0) return decisionBlocksBase[index];
+      return preBlock;
+    };
+
+    outputItems.forEach((item) => {
+      const block = getBlockForTimestamp(item.timestamp);
+      block.outputs.push(item);
+    });
+
+    Array.from(agentStates.values())
+      .filter((state) => state.status === 'working')
+      .forEach((state) => {
+        const block = getBlockForTimestamp(state.startTime);
+        block.workingStates.push(state);
+      });
+
+    const blocksToRender: DecisionBlock[] = [];
+    if (preBlock.outputs.length > 0 || preBlock.workingStates.length > 0 || decisionBlocksBase.length === 0) {
+      blocksToRender.push(preBlock);
+    }
+    blocksToRender.push(...decisionBlocksBase);
+
+    const decisionBlocks = blocksToRender.map((block) => {
+      const groupMap = new Map<string, AgentOutputGroup>();
+
+      const ensureGroup = (agentKey: string, agentLabel: string, order: number) => {
+        const key = `${block.key}:${agentKey}`;
+        if (!groupMap.has(key)) {
+          groupMap.set(key, {
+            key,
+            agentLabel,
+            outputs: [],
+            workingStates: [],
+            containsLatest: false,
+            order,
+          });
+        }
+        return groupMap.get(key)!;
+      };
+
+      block.outputs.forEach((item) => {
+        const group = ensureGroup(item.agentKey, item.agentLabel, item.timestamp);
+        group.outputs.push(item);
+        if (latestOutput && item.key === latestOutput.key) {
+          group.containsLatest = true;
+        }
+      });
+
+      block.workingStates.forEach((state) => {
+        const label = getAgentDisplayName(state.agent || '');
+        const group = ensureGroup(state.agent || 'unknown', label, state.startTime);
+        group.workingStates.push(state);
+      });
+
+      const groups = Array.from(groupMap.values()).sort((a, b) => a.order - b.order);
+      return {
+        ...block,
+        groups,
+      };
+    });
+
+    const getBlockActivityTimestamp = (block: typeof decisionBlocks[number]) => {
+      let latest = 0;
+      block.outputs.forEach((item) => {
+        if (item.timestamp > latest) latest = item.timestamp;
+      });
+      block.workingStates.forEach((state) => {
+        if (state.startTime > latest) latest = state.startTime;
+      });
+      return latest;
+    };
+
+    const activeBlocks = decisionBlocks.filter(
+      (block) => block.outputs.length > 0 || block.workingStates.length > 0
+    );
+    const currentBlock = activeBlocks.reduce<typeof decisionBlocks[number] | null>((latest, block) => {
+      if (!latest) return block;
+      return getBlockActivityTimestamp(block) > getBlockActivityTimestamp(latest) ? block : latest;
+    }, null) || decisionBlocks[decisionBlocks.length - 1];
+    const historyBlocks = activeBlocks.filter((block) => block.key !== currentBlock?.key);
+
+    const latestDecision = decisionEvents[decisionEvents.length - 1];
+    const currentBlockActivityTime = currentBlock ? getBlockActivityTimestamp(currentBlock) : 0;
+    const hasUpcomingDecision = !!latestDecision && latestDecision.timestamp > currentBlockActivityTime;
+
+    const getDecisionLabel = (decision?: AgentEvent) => {
+      const agentKey = decision?.decision || "";
+      return agentKey ? getAgentDisplayName(agentKey) : "准备阶段";
+    };
+
+    const renderGroupItems = (group: AgentOutputGroup) => (
+      <>
+        {group.workingStates.map((state) => (
+          <AgentWorkingCard key={`${group.key}-${state.agent}`} state={state} />
+        ))}
+
+        {group.outputs.map((item) => {
+          const isLatest = latestOutput && item.key === latestOutput.key;
+          const outputExpanded = isOutputExpanded(item.key, isLatest);
+          const onToggle = () => toggleOutputItem(item.key);
+          const showTitle = group.outputs.length > 1;
+
+          return (
+            <div key={item.key} className="space-y-1">
+              {showTitle && (
+                <div className="text-[11px] text-slate-500">{item.title}</div>
+              )}
+              {item.render(!!isLatest, outputExpanded, onToggle)}
+            </div>
+          );
+        })}
+      </>
+    );
+
+    const renderCollapsibleGroup = (group: AgentOutputGroup) => {
+      const groupStateKey = `agent:${group.key}`;
+      const groupExpanded = isOutputExpanded(
+        groupStateKey,
+        group.containsLatest || group.workingStates.length > 0
+      );
+
+      return (
+        <div key={group.key} className="rounded-lg border border-slate-200 bg-white/80 overflow-hidden">
+          <button
+            type="button"
+            onClick={() => toggleOutputItem(groupStateKey)}
+            className="w-full flex items-center justify-between px-3 py-2 text-xs text-slate-700 hover:text-slate-900 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <span className="font-medium">{group.agentLabel}</span>
+              <span className="text-slate-400">·</span>
+              <span className="text-slate-500">
+                {group.workingStates.length > 0
+                  ? '进行中'
+                  : `${group.outputs.length} 项产出`}
+              </span>
+            </div>
+            <span className="text-[11px] text-slate-400">{groupExpanded ? '收起' : '展开'}</span>
+          </button>
+
+          {groupExpanded && (
+            <div className="px-3 pb-3 space-y-2">
+              {renderGroupItems(group)}
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    const renderInlineGroup = (group: AgentOutputGroup, label: string) => (
+      <div key={group.key} className="rounded-lg border border-slate-200 bg-white/90 overflow-hidden">
+        <div className="px-3 py-2 flex items-center justify-between text-xs text-slate-700">
+          <div className="flex items-center gap-2">
+            <span className="font-medium">{group.agentLabel}</span>
+            <span className="text-slate-400">·</span>
+            <span className="text-slate-500">
+              {group.workingStates.length > 0
+                ? '进行中'
+                : `${group.outputs.length} 项产出`}
+            </span>
+          </div>
+          <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-600">
+            {label}
+          </span>
+        </div>
+        <div className="px-3 pb-3 space-y-2">
+          {renderGroupItems(group)}
+        </div>
+      </div>
+    );
+
+    const pickFocusGroup = (block?: typeof decisionBlocks[number]) => {
+      if (!block) return null;
+      const latestGroup = block.groups.find((group) => group.containsLatest);
+      if (latestGroup) return latestGroup;
+      const workingGroups = block.groups
+        .filter((group) => group.workingStates.length > 0)
+        .sort((a, b) => b.order - a.order);
+      return workingGroups[0] || null;
+    };
+
+    const focusGroup = pickFocusGroup(currentBlock);
+
+
+    return (
+      <div className="space-y-3 max-w-[80%]">
+        {/* 当前阶段 */}
+        {currentBlock && (
+          <div className="rounded-lg border border-purple-100 bg-purple-50/20 overflow-hidden">
+            <div className="px-3 py-2.5">
+              <div className="text-sm font-medium text-purple-700">当前阶段</div>
+              <div className="mt-1 text-xs text-purple-600">
+                {getDecisionLabel(currentBlock.decision)}
+              </div>
+              {currentBlock.decision?.reason && (
+                <div className="mt-1 text-[11px] text-purple-500 line-clamp-2">
+                  {currentBlock.decision.reason}
+                </div>
+              )}
+              {hasUpcomingDecision && latestDecision && (
+                <div className="mt-2 text-[11px] text-slate-500">
+                  下一步：{getDecisionLabel(latestDecision)}
+                </div>
+              )}
+            </div>
+
+            <div className="px-3 pb-3 space-y-2">
+              {currentBlock.groups.length === 0 && (
+                <div className="text-[11px] text-slate-400 py-2">暂无产出</div>
+              )}
+              {currentBlock.groups.map((group) => {
+                if (focusGroup && group.key === focusGroup.key) {
+                  return renderInlineGroup(group, '当前');
+                }
+                return renderCollapsibleGroup(group);
+              })}
+            </div>
+          </div>
         )}
 
-        {/* 图片规划卡片（工作流完成后不显示） */}
-        {parsedImagePlan && !isWorkflowComplete && (
-          <ImagePlanCard imagePlan={parsedImagePlan} />
+        {/* 已完成阶段（折叠） */}
+        {historyBlocks.length > 0 && (
+          <div className="rounded-lg border border-slate-200 bg-slate-50/60 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setExpandedHistory((prev) => !prev)}
+              className="w-full flex items-center justify-between px-3 py-2.5 text-left"
+            >
+              <div className="text-xs font-medium text-slate-700">已完成阶段（{historyBlocks.length}）</div>
+              <div className="text-[11px] text-slate-400">{expandedHistory ? '收起' : '展开'}</div>
+            </button>
+
+            {expandedHistory && (
+              <div className="px-3 pb-3 space-y-3">
+                {historyBlocks.map((block) => (
+                  <div key={block.key} className="rounded-lg border border-slate-200 bg-white/90 overflow-hidden">
+                    <div className="px-3 py-2 text-xs font-medium text-slate-700">
+                      阶段：{getDecisionLabel(block.decision)}
+                    </div>
+                    {block.decision?.reason && (
+                      <div className="px-3 pb-2 text-[11px] text-slate-500 line-clamp-2">
+                        {block.decision.reason}
+                      </div>
+                    )}
+                    <div className="px-3 pb-3 space-y-2">
+                      {block.groups.length === 0 && (
+                        <div className="text-[11px] text-slate-400 py-2">暂无产出</div>
+                      )}
+                      {block.groups.map((group) => renderCollapsibleGroup(group))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         )}
 
         {/* 普通文本回复 - 作为最终回退，移除 !isWorkflowComplete 限制以确保历史消息能正常显示 */}
