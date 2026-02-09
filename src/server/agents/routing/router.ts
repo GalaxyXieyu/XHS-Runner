@@ -1,15 +1,9 @@
 import { END } from "@langchain/langgraph";
 import { AIMessage } from "@langchain/core/messages";
 import { AgentState, type AgentType, type QualityScores, type StyleAnalysis } from "../state/agentState";
+import { REVIEW_THRESHOLDS } from "../utils/reviewThresholds";
 
-const MODERATE_THRESHOLDS = {
-  infoDensity: 0.65,
-  textImageAlignment: 0.7,
-  styleConsistency: 0.65,
-  readability: 0.7,
-  platformFit: 0.65,
-  overall: 0.72,
-};
+const MODERATE_THRESHOLDS = REVIEW_THRESHOLDS;
 
 const CRITICAL_RECOVERY_ERRORS = new Set([
   "MISSING_BODY_FOR_IMAGE_PLANNER",
@@ -18,6 +12,63 @@ const CRITICAL_RECOVERY_ERRORS = new Set([
 ]);
 
 type RouteDecision = AgentType | typeof END | "supervisor";
+
+const ROUTE_STAGE_ORDER: Record<AgentType, number> = {
+  supervisor: 0,
+  brief_compiler_agent: 10,
+  research_evidence_agent: 20,
+  research_agent: 20,
+  reference_intelligence_agent: 30,
+  style_analyzer_agent: 30,
+  writer_agent: 40,
+  layout_planner_agent: 50,
+  image_planner_agent: 60,
+  image_agent: 70,
+  review_agent: 80,
+};
+
+function shouldRespectDeterministicRoute(state: typeof AgentState.State): boolean {
+  if (state.lastError && CRITICAL_RECOVERY_ERRORS.has(state.lastError)) {
+    return true;
+  }
+
+  if (state.iterationCount >= state.maxIterations) {
+    return true;
+  }
+
+  return false;
+}
+
+function canUseLlmBacktrackRoute(
+  llmRoute: RouteDecision | null,
+  deterministicRoute: RouteDecision,
+  state: typeof AgentState.State
+): llmRoute is AgentType {
+  if (!llmRoute || llmRoute === END) return false;
+
+  if (shouldRespectDeterministicRoute(state)) {
+    return false;
+  }
+
+  // 当状态机认为可以结束时，允许 supervisor 主动回退到更早阶段继续优化。
+  if (deterministicRoute === END) {
+    return true;
+  }
+
+  if (deterministicRoute === "supervisor") {
+    return llmRoute === "supervisor";
+  }
+
+  const llmStage = ROUTE_STAGE_ORDER[llmRoute];
+  const deterministicStage = ROUTE_STAGE_ORDER[deterministicRoute];
+
+  if (!Number.isFinite(llmStage) || !Number.isFinite(deterministicStage)) {
+    return false;
+  }
+
+  // 仅允许回退或同阶段重跑，避免跳过关键依赖阶段。
+  return llmStage <= deterministicStage;
+}
 
 // 检查 supervisor 是否有工具调用
 export function shouldContinueSupervisor(state: typeof AgentState.State): string {
@@ -153,10 +204,17 @@ export function routeFromSupervisor(state: typeof AgentState.State): string {
   const llmRoute = extractNextFromSupervisor(content);
   const deterministicRoute = getDeterministicRoute(state);
 
-  // LLM 路由仅作为辅助说明，最终路由以状态机硬约束为准，避免跨阶段跳转导致状态缺失。
+  if (canUseLlmBacktrackRoute(llmRoute, deterministicRoute, state)) {
+    if (llmRoute !== deterministicRoute) {
+      const deterministicLabel = typeof deterministicRoute === "string" ? deterministicRoute : "END";
+      console.log(`[routeFromSupervisor] 采用 supervisor 回退路由 ${llmRoute}（状态机默认 ${deterministicLabel}）`);
+    }
+    return llmRoute;
+  }
+
   if (llmRoute && llmRoute !== deterministicRoute) {
-    const llmLabel = llmRoute === END ? "END" : llmRoute;
-    const deterministicLabel = deterministicRoute === END ? "END" : deterministicRoute;
+    const llmLabel = typeof llmRoute === "string" ? llmRoute : "END";
+    const deterministicLabel = typeof deterministicRoute === "string" ? deterministicRoute : "END";
     console.warn(`[routeFromSupervisor] 忽略不安全 LLM 路由 ${llmLabel}，采用 ${deterministicLabel}`);
   }
 

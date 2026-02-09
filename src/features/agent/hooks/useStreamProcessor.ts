@@ -11,20 +11,9 @@
 import type { AgentEvent, ChatMessage, ImageTask, AskUserDialogState } from "../types";
 
 // 默认配置
-const DEFAULT_TIMEOUT_MS = 60000; // 60秒超时（图片生成可能需要较长时间）
+const DEFAULT_TIMEOUT_MS = 420000; // 420秒超时（7分钟，multi-agent 工作流 + 图片生成需要较长时间）
 const DEFAULT_MAX_RETRIES = 2;
 const DEFAULT_RETRY_DELAY_MS = 1000;
-
-const AGENT_STAGE_LABELS: Record<string, string> = {
-  brief_compiler_agent: "任务梳理",
-  research_evidence_agent: "证据研究",
-  reference_intelligence_agent: "参考图分析",
-  writer_agent: "文案生成",
-  layout_planner_agent: "版式规划",
-  image_planner_agent: "图片规划",
-  image_agent: "图片生成",
-  review_agent: "质量审核",
-};
 
 interface ProcessEventMemory {
   imageProgressBuckets: Map<number, string>;
@@ -88,12 +77,12 @@ function formatStructuredEventLine(event: AgentEvent): string | null {
     const meta = [audience ? `受众：${audience}` : "", goal ? `目标：${goal}` : ""]
       .filter(Boolean)
       .join("，");
-    return `🧭 ${event.content || "创作 Brief 已生成"}${meta ? `（${meta}）` : ""}`;
+    return `${event.content || "创作 Brief 已生成"}${meta ? `（${meta}）` : ""}`;
   }
 
   if (event.type === "layout_spec_ready") {
     const count = Array.isArray((event as any).layoutSpec) ? (event as any).layoutSpec.length : 0;
-    return `🗂 ${event.content || "版式规划完成"}${count ? `，共 ${count} 张` : ""}`;
+    return `${event.content || "版式规划完成"}${count ? `，共 ${count} 张` : ""}`;
   }
 
   if (event.type === "alignment_map_ready") {
@@ -101,14 +90,14 @@ function formatStructuredEventLine(event: AgentEvent): string | null {
       ? (event as any).paragraphImageBindings.length
       : 0;
     const bodyCount = Array.isArray((event as any).bodyBlocks) ? (event as any).bodyBlocks.length : 0;
-    return `🔗 ${event.content || "段落映射完成"}${bindingCount ? `，映射 ${bindingCount} 条` : ""}${bodyCount ? `，段落 ${bodyCount} 个` : ""}`;
+    return `${event.content || "段落映射完成"}${bindingCount ? `，映射 ${bindingCount} 条` : ""}${bodyCount ? `，段落 ${bodyCount} 个` : ""}`;
   }
 
   if (event.type === "quality_score") {
     const quality = (event as any).qualityScores || {};
     const scores = quality.scores || {};
     return [
-      `🧪 审核评分：总分 ${formatPercent(quality.overall)}`,
+      `审核评分：总分 ${formatPercent(quality.overall)}`,
       `信息密度 ${formatPercent(scores.infoDensity)} / 图文一致 ${formatPercent(scores.textImageAlignment)}`,
       `风格一致 ${formatPercent(scores.styleConsistency)} / 可读性 ${formatPercent(scores.readability)} / 平台适配 ${formatPercent(scores.platformFit)}`,
     ].join("\n");
@@ -176,15 +165,6 @@ export function processStreamEvent(
   // 提取 conversationId（从首个 agent_start 事件）
   if (event.type === "agent_start" && (event as any).conversationId) {
     callbacks.onConversationId?.((event as any).conversationId);
-  }
-
-  // 为关键阶段追加对话可见状态
-  if (event.type === "agent_start" && event.agent && AGENT_STAGE_LABELS[event.agent]) {
-    appendAssistantLine(`🔄 ${AGENT_STAGE_LABELS[event.agent]} 开始`, assistantContent, collectedEvents, callbacks);
-  }
-
-  if (event.type === "agent_end" && event.agent && AGENT_STAGE_LABELS[event.agent]) {
-    appendAssistantLine(`✅ ${AGENT_STAGE_LABELS[event.agent]} 完成`, assistantContent, collectedEvents, callbacks);
   }
 
   // 收集批量图片生成任务
@@ -296,7 +276,7 @@ export function processStreamEvent(
         : "";
 
       appendAssistantLine(
-        `🖼 第 ${taskId || "?"} 张图片${statusText}${progressText}${errorText}`,
+        `第 ${taskId || "?"} 张图片${statusText}${progressText}${errorText}`,
         assistantContent,
         collectedEvents,
         callbacks

@@ -7,6 +7,9 @@ import { db } from "@/server/db";
 import * as schema from "@/server/db/schema";
 import { eq, and, ilike, desc, sql, asc } from "drizzle-orm";
 
+// 避免 tool 泛型在 TS5 上触发深度实例化（TS2589）导致编译极慢/卡死
+const createTool = tool as any;
+
 // 计算成功率的 SQL 表达式
 const successRateExpr = sql`(COALESCE(${schema.promptProfiles.successCount}, 0)::float / NULLIF(${schema.promptProfiles.successCount} + ${schema.promptProfiles.failCount}, 0))`;
 
@@ -73,7 +76,7 @@ function generateOptimizedPrompt(
   return optimized;
 }
 
-export const managePromptTool = tool(
+export const managePromptTool = createTool(
   async ({
     action,
     agentName,

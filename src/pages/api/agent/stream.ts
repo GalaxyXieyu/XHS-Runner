@@ -61,6 +61,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
 
+  let imageAgentStarted = false;
+
   const sendEvent = (event: AgentEvent) => {
     res.write(`data: ${JSON.stringify(event)}\n\n`);
     if (typeof (res as any).flush === "function") {
@@ -72,6 +74,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   // Enhanced event senders for real-time progress tracking
   const sendImageProgress = (taskId: number, status: string, progress: number, url?: string, errorMessage?: string) => {
+    if (!imageAgentStarted) {
+      imageAgentStarted = true;
+      sendEvent({
+        type: 'agent_start',
+        agent: 'image_agent',
+        content: "图片生成 开始工作...",
+        timestamp: Date.now(),
+      } as any);
+    }
+
     sendEvent({
       type: 'image_progress',
       taskId,
@@ -121,6 +133,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       currentAgent,
       timestamp: Date.now(),
     } as any);
+  };
+
+  const parseToolOutput = (raw: unknown) => {
+    if (typeof raw !== 'string') return raw;
+    const trimmed = raw.trim();
+    if (!trimmed) return '';
+
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return raw;
+    }
   };
 
   // 保存 assistant 消息到数据库
@@ -400,17 +424,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       for (const [nodeName, nodeOutput] of Object.entries(chunk)) {
         if (nodeName === "__start__" || nodeName === "__end__") continue;
         if (nodeName === "supervisor_with_style") continue; // 跳过内部节点
+        if (nodeName === "supervisor_route") continue; // 跳过路由占位节点，避免 UI 闪烁
 
         const output = nodeOutput as any;
         const nodeStartTime = new Date();
         agentInputs.set(nodeName, buildAgentInput(nodeName, output));
 
-        sendEvent({
-          type: "agent_start",
-          agent: nodeName,
-          content: `${getAgentDisplayName(nodeName)} 开始工作...`,
-          timestamp: Date.now(),
-        });
+        if (nodeName !== "image_agent") {
+          sendEvent({
+            type: "agent_start",
+            agent: nodeName,
+            content: getAgentDisplayName(nodeName) + " 开始工作...",
+            timestamp: Date.now(),
+          });
+        }
 
         if (output.messages) {
           // 收集工具调用信息（用于后续关联）
@@ -419,12 +446,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           for (const msg of output.messages) {
             if (msg.tool_calls?.length) {
               for (const tc of msg.tool_calls) {
-                toolCallsMap.set(tc.id || tc.name, tc.args);
+                const toolCallId = tc.id || tc.name;
+                toolCallsMap.set(toolCallId, tc.args);
 
                 sendEvent({
                   type: "tool_call",
                   agent: nodeName,
                   tool: tc.name,
+                  toolCallId,
+                  toolInput: tc.args || {},
                   content: `调用工具: ${tc.name}`,
                   timestamp: Date.now(),
                 });
@@ -432,10 +462,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             }
 
             if (msg.name && msg.content) {
+              const toolCallId = msg.tool_call_id || msg.name;
+              const parsedToolOutput = parseToolOutput(msg.content);
+
               sendEvent({
                 type: "tool_result",
                 agent: nodeName,
                 tool: msg.name,
+                toolCallId,
+                toolOutput: parsedToolOutput,
                 content: `${msg.name} 返回结果`,
                 timestamp: Date.now(),
               });

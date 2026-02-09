@@ -1,5 +1,6 @@
 // Themes Repository - Theme CRUD operations with Drizzle
 import { db, schema } from '../db/index';
+import { ensureKeywordSequence } from '../db/sequenceUtils';
 import { desc, eq, and } from 'drizzle-orm';
 import type { Theme, Keyword, Competitor } from '../db/schema';
 
@@ -154,6 +155,7 @@ export class ThemesRepo {
       }));
 
     if (rows.length > 0) {
+      await ensureKeywordSequence();
       await db.insert(schema.keywords).values(rows);
     }
     return rows.length;

@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import type { Theme } from "@/App";
-import { ArrowLeft, ChevronDown, Image, Send, X } from "lucide-react";
+import { ArrowLeft, Send, X } from "lucide-react";
 import type { AgentEvent, ChatMessage, ImageTask, AskUserDialogState } from "../types";
 import type { ContentPackage } from "@/features/material-library/types";
 import { NoteDetailModal, type NoteDetailData } from "@/components/NoteDetailModal";
@@ -19,6 +19,12 @@ import { ContentCard, parseCreativeContent } from "./ContentCard";
 import { ImagePlanCard, parseImagePlanContent } from "./ImagePlanCard";
 import { HITLRequestMessage, HITLResponseMessage, isHITLRequest, InteractiveHITLBubble } from "./HITLMessage";
 import { ConversationHistory } from "./ConversationHistory";
+import {
+  getAgentStates,
+  SupervisorRouteCard,
+  AgentWorkingCard,
+  AgentCompletedCard,
+} from "./AgentStatusCards";
 
 interface AgentCreatorProps {
   theme: Theme;
@@ -36,7 +42,7 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
-  const [showEvents, setShowEvents] = useState(false);
+  const [streamStartedAt, setStreamStartedAt] = useState<number | null>(null);
   const [streamPhase, setStreamPhase] = useState<string>("");
   const [conversationId, setConversationId] = useState<number | null>(null);
   
@@ -47,10 +53,9 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
   const [imageGenProvider, setImageGenProvider] = useState<ImageGenProvider>('jimeng');
   const [autoConfirm, setAutoConfirm] = useState(false);
   const [workflowProgress, setWorkflowProgress] = useState(0);
-  
+
   // 引用
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const eventsEndRef = useRef<HTMLDivElement>(null);
   
   // 素材库状态
   const [packages, setPackages] = useState<ContentPackage[]>([]);
@@ -115,10 +120,6 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
-
-  useEffect(() => {
-    eventsEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [events]);
 
   // 自动继续逻辑
   useEffect(() => {
@@ -233,6 +234,7 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
     setImageTasks([]);
     setWorkflowProgress(0);
     setConversationId(null); // 重置对话 ID，新对话会从后端获取
+    setStreamStartedAt(Date.now());
     setIsStreaming(true);
     setStreamPhase("正在规划任务...");
 
@@ -263,6 +265,7 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
       }]);
     } finally {
       setIsStreaming(false);
+      setStreamStartedAt(null);
       setStreamPhase("");
       fetchPackages();
     }
@@ -368,6 +371,7 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
     } as any]);
 
     try {
+      setStreamStartedAt(Date.now());
       setIsStreaming(true);
       setStreamPhase("继续处理中...");
 
@@ -392,6 +396,7 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
       }]);
     } finally {
       setIsStreaming(false);
+      setStreamStartedAt(null);
       setStreamPhase("");
       fetchPackages();
     }
@@ -414,10 +419,23 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
   // 渲染消息内容
   const renderMessageContent = (msg: ChatMessage, idx: number) => {
     const msgEvents = msg.events || [];
-    const researchEvents = msgEvents.filter(e => e.agent === "research_agent" && e.type === "message");
-    const writerEvents = msgEvents.filter(e => e.agent === "writer_agent" && e.type === "message");
-    const imagePlannerEvents = msgEvents.filter(e => e.agent === "image_planner_agent" && e.type === "message");
-    const workflowCompleteEvent = msgEvents.find(e => e.type === "workflow_complete") as AgentEvent | undefined;
+    const isCurrentlyStreaming = isStreaming && idx === messages.length - 1;
+    const effectiveEvents = isCurrentlyStreaming ? events : msgEvents;
+
+    // 获取 agent 状态（解决"开始和完成同时出现"的问题）
+    const agentStates = getAgentStates(effectiveEvents);
+
+    // Supervisor 路由决策事件
+    const supervisorDecisions = effectiveEvents.filter(e => e.type === 'supervisor_decision');
+
+    const researchEvents = effectiveEvents.filter(
+      (e) =>
+        (e.agent === "research_agent" || e.agent === "research_evidence_agent") &&
+        e.type === "message"
+    );
+    const writerEvents = effectiveEvents.filter(e => e.agent === "writer_agent" && e.type === "message");
+    const imagePlannerEvents = effectiveEvents.filter(e => e.agent === "image_planner_agent" && e.type === "message");
+    const workflowCompleteEvent = effectiveEvents.find(e => e.type === "workflow_complete") as AgentEvent | undefined;
 
     // 判断是否为历史消息（非当前流式传输的消息）
     const isHistoricalMessage = !isStreaming || idx < messages.length - 1;
@@ -448,12 +466,15 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
     const imagePlannerContent = imagePlannerEvents.map(e => e.content).join("\n");
     const parsedImagePlan = parseImagePlanContent(imagePlannerContent);
 
-    const toolEvents = msgEvents.filter(e => e.type === "tool_call" || e.type === "tool_result");
-    const isCurrentlyStreaming = isStreaming && idx === messages.length - 1;
+    const toolEvents = effectiveEvents.filter(e => e.type === "tool_call" || e.type === "tool_result");
     const isLastAssistantMessage = idx === messages.length - 1 || 
       (idx < messages.length - 1 && messages[idx + 1].role !== 'assistant');
     const isWorkflowComplete = !!workflowCompleteEvent;
     const isHITLRequest = !!msg.askUser; // 是否是 HITL 请求消息
+    const showResearchCard =
+      (researchContent || toolEvents.length > 0 || isCurrentlyStreaming) &&
+      isLastAssistantMessage &&
+      !isWorkflowComplete;
 
     // 只有满足以下条件才显示图片：
     // 1. workflow_complete 事件存在（最终结果）
@@ -478,11 +499,39 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
 
     return (
       <div className="space-y-3 max-w-[80%]">
+        {/* Supervisor 路由决策卡片 */}
+        {supervisorDecisions.map((decision, i) => (
+          <SupervisorRouteCard key={`supervisor-${i}`} event={decision} />
+        ))}
+
+        {/* Agent 状态卡片（工作中/已完成） */}
+        {Array.from(agentStates.values()).map((state) => {
+          // 特殊 agent 使用专用展示（研究、文案、图片规划）
+          const isSpecialAgent = [
+            'research_agent',
+            'research_evidence_agent',
+            'writer_agent',
+            'image_planner_agent',
+            'image_agent',
+          ].includes(state.agent);
+
+          // 特殊 agent 的内容由下面的专用卡片展示，这里只显示状态
+          if (isSpecialAgent && state.status === 'completed') {
+            return null; // 不显示通用完成卡片，使用下面的专用卡片
+          }
+
+          return state.status === 'working' ? (
+            <AgentWorkingCard key={state.agent} state={state} />
+          ) : (
+            <AgentCompletedCard key={state.agent} state={state} />
+          );
+        })}
+
         {/* 研究过程卡片（工作流完成后折叠） */}
-        {(researchContent || toolEvents.length > 0 || isCurrentlyStreaming) && isLastAssistantMessage && !isWorkflowComplete && (
+        {showResearchCard && (
           <CollapsibleToolCard
             title="研究过程"
-            events={msgEvents}
+            events={effectiveEvents}
             isLoading={isCurrentlyStreaming}
             expanded={expandedProcess}
             onToggle={() => setExpandedProcess(!expandedProcess)}
@@ -507,7 +556,7 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
         )}
 
         {/* 普通文本回复 - 作为最终回退，移除 !isWorkflowComplete 限制以确保历史消息能正常显示 */}
-        {!researchContent && msg.content && !parsed && !parsedImagePlan && (
+        {!researchContent && msg.content && !parsed && !parsedImagePlan && !(isCurrentlyStreaming && toolEvents.length > 0) && (
           <div className="bg-gray-50 rounded-xl px-4 py-3">
             <Markdown content={msg.content} className="text-xs text-gray-700" />
           </div>
@@ -516,109 +565,17 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
     );
   };
 
-  // 获取 Agent 颜色
-  const getAgentColor = (agent?: string) => {
-    const colorMap: Record<string, string> = {
-      supervisor: "text-purple-700 bg-purple-50 border border-purple-100",
-      brief_compiler_agent: "text-indigo-700 bg-indigo-50 border border-indigo-100",
-      research_evidence_agent: "text-blue-700 bg-blue-50 border border-blue-100",
-      reference_intelligence_agent: "text-cyan-700 bg-cyan-50 border border-cyan-100",
-      layout_planner_agent: "text-teal-700 bg-teal-50 border border-teal-100",
-      research_agent: "text-blue-700 bg-blue-50 border border-blue-100",
-      writer_agent: "text-emerald-700 bg-emerald-50 border border-emerald-100",
-      image_planner_agent: "text-violet-700 bg-violet-50 border border-violet-100",
-      image_agent: "text-orange-700 bg-orange-50 border border-orange-100",
-      review_agent: "text-rose-700 bg-rose-50 border border-rose-100",
-    };
-    return colorMap[agent || ""] || "text-gray-600 bg-gray-50 border border-gray-100";
-  };
 
-  const formatScore = (value: unknown) => {
-    const num = Number(value);
-    if (!Number.isFinite(num)) return "--";
-    return `${Math.round(Math.max(0, Math.min(1, num)) * 100)}分`;
-  };
+  const hasTerminalEventInCurrentStream = !!streamStartedAt && events.some((event) => {
+    if (event.timestamp < streamStartedAt) return false;
+    return event.type === 'workflow_paused' || event.type === 'workflow_complete';
+  });
 
-  const getEventTypeLabel = (eventType: AgentEvent["type"]) => {
-    const map: Record<AgentEvent["type"], string> = {
-      agent_start: "开始",
-      agent_end: "完成",
-      tool_call: "工具调用",
-      tool_result: "工具返回",
-      message: "消息",
-      progress: "进度",
-      ask_user: "确认",
-      workflow_paused: "暂停",
-      intent_detected: "意图",
-      content_type_detected: "类型",
-      supervisor_decision: "路由",
-      state_update: "状态",
-      image_progress: "图片",
-      content_update: "文案",
-      workflow_progress: "阶段",
-      workflow_complete: "完成",
-      brief_ready: "Brief",
-      layout_spec_ready: "版式",
-      alignment_map_ready: "映射",
-      quality_score: "评分",
-    };
-    return map[eventType] || eventType;
-  };
+  const shouldShowProcessingCard = isStreaming
+    && messages[messages.length - 1]?.role !== 'assistant'
+    && !hasTerminalEventInCurrentStream
+    && !askUserDialog.isOpen;
 
-  const getEventDisplayContent = (event: AgentEvent) => {
-    if (event.type === "quality_score") {
-      const quality = (event as any).qualityScores || {};
-      const scores = quality.scores || {};
-      return [
-        `总分 ${formatScore(quality.overall)}`,
-        `信息密度 ${formatScore(scores.infoDensity)} / 图文一致 ${formatScore(scores.textImageAlignment)}`,
-        `风格一致 ${formatScore(scores.styleConsistency)} / 可读性 ${formatScore(scores.readability)} / 平台适配 ${formatScore(scores.platformFit)}`,
-      ].join("\n");
-    }
-
-    if (event.type === "layout_spec_ready") {
-      const count = Array.isArray((event as any).layoutSpec) ? (event as any).layoutSpec.length : 0;
-      return `${event.content || "版式规划完成"}${count ? `，共 ${count} 张` : ""}`;
-    }
-
-    if (event.type === "alignment_map_ready") {
-      const bindings = Array.isArray((event as any).paragraphImageBindings)
-        ? (event as any).paragraphImageBindings.length
-        : 0;
-      const blocks = Array.isArray((event as any).bodyBlocks) ? (event as any).bodyBlocks.length : 0;
-      return `${event.content || "段落映射完成"}${bindings ? `，映射 ${bindings} 条` : ""}${blocks ? `，段落 ${blocks} 个` : ""}`;
-    }
-
-    if (event.type === "brief_ready") {
-      const brief = (event as any).brief || {};
-      const audience = brief.targetAudience || brief.audience;
-      const goal = brief.goal || brief.objective;
-      const detail = [audience ? `受众：${audience}` : "", goal ? `目标：${goal}` : ""]
-        .filter(Boolean)
-        .join("，");
-      return `${event.content || "创作 Brief 已生成"}${detail ? `（${detail}）` : ""}`;
-    }
-
-    if (event.type === "image_progress") {
-      const progress = Number((event as any).progress);
-      const statusMap: Record<string, string> = {
-        queued: "排队中",
-        generating: "生成中",
-        complete: "已完成",
-        failed: "失败",
-      };
-      const status = statusMap[String(event.status || "")] || event.status || "处理中";
-      const progressText = Number.isFinite(progress) ? ` ${Math.round(progress * 100)}%` : "";
-      const errorText = event.errorMessage ? `（${event.errorMessage}）` : "";
-      return `第 ${event.taskId || "?"} 张图片 ${status}${progressText}${errorText}`;
-    }
-
-    if (event.type === "state_update") {
-      return event.changes || event.content || "状态更新";
-    }
-
-    return event.content || "";
-  };
 
   return (
     <div className="h-full flex flex-col bg-white overflow-x-hidden relative">
@@ -652,7 +609,7 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
           {isStreaming && workflowProgress > 0 && (
             <div className="h-1 bg-gray-100">
               <div
-                className="h-full bg-blue-500 transition-all duration-300"
+                className="h-full bg-blue-500 transition-[width] duration-300"
                 style={{ width: `${workflowProgress}%` }}
               />
             </div>
@@ -674,6 +631,7 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
                 onClick={onClose}
                 className="p-2 rounded-xl bg-white/90 backdrop-blur text-gray-500 hover:text-gray-700 hover:bg-gray-100 shadow-md shadow-gray-200/50 ring-1 ring-gray-100"
                 title="返回"
+                aria-label="返回"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -688,25 +646,10 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
               compact
             />
 
-            {/* 查看过程按钮 - 图标化 */}
-            <button
-              onClick={() => setShowEvents(!showEvents)}
-              className={`p-2 rounded-xl transition-all ${
-                showEvents
-                  ? "bg-orange-500 text-white hover:bg-orange-600 shadow-md"
-                  : "bg-white/90 backdrop-blur text-gray-500 hover:text-gray-700 hover:bg-gray-100 shadow-md shadow-gray-200/50 ring-1 ring-gray-100"
-              }`}
-              title={showEvents ? "隐藏过程" : "查看过程"}
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-              </svg>
-            </button>
           </div>
 
           {/* 消息区域 */}
-          <div className="flex-1 flex overflow-hidden">
-            <div className="flex-1 overflow-y-auto px-4 py-3 pb-24 space-y-4">
+          <div className="flex-1 overflow-y-auto px-4 py-3 pb-24 space-y-4">
               {messages.map((msg, idx) => (
                 <div key={idx} className="space-y-3">
                   {/* 用户消息 */}
@@ -725,18 +668,8 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
                 </div>
               ))}
 
-              {/* 当前阶段条（streaming 全程可见） */}
-              {isStreaming && streamPhase && (
-                <div className="max-w-[80%]">
-                  <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-50 border border-blue-100 text-xs text-blue-700">
-                    <div className="w-3 h-3 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin" />
-                    当前阶段：{streamPhase}
-                  </div>
-                </div>
-              )}
-
               {/* 加载状态 */}
-              {isStreaming && messages[messages.length - 1]?.role !== "assistant" && (
+              {shouldShowProcessingCard && (
                 <div className="max-w-[80%]">
                   <CollapsibleToolCard
                     title="正在处理"
@@ -760,32 +693,6 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
               <div ref={messagesEndRef} />
             </div>
 
-            {/* 事件面板 - 限制高度，避免遮挡 */}
-            {showEvents && (
-              <div className="w-72 border-l border-gray-100 bg-gray-50/95 backdrop-blur-sm flex flex-col max-h-[calc(100vh-180px)] mb-20">
-                <div className="px-3 py-2.5 border-b border-gray-100 flex-shrink-0">
-                  <h3 className="text-sm font-medium text-gray-800">执行过程</h3>
-                  <p className="text-xs text-gray-400">实时查看各专家状态</p>
-                </div>
-                <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
-                  {events.length === 0 && (
-                    <div className="text-center text-gray-400 text-xs py-6">等待执行...</div>
-                  )}
-                  {events.map((event, idx) => (
-                    <div key={idx} className={`p-2 rounded-lg text-xs ${getAgentColor(event.agent)}`}>
-                      <div className="flex items-center gap-1.5"> 
-                        {event.agent && <span className="font-medium text-[11px]">{getAgentDisplayName(event.agent)}</span>}
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/70 text-gray-500">{getEventTypeLabel(event.type)}</span>
-                      </div>
-                      <div className="mt-0.5 text-gray-600 text-[11px] whitespace-pre-wrap break-words">{getEventDisplayContent(event)}</div>
-                    </div>
-                  ))}
-                  <div ref={eventsEndRef} />
-                </div>
-              </div>
-            )}
-          </div>
-
           {/* 悬浮输入框 */}
           <div className="absolute bottom-0 left-0 right-0 px-4 pb-4 pointer-events-none">
             <div className="max-w-3xl mx-auto pointer-events-auto">
@@ -795,14 +702,16 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
                   value={requirement}
                   onChange={(e) => setRequirement(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSubmit()}
-                  placeholder="继续对话..."
-                  className="flex-1 text-sm text-gray-700 placeholder:text-gray-400 bg-transparent focus:outline-none"
+                  placeholder="继续对话…"
+                  aria-label="继续对话输入框"
+                  className="flex-1 text-sm text-gray-700 placeholder:text-gray-400 bg-transparent focus-visible:outline-none"
                   disabled={isStreaming}
                 />
                 <button
                   onClick={handleSubmit}
                   disabled={isStreaming || !requirement.trim()}
-                  className="w-9 h-9 rounded-xl bg-gradient-to-r from-gray-800 to-gray-900 text-white flex items-center justify-center hover:from-gray-900 hover:to-black disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200 shadow-md hover:shadow-lg hover:scale-105 active:scale-95"
+                  aria-label="发送消息"
+                  className="w-9 h-9 rounded-xl bg-gradient-to-r from-gray-800 to-gray-900 text-white flex items-center justify-center hover:from-gray-900 hover:to-black disabled:opacity-40 disabled:cursor-not-allowed transition-colors transition-transform transition-shadow duration-200 shadow-md hover:shadow-lg hover:scale-105 active:scale-95"
                 >
                   <Send className="w-4 h-4" />
                 </button>
@@ -830,6 +739,7 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
         >
           <button
             onClick={() => setPreviewImage(null)}
+            aria-label="关闭图片预览"
             className="absolute top-4 right-4 p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
           >
             <X className="w-6 h-6 text-white" />

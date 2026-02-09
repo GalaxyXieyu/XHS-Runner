@@ -50,6 +50,32 @@ function sendEvent(res: NextApiResponse, event: AgentEvent, collectedEvents?: an
   }
 }
 
+function ensureSSEHeaders(res: NextApiResponse) {
+  if (res.headersSent) return;
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+}
+
+function startHeartbeat(res: NextApiResponse): () => void {
+  const timer = setInterval(() => {
+    if (res.writableEnded || res.destroyed) {
+      clearInterval(timer);
+      return;
+    }
+
+    // SSE 注释心跳，前端不会渲染成业务事件。
+    res.write(": keep-alive " + Date.now() + "\n\n");
+    if (typeof (res as any).flush === "function") {
+      (res as any).flush();
+    }
+  }, 5000);
+
+  return () => clearInterval(timer);
+}
+
 // 根据 threadId 查找 conversation
 async function findConversationByThreadId(threadId: string): Promise<number | undefined> {
   try {
@@ -118,6 +144,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: "Method not allowed" });
   }
 
+  let stopHeartbeat: (() => void) | null = null;
+  const ensureHeartbeat = () => {
+    if (stopHeartbeat) return;
+    stopHeartbeat = startHeartbeat(res);
+  };
+  const clearHeartbeat = () => {
+    if (!stopHeartbeat) return;
+    stopHeartbeat();
+    stopHeartbeat = null;
+  };
+
   try {
     const { threadId, action, modifiedData, userFeedback, saveAsTemplate, userResponse } = req.body as ConfirmRequest;
 
@@ -127,34 +164,59 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: "threadId is required" });
     }
 
-    // 查找对应的 conversation
-    const conversationId = await findConversationByThreadId(threadId);
     const collectedEvents: any[] = [];
 
-    let creativeId: number | undefined;
-    let previousGeneratedContent: { title: string; body: string; tags: string[] } | null = null;
+    const checkpointStatePromise = (async () => {
+      try {
+        const checkpointer = await getCheckpointer();
+        const checkpoint = await checkpointer.get({ configurable: { thread_id: threadId } });
+        const stateCreativeId = checkpoint?.channel_values?.creativeId;
+        const stateGeneratedContent = checkpoint?.channel_values?.generatedContent;
 
-    try {
-      const checkpointer = await getCheckpointer();
-      const checkpoint = await checkpointer.get({ configurable: { thread_id: threadId } });
-      const stateCreativeId = checkpoint?.channel_values?.creativeId;
-      if (typeof stateCreativeId === "number") {
-        creativeId = stateCreativeId;
+        const parsedGeneratedContent = stateGeneratedContent && typeof stateGeneratedContent === "object"
+          ? (stateGeneratedContent as { title: string; body: string; tags: string[] })
+          : null;
+
+        return {
+          creativeId: typeof stateCreativeId === "number" ? stateCreativeId : undefined,
+          previousGeneratedContent: parsedGeneratedContent,
+        };
+      } catch (error) {
+        console.warn("[/api/agent/confirm] Failed to read checkpoint:", error);
+        return {
+          creativeId: undefined,
+          previousGeneratedContent: null,
+        };
       }
-      // 读取之前保存的 generatedContent
-      const stateGeneratedContent = checkpoint?.channel_values?.generatedContent;
-      if (stateGeneratedContent && typeof stateGeneratedContent === "object") {
-        previousGeneratedContent = stateGeneratedContent as { title: string; body: string; tags: string[] };
-        console.log("[/api/agent/confirm] 从 checkpoint 读取 generatedContent:", previousGeneratedContent?.title?.slice(0, 50));
-      }
-    } catch (error) {
-      console.warn("[/api/agent/confirm] Failed to read checkpoint:", error);
+    })();
+
+    const [conversationId, checkpointState] = await Promise.all([
+      findConversationByThreadId(threadId),
+      checkpointStatePromise,
+    ]);
+
+    let creativeId: number | undefined = checkpointState.creativeId;
+    let previousGeneratedContent: { title: string; body: string; tags: string[] } | null = checkpointState.previousGeneratedContent;
+    let imageAgentStarted = false;
+
+    if (previousGeneratedContent) {
+      console.log("[/api/agent/confirm] 从 checkpoint 读取 generatedContent:", previousGeneratedContent.title?.slice(0, 50));
     }
 
     // 注册图片进度回调
     const sendImageProgress = (taskId: number, status: string, progress: number, url?: string, errorMessage?: string) => {
+      if (!imageAgentStarted) {
+        imageAgentStarted = true;
+        sendEvent(res, {
+          type: "agent_start",
+          agent: "image_agent",
+          content: "图片生成 开始工作...",
+          timestamp: Date.now(),
+        } as any, collectedEvents);
+      }
+
       sendEvent(res, {
-        type: 'image_progress',
+        type: "image_progress",
         taskId,
         status,
         progress,
@@ -177,17 +239,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // 清理函数
     const cleanup = () => {
       unregisterProgressCallback(threadId);
+      clearHeartbeat();
     };
     res.on('close', cleanup);
 
     // 如果是 askUser 响应，直接用 userResponse 恢复
     if (userResponse) {
       console.log("[/api/agent/confirm] 处理 askUser 响应");
-      
+
+      ensureSSEHeaders(res);
+      ensureHeartbeat();
+      sendEvent(res, {
+        type: "agent_start",
+        agent: "supervisor",
+        content: "已收到你的确认，正在恢复流程...",
+        timestamp: Date.now(),
+      }, collectedEvents);
+
       // 保存用户响应消息
       if (conversationId) {
-        const userContent = userResponse.customInput || 
-          userResponse.selectedIds?.join(', ') || 
+        const userContent = userResponse.customInput ||
+          userResponse.selectedIds?.join(', ') ||
           '已确认';
         await saveUserMessage(conversationId, userContent, {
           selectedIds: userResponse.selectedIds || [],
@@ -195,24 +267,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           customInput: userResponse.customInput,
         });
       }
-      
-      const stream = await resumeWorkflow(threadId, userResponse);
-      res.setHeader("Content-Type", "text/event-stream");
-      res.setHeader("Cache-Control", "no-cache, no-transform");
-      res.setHeader("Connection", "keep-alive");
-      res.setHeader("X-Accel-Buffering", "no");
 
-      sendEvent(res, {
-        type: "agent_start",
-        agent: "supervisor",
-        content: "继续处理中...",
-        timestamp: Date.now(),
-      }, collectedEvents);
+      const stream = await resumeWorkflow(threadId, userResponse);
 
       console.log("[/api/agent/confirm] 开始处理 askUser 流");
       // 使用 processAgentStream 处理 LangGraph 流
       let lastAskUser: any = null;
       for await (const event of processAgentStream(stream, { threadId, enableHITL: true, creativeId, previousGeneratedContent })) {
+        if (event.type === "agent_start" && event.agent === "image_agent") {
+          if (imageAgentStarted) {
+            continue;
+          }
+          imageAgentStarted = true;
+        }
+
         sendEvent(res, event, collectedEvents);
         // 捕获 ask_user 事件
         if (event.type === 'ask_user') {
@@ -226,7 +294,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
       console.log("[/api/agent/confirm] askUser 流处理完成");
+      if (lastAskUser) {
+        console.log("[/api/agent/confirm] 流程再次暂停，保持等待用户确认状态");
+        clearHeartbeat();
+        await flushLangfuse();
+        res.end();
+        return;
+      }
+
       res.write(`data: [DONE]\n\n`);
+      clearHeartbeat();
       await flushLangfuse();
       res.end();
       return;
@@ -236,7 +313,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: "Invalid action" });
     }
 
+    if (action === "reject" && !userFeedback) {
+      return res.status(400).json({ error: "userFeedback is required for reject action" });
+    }
+
     console.log("[/api/agent/confirm] 处理 action:", action);
+
+    ensureSSEHeaders(res);
+    ensureHeartbeat();
+    sendEvent(res, {
+      type: "agent_start",
+      agent: "supervisor",
+      content: "已收到你的确认，正在恢复流程...",
+      timestamp: Date.now(),
+    }, collectedEvents);
 
     // 保存为模板（如果请求）
     if (saveAsTemplate && modifiedData) {
@@ -313,31 +403,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       case "reject":
         // 用户不满意，带反馈重新生成
-        if (!userFeedback) {
-          return res.status(400).json({ error: "userFeedback is required for reject action" });
-        }
         console.log("[/api/agent/confirm] 用户拒绝，重新生成，反馈:", userFeedback);
         stream = await resumeWorkflow(threadId, undefined, userFeedback);
         break;
     }
 
-    // 设置 SSE 响应头（与 stream.ts 和 userResponse 部分保持一致）
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache, no-transform");
-    res.setHeader("Connection", "keep-alive");
-    res.setHeader("X-Accel-Buffering", "no");
-
-    sendEvent(res, {
-      type: "agent_start",
-      agent: "supervisor",
-      content: "继续处理中...",
-      timestamp: Date.now(),
-    }, collectedEvents);
-
     console.log("[/api/agent/confirm] 开始处理流");
     // 使用 processAgentStream 处理 LangGraph 流
     let lastAskUser: any = null;
     for await (const event of processAgentStream(stream, { threadId, enableHITL: true, creativeId, previousGeneratedContent })) {
+      if (event.type === "agent_start" && event.agent === "image_agent") {
+        if (imageAgentStarted) {
+          continue;
+        }
+        imageAgentStarted = true;
+      }
+
       sendEvent(res, event, collectedEvents);
       // 捕获 ask_user 事件
       if (event.type === 'ask_user') {
@@ -358,13 +439,38 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     console.log("[/api/agent/confirm] 流处理完成");
+    if (lastAskUser) {
+      console.log("[/api/agent/confirm] 流程再次暂停，保持等待用户确认状态");
+      clearHeartbeat();
+      await flushLangfuse();
+      res.end();
+      return;
+    }
+
     res.write(`data: [DONE]\n\n`);
+    clearHeartbeat();
     await flushLangfuse();
     res.end();
   } catch (error) {
     console.error("[/api/agent/confirm] Error:", error);
-    res.status(500).json({
-      error: error instanceof Error ? error.message : "Internal server error",
-    });
+
+    const errorMessage = error instanceof Error ? error.message : "Internal server error";
+
+    if (!res.headersSent) {
+      clearHeartbeat();
+      res.status(500).json({ error: errorMessage });
+      return;
+    }
+
+    sendEvent(res, {
+      type: "message",
+      agent: "supervisor",
+      content: `恢复失败：${errorMessage}`,
+      timestamp: Date.now(),
+    } as any);
+    res.write(`data: [DONE]\n\n`);
+    clearHeartbeat();
+    await flushLangfuse();
+    res.end();
   }
 }

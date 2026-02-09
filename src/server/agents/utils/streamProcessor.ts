@@ -32,6 +32,19 @@ function getAgentDisplayName(name: string): string {
   return names[name] || name;
 }
 
+function parseToolOutput(rawContent: unknown): unknown {
+  if (typeof rawContent !== "string") return rawContent;
+
+  const trimmed = rawContent.trim();
+  if (!trimmed) return "";
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return rawContent;
+  }
+}
+
 export interface StreamProcessorOptions {
   themeId?: number;
   traceId?: string;
@@ -108,6 +121,7 @@ export async function* processAgentStream(
     for (const [nodeName, nodeOutput] of Object.entries(chunk)) {
       if (nodeName === "__start__" || nodeName === "__end__") continue;
       if (nodeName === "supervisor_with_style") continue; // 跳过内部节点
+      if (nodeName === "supervisor_route") continue; // 跳过路由占位节点，避免 UI 闪烁
       if (nodeName === "__interrupt__") continue; // 跳过 interrupt 标记（interruptAfter 产生）
 
       console.log("[processAgentStream] 处理节点:", nodeName);
@@ -136,6 +150,8 @@ export async function* processAgentStream(
                 type: "tool_call",
                 agent: nodeName,
                 tool: tc.name,
+                toolCallId: tc.id || tc.name,
+                toolInput: tc.args || {},
                 content: `调用工具: ${tc.name}`,
                 timestamp: Date.now(),
               };
@@ -143,10 +159,14 @@ export async function* processAgentStream(
           }
 
           if (msg.name && msg.content) {
+            const parsedToolOutput = parseToolOutput(msg.content);
+
             yield {
               type: "tool_result",
               agent: nodeName,
               tool: msg.name,
+              toolCallId: msg.tool_call_id || msg.name,
+              toolOutput: parsedToolOutput,
               content: `${msg.name} 返回结果`,
               timestamp: Date.now(),
             };
@@ -166,12 +186,32 @@ export async function* processAgentStream(
 
           if (msg.content && typeof msg.content === "string" && !msg.name) {
             console.log(`[processAgentStream] ${nodeName} 消息内容 (前100字符):`, msg.content.slice(0, 100));
+
+            if (nodeName === "supervisor") {
+              const nextMatch = msg.content.match(/NEXT:\s*(\S+)/);
+              const reasonMatch = msg.content.match(/REASON:\s*(.+?)(?:\n|$)/);
+              if (nextMatch) {
+                yield {
+                  type: "supervisor_decision",
+                  agent: "supervisor",
+                  content: `NEXT: ${nextMatch[1]}`,
+                  decision: nextMatch[1],
+                  reason: reasonMatch?.[1] || "继续流程",
+                  timestamp: Date.now(),
+                } as any;
+              }
+              continue;
+            }
+
             // 跳过包含内部路由信息的消息
-            if (nodeName === "supervisor" || msg.content.includes("NEXT:") || msg.content.includes("REASON:")) continue;
+            if (msg.content.includes("NEXT:") || msg.content.includes("REASON:")) continue;
 
             // 检查是否是进度消息
             const progressMatch = msg.content.match(/^\[PROGRESS\]\s*(.+)$/);
             if (progressMatch) {
+              // image_agent 的结构化进度由 image_progress 事件承载，避免重复通道。
+              if (nodeName === "image_agent") continue;
+
               yield {
                 type: "progress",
                 agent: nodeName,

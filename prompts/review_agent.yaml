@@ -9,12 +9,12 @@ prompt: |
   - platformFit（平台适配）
 
   中等门槛阈值：
-  - infoDensity >= 0.65
-  - textImageAlignment >= 0.70
-  - styleConsistency >= 0.65
-  - readability >= 0.70
-  - platformFit >= 0.65
-  - overall >= 0.72
+  - infoDensity >= 0.60
+  - textImageAlignment >= 0.60
+  - styleConsistency >= 0.60
+  - readability >= 0.60
+  - platformFit >= 0.60
+  - overall >= 0.60
 
   若不通过，请给出 rerouteTarget：
   - research_evidence_agent / layout_planner_agent / reference_intelligence_agent / writer_agent / image_planner_agent

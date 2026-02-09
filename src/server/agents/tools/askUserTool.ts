@@ -8,12 +8,15 @@ import { tool } from "@langchain/core/tools";
 import { interrupt } from "@langchain/langgraph";
 import { z } from "zod";
 
+// 避免 tool 泛型在 TS5 上触发深度实例化（TS2589）导致编译极慢/卡死
+const createTool = tool as any;
+
 // 选项 Schema (简化以兼容 Gemini API)
 const OptionSchema = z.object({
   id: z.string(),
   label: z.string(),
-  description: z.string().optional(),
-  imageUrl: z.string().optional(),
+  description: z.string().nullable().optional(),
+  imageUrl: z.string().nullable().optional(),
 });
 
 export type AskUserOption = z.infer<typeof OptionSchema>;
@@ -39,12 +42,12 @@ export interface AskUserInterrupt {
 // 工具输入 Schema (简化以兼容 Gemini API)
 const askUserSchema = z.object({
   question: z.string().describe("向用户提出的问题"),
-  options: z.array(OptionSchema).optional().describe("可选项列表"),
-  selectionType: z.enum(["single", "multiple", "none"]).default("single")
-    .describe("选择类型: single=单选, multiple=多选, none=仅文本输入"),
-  allowCustomInput: z.boolean().default(false)
-    .describe("是否允许用户输入自定义内容 (Others)"),
-  contextJson: z.string().optional()
+  options: z.array(OptionSchema).nullable().optional().describe("可选项列表"),
+  selectionType: z.enum(["single", "multiple", "none"]).nullable()
+    .describe("选择类型: single=单选, multiple=多选, none=仅文本输入，传 null 时默认 single"),
+  allowCustomInput: z.boolean().nullable()
+    .describe("是否允许用户输入自定义内容 (Others)，传 null 时默认 false"),
+  contextJson: z.string().nullable().optional()
     .describe("附加上下文数据 (JSON 字符串格式)"),
 });
 
@@ -57,7 +60,7 @@ const askUserSchema = z.object({
  * 3. 选择标签 (多选)
  * 4. 获取用户反馈 (纯文本输入)
  */
-export const askUserTool = tool(
+export const askUserTool = createTool(
   async ({ question, options, selectionType, allowCustomInput, contextJson }): Promise<UserResponse> => {
     // 解析 context JSON
     let context: Record<string, unknown> | undefined;

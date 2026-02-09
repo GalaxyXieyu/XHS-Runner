@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { createLLM } from '../../../server/agents/utils/configUtils';
+import { createLLM, getLLMConfig } from '../../../server/agents/utils/configUtils';
 import { HumanMessage } from '@langchain/core/messages';
 
 interface AIFillRequest {
@@ -32,6 +32,20 @@ export default async function handler(
   }
 
   try {
+    const llmConfig = await getLLMConfig();
+    const missing: string[] = [];
+    if (!llmConfig.apiKey) {
+      missing.push('OPENAI_API_KEY 或 llm_providers.api_key');
+    }
+    if (!llmConfig.model) {
+      missing.push('OPENAI_MODEL 或 llm_providers.model_name');
+    }
+    if (missing.length > 0) {
+      return res.status(500).json({
+        error: `LLM 配置缺失: ${missing.join(', ')}`,
+      });
+    }
+
     const llm = await createLLM();
 
     const prompt = `你是小红书内容运营专家。根据用户给出的主题名称，生成完整的主题配置信息。

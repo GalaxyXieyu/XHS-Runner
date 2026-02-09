@@ -108,19 +108,24 @@ export async function logGeneration(params: {
   endTime?: Date;
   metadata?: Record<string, any>;
 }) {
-  const langfuse = await getLangfuse();
-  if (!langfuse) return null;
+  try {
+    const langfuse = await getLangfuse();
+    if (!langfuse) return null;
 
-  return langfuse.generation({
-    traceId: params.traceId,
-    name: params.name,
-    model: params.model,
-    input: params.input,
-    output: params.output,
-    startTime: params.startTime,
-    endTime: params.endTime,
-    metadata: params.metadata,
-  });
+    return langfuse.generation({
+      traceId: params.traceId,
+      name: params.name,
+      model: params.model,
+      input: params.input,
+      output: params.output,
+      startTime: params.startTime,
+      endTime: params.endTime,
+      metadata: params.metadata,
+    });
+  } catch (error) {
+    console.warn('[langfuse] Failed to log generation:', error instanceof Error ? error.message : String(error));
+    return null;
+  }
 }
 
 /**
@@ -135,18 +140,23 @@ export async function logSpan(params: {
   endTime?: Date;
   metadata?: Record<string, any>;
 }) {
-  const langfuse = await getLangfuse();
-  if (!langfuse) return null;
+  try {
+    const langfuse = await getLangfuse();
+    if (!langfuse) return null;
 
-  return langfuse.span({
-    traceId: params.traceId,
-    name: params.name,
-    input: params.input,
-    output: params.output,
-    startTime: params.startTime,
-    endTime: params.endTime,
-    metadata: params.metadata,
-  });
+    return langfuse.span({
+      traceId: params.traceId,
+      name: params.name,
+      input: params.input,
+      output: params.output,
+      startTime: params.startTime,
+      endTime: params.endTime,
+      metadata: params.metadata,
+    });
+  } catch (error) {
+    console.warn('[langfuse] Failed to log span:', error instanceof Error ? error.message : String(error));
+    return null;
+  }
 }
 
 /**
@@ -154,7 +164,12 @@ export async function logSpan(params: {
  */
 export async function flushLangfuse() {
   if (langfuseInstance) {
-    await langfuseInstance.flushAsync();
+    try {
+      await langfuseInstance.flushAsync();
+    } catch (error) {
+      // 忽略 Langfuse flush 错误，避免影响主要功能
+      console.warn('[langfuse] Failed to flush:', error instanceof Error ? error.message : String(error));
+    }
   }
 }
 

@@ -2,19 +2,17 @@ import { HumanMessage } from "@langchain/core/messages";
 import * as fs from "fs";
 import { AgentState, type AgentType, type ReviewFeedback, type QualityDimensionScores, type QualityScores } from "../state/agentState";
 import { safeSliceMessages, createLLM } from "../utils";
+import { REVIEW_THRESHOLDS, buildReviewThresholdHint } from "../utils/reviewThresholds";
 import { getAgentPrompt } from "../../services/promptManager";
 import { db } from "@/server/db";
 import * as schema from "@/server/db/schema";
 import { eq, sql } from "drizzle-orm";
 
-const THRESHOLDS = {
-  infoDensity: 0.65,
-  textImageAlignment: 0.7,
-  styleConsistency: 0.65,
-  readability: 0.7,
-  platformFit: 0.65,
-  overall: 0.72,
-};
+const THRESHOLDS = REVIEW_THRESHOLDS;
+
+const REQUIRE_MODEL_APPROVAL = process.env.REVIEW_REQUIRE_MODEL_APPROVAL
+  ? process.env.REVIEW_REQUIRE_MODEL_APPROVAL === "true"
+  : process.env.NODE_ENV === "production";
 
 function average(scores: QualityDimensionScores): number {
   const values = Object.values(scores);
@@ -112,8 +110,8 @@ function parseReviewResult(content: string): {
       : [];
 
     const approvedByThreshold = meetsThresholds(scores, overall);
-    // 模型可以保守拒绝，但不能绕过阈值直接放行。
-    const approved = approvedByThreshold && parsed.approved !== false;
+    // 调试期可通过 REVIEW_REQUIRE_MODEL_APPROVAL=false 关闭模型 veto。
+    const approved = approvedByThreshold && (!REQUIRE_MODEL_APPROVAL || parsed.approved !== false);
 
     const feedback: ReviewFeedback = {
       approved,
@@ -197,8 +195,10 @@ export async function reviewAgentNode(state: typeof AgentState.State) {
   "rerouteTarget": "research_evidence_agent|layout_planner_agent|reference_intelligence_agent|writer_agent|image_planner_agent"
 }`;
 
+  const systemPromptWithThreshold = `${systemPrompt}\n\n${buildReviewThresholdHint(THRESHOLDS)}`;
+
   const messageContent: Array<{ type: string; text?: string; image_url?: { url: string } }> = [
-    { type: "text", text: systemPrompt },
+    { type: "text", text: systemPromptWithThreshold },
     { type: "text", text: `当前正文：${state.generatedContent?.body || ""}` },
     ...imageContents,
   ];
@@ -237,9 +237,13 @@ export async function reviewAgentNode(state: typeof AgentState.State) {
 
   recordReviewResult(feedback.approved).catch(console.error);
 
+  const failReasonText = qualityScores.failReasons.length > 0
+    ? qualityScores.failReasons.join("、")
+    : "评分维度未达标";
+
   const reviewMessage = feedback.approved
     ? `审核通过\n\n综合评分 ${(qualityScores.overall * 100).toFixed(0)} 分，已满足上线阈值。\n图文映射与可读性达标，流程完成。`
-    : `审核未通过\n\n综合评分 ${(qualityScores.overall * 100).toFixed(0)} 分，低于阈值。\n建议：\n${feedback.suggestions.map((s, i) => `${i + 1}. ${s}`).join("\n") || "1. 请根据低分维度优化"}`;
+    : `审核未通过\n\n综合评分 ${(qualityScores.overall * 100).toFixed(0)} 分，未通过阈值校验（${failReasonText}）。\n建议：\n${feedback.suggestions.map((s, i) => `${i + 1}. ${s}`).join("\n") || "1. 请根据低分维度优化"}`;
 
   const friendlyResponse = new HumanMessage(reviewMessage);
 

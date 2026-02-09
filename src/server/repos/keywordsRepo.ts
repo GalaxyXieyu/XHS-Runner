@@ -1,5 +1,6 @@
 // Keywords Repository - Keyword CRUD operations with Drizzle
 import { db, schema } from '../db/index';
+import { ensureKeywordSequence } from '../db/sequenceUtils';
 import { desc, eq, and, or, like } from 'drizzle-orm';
 import type { Keyword } from '../db/schema';
 
@@ -92,6 +93,7 @@ export class KeywordsRepo {
       throw new Error('Keyword value is required');
     }
 
+    await ensureKeywordSequence();
     const [keyword] = await db
       .insert(schema.keywords)
       .values({
@@ -123,6 +125,7 @@ export class KeywordsRepo {
       throw new Error('Keyword value is required');
     }
 
+    await ensureKeywordSequence();
     const [keyword] = await db
       .insert(schema.keywords)
       .values({

@@ -2,6 +2,17 @@ import { useState, type Dispatch, type FormEvent, type SetStateAction } from 're
 import type { Theme } from '../App';
 import type { ThemeFormData } from './themeManagementUtils';
 
+function normalizeErrorText(text: string) {
+  const stripped = text
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!stripped) return '';
+  return stripped.length > 200 ? `${stripped.slice(0, 200)}...` : stripped;
+}
+
 // AI 填充按钮组件
 function AIFillButton({
   themeName,
@@ -28,11 +39,35 @@ function AIFillButton({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ themeName }),
       });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'AI 填充失败');
+      const contentType = res.headers.get('content-type') || '';
+      const rawText = await res.text();
+      const isJsonLike =
+        contentType.includes('application/json') ||
+        rawText.trim().startsWith('{') ||
+        rawText.trim().startsWith('[');
+      let data: any = null;
+      if (isJsonLike) {
+        try {
+          data = JSON.parse(rawText);
+        } catch {
+          data = null;
+        }
       }
-      const data = await res.json();
+
+      if (!res.ok) {
+        const message =
+          data?.error ||
+          (normalizeErrorText(rawText)
+            ? `AI 填充失败: ${normalizeErrorText(rawText)}`
+            : `AI 填充失败(${res.status})`);
+        throw new Error(message);
+      }
+
+      if (!data || typeof data !== 'object') {
+        const fallback = normalizeErrorText(rawText);
+        throw new Error(fallback ? `AI 返回非 JSON: ${fallback}` : 'AI 返回非 JSON，无法解析');
+      }
+
       onFill(data);
       setSuccess(true);
       setTimeout(() => setSuccess(false), 2000);

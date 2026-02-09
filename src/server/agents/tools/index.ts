@@ -10,16 +10,21 @@ import { searchWeb } from "../../services/tavilySearch";
 import { generateImageWithReference as generateWithProvider } from "../../services/xhs/integration/imageProvider";
 import { getSetting } from "../../settings";
 
+// 避免 tool 泛型在 TS5 上触发深度实例化（TS2589）导致编译极慢/卡死
+const createTool = tool as any;
+
 // Tool 1: 搜索已抓取的笔记
-export const searchNotesTool = tool(
+export const searchNotesTool = createTool(
   async ({ query, themeId, limit }) => {
+    const safeLimit = Number.isFinite(Number(limit)) && Number(limit) > 0 ? Number(limit) : 10;
+
     const queryDb = getDatabase();
     let dbQuery = queryDb
       .from("topics")
-      .select("id, title, desc, like_count, collect_count, comment_count, created_at")
+      .select("id, title, desc, like_count, collect_count, comment_count, author_name, url, tags, published_at, created_at")
       .ilike("title", `%${query}%`)
       .order("like_count", { ascending: false })
-      .limit(limit);
+      .limit(safeLimit);
 
     if (themeId) {
       dbQuery = dbQuery.eq("theme_id", themeId);
@@ -28,14 +33,45 @@ export const searchNotesTool = tool(
     const { data, error } = await dbQuery;
     if (error) return JSON.stringify({ error: error.message });
 
+    const parseTags = (raw: unknown): string[] => {
+      if (typeof raw !== "string") return [];
+      return raw
+        .split(/[\s,，#]+/)
+        .map((tag) => tag.trim())
+        .filter(Boolean)
+        .slice(0, 12);
+    };
+
+    const notes = (data || []).map((n) => ({
+      id: n.id,
+      title: n.title,
+      desc: n.desc?.slice(0, 200),
+      likes: n.like_count,
+      collects: n.collect_count,
+      comments: n.comment_count,
+      author: n.author_name,
+      url: n.url,
+      tags: parseTags(n.tags),
+      publishedAt: n.published_at || n.created_at || null,
+    }));
+
+    const safeLength = notes.length || 1;
+    const sumLikes = notes.reduce((sum, note) => sum + (Number(note.likes) || 0), 0);
+    const sumCollects = notes.reduce((sum, note) => sum + (Number(note.collects) || 0), 0);
+    const sumComments = notes.reduce((sum, note) => sum + (Number(note.comments) || 0), 0);
+
     return JSON.stringify({
-      count: data?.length || 0,
-      notes: data?.map((n) => ({
-        title: n.title,
-        desc: n.desc?.slice(0, 200),
-        likes: n.like_count,
-        collects: n.collect_count,
-      })),
+      count: notes.length,
+      meta: {
+        query,
+        sortBy: "like_count_desc",
+      },
+      summary: {
+        avgLikes: Math.round(sumLikes / safeLength),
+        avgCollects: Math.round(sumCollects / safeLength),
+        avgComments: Math.round(sumComments / safeLength),
+      },
+      notes,
     });
   },
   {
@@ -43,16 +79,17 @@ export const searchNotesTool = tool(
     description: "搜索已抓取的小红书笔记，根据关键词查找相关内容作为创作参考",
     schema: z.object({
       query: z.string().describe("搜索关键词"),
-      themeId: z.number().optional().describe("限定主题ID"),
-      limit: z.number().default(10).describe("返回数量"),
+      themeId: z.number().nullable().optional().describe("限定主题ID"),
+      limit: z.number().nullable().describe("返回数量，传 null 时默认 10"),
     }),
   }
 );
 
 // Tool 2: 分析热门标签
-export const analyzeTopTagsTool = tool(
+export const analyzeTopTagsTool = createTool(
   async ({ themeId, days }) => {
-    const tags = await getTagStats(themeId, { days });
+    const safeDays = Number.isFinite(Number(days)) && Number(days) > 0 ? Number(days) : 7;
+    const tags = await getTagStats(themeId, { days: safeDays });
     return JSON.stringify({
       topTags: tags.slice(0, 15).map((t) => ({
         tag: t.tag,
@@ -66,13 +103,13 @@ export const analyzeTopTagsTool = tool(
     description: "分析指定主题下的热门标签和互动数据，了解当前流行趋势",
     schema: z.object({
       themeId: z.number().describe("主题ID"),
-      days: z.number().default(7).describe("分析天数范围"),
+      days: z.number().nullable().describe("分析天数范围，传 null 时默认 7"),
     }),
   }
 );
 
 // Tool 3: 获取趋势报告
-export const getTrendReportTool = tool(
+export const getTrendReportTool = createTool(
   async ({ themeId }) => {
     const report = await getLatestTrendReport(themeId);
     if (!report) {
@@ -93,9 +130,12 @@ export const getTrendReportTool = tool(
 );
 
 // Tool 4: 获取爆款标题
-export const getTopTitlesTool = tool(
+export const getTopTitlesTool = createTool(
   async ({ themeId, limit, sortBy }) => {
-    const titles = await getTopTitles(themeId, limit, { sortBy });
+    const safeLimit = Number.isFinite(Number(limit)) && Number(limit) > 0 ? Number(limit) : 20;
+    const allowedSortBy = new Set(["engagement", "likes", "collects", "comments", "recent"]);
+    const safeSortBy = typeof sortBy === "string" && allowedSortBy.has(sortBy) ? sortBy : "engagement";
+    const titles = await getTopTitles(themeId, safeLimit, { sortBy: safeSortBy as any });
     return JSON.stringify({
       titles: titles.map((t) => ({
         title: t.title,
@@ -110,17 +150,17 @@ export const getTopTitlesTool = tool(
     description: "获取指定主题下的爆款标题列表，用于学习标题写作技巧",
     schema: z.object({
       themeId: z.number().describe("主题ID"),
-      limit: z.number().default(20).describe("返回数量"),
+      limit: z.number().nullable().describe("返回数量，传 null 时默认 20"),
       sortBy: z
         .enum(["engagement", "likes", "collects", "comments", "recent"])
-        .default("engagement")
-        .describe("排序方式"),
+        .nullable()
+        .describe("排序方式，传 null 时默认 engagement"),
     }),
   }
 );
 
 // Tool 5: 生成封面图
-export const generateImageTool = tool(
+export const generateImageTool = createTool(
   async ({ prompt, style }) => {
     const stylePrompts: Record<string, string> = {
       realistic: "realistic photo style, high quality",
@@ -151,7 +191,7 @@ export const generateImageTool = tool(
 );
 
 // Tool 6: 分析参考图风格
-export const analyzeReferenceImageTool = tool(
+export const analyzeReferenceImageTool = createTool(
   async ({ imageUrl }) => {
     try {
       const analysis = await analyzeReferenceImage(imageUrl);
@@ -176,7 +216,7 @@ export const analyzeReferenceImageTool = tool(
 );
 
 // Tool 7: 带参考图生成图片 (支持 gemini/jimeng，多参考图) - 默认版 (兼容性保留)
-export const generateImageWithReferenceTool = tool(
+export const generateImageWithReferenceTool = createTool(
   async ({ prompt, referenceImageUrls, sequence, role, creativeId, provider }) => {
     try {
       const result = await generateWithProvider({
@@ -209,11 +249,11 @@ export const generateImageWithReferenceTool = tool(
     description: "根据参考图生成小红书配图",
     schema: z.object({
       prompt: z.string().describe("生图提示词"),
-      referenceImageUrls: z.array(z.string()).optional().describe("参考图 URL 数组"),
+      referenceImageUrls: z.array(z.string()).nullable().optional().describe("参考图 URL 数组"),
       sequence: z.number().describe("图片序号 (0=封面)"),
       role: z.enum(["cover", "step", "detail", "result", "comparison"]).describe("图片角色"),
-      creativeId: z.number().optional().describe("关联创意ID"),
-      provider: z.enum(["gemini", "jimeng"]).optional().describe("服务商"),
+      creativeId: z.number().nullable().optional().describe("关联创意ID"),
+      provider: z.enum(["gemini", "jimeng"]).nullable().optional().describe("服务商"),
     }),
   }
 );
@@ -225,7 +265,7 @@ export const generateImageWithReferenceTool = tool(
 export function createReferenceImageTools(fixedUrls: string[]) {
   console.log(`[createReferenceImageTools] 创建工具，固定参考图: ${fixedUrls.length} 个`);
 
-  const genBatch = tool(
+  const genBatch = createTool(
     async ({ prompts }) => {
       console.log(`[generate_images] 开始批量生成 ${prompts.length} 张图片`);
       console.log(`[generate_images] 使用固定参考图: ${fixedUrls.length} 个`);
@@ -287,7 +327,7 @@ export function createReferenceImageTools(fixedUrls: string[]) {
 
 
 // Tool 7b: 批量生成图片 (串行执行，避免并发限流)
-export const generateImagesBatchTool = tool(
+export const generateImagesBatchTool = createTool(
   async ({ images, referenceImageUrls, provider }) => {
     console.log(`[generate_images_batch] 开始批量生成 ${images.length} 张图片, provider=${provider}`);
     console.log(`[generate_images_batch] referenceImageUrls: ${referenceImageUrls?.length || 0} 个, 类型: ${referenceImageUrls?.[0]?.slice(0, 50)}...`);
@@ -349,25 +389,30 @@ export const generateImagesBatchTool = tool(
         role: z.enum(["cover", "step", "detail", "result", "comparison"]).describe("图片角色"),
         prompt: z.string().describe("图片生成提示词"),
       })).describe("要生成的图片列表"),
-      referenceImageUrls: z.array(z.string()).optional().describe("参考图 URL 数组，支持传递多张参考图（每张图都会应用到所有生成图片）"),
-      provider: z.enum(["gemini", "jimeng"]).optional().describe("图片生成服务商，默认 jimeng"),
+      referenceImageUrls: z.array(z.string()).nullable().optional().describe("参考图 URL 数组，支持传递多张参考图（每张图都会应用到所有生成图片）"),
+      provider: z.enum(["gemini", "jimeng"]).nullable().optional().describe("图片生成服务商，默认 jimeng"),
     }),
   }
 );
 
 // Tool 8: 联网搜索 (Tavily, 带缓存)
-export const webSearchTool = tool(
+export const webSearchTool = createTool(
   async ({ query, maxResults, forceRefresh }) => {
+    const safeMaxResults = Number.isFinite(Number(maxResults)) && Number(maxResults) > 0
+      ? Number(maxResults)
+      : 5;
+    const safeForceRefresh = forceRefresh === true;
+
     try {
       const result = await searchWeb(query, {
-        maxResults: maxResults || 5,
-        forceRefresh: forceRefresh || false,
+        maxResults: safeMaxResults,
+        forceRefresh: safeForceRefresh,
       });
 
       return JSON.stringify({
         query: result.query,
         answer: result.answer,
-        results: result.results.slice(0, maxResults || 5).map((r) => ({
+        results: result.results.slice(0, safeMaxResults).map((r) => ({
           title: r.title,
           url: r.url,
           content: r.content?.slice(0, 300),
@@ -388,14 +433,14 @@ export const webSearchTool = tool(
     description: "联网搜索最新信息，支持搜索小红书、知乎、百度等平台内容，获取实时热点和趋势分析。相同查询 30 分钟内不重复搜索（开发阶段节省 token）。",
     schema: z.object({
       query: z.string().describe("搜索关键词，如 '2024 小红书 AI 教程 热门'"),
-      maxResults: z.number().default(5).describe("最大返回结果数"),
-      forceRefresh: z.boolean().default(false).describe("是否强制刷新缓存"),
+      maxResults: z.number().nullable().describe("最大返回结果数，传 null 时默认 5"),
+      forceRefresh: z.boolean().nullable().describe("是否强制刷新缓存，传 null 时默认 false"),
     }),
   }
 );
 
 // Tool 9: 保存图片规划
-export const saveImagePlanTool = tool(
+export const saveImagePlanTool = createTool(
   async ({ creativeId, plans }) => {
     try {
       const queryDb = getDatabase();

@@ -1,5 +1,6 @@
 // Theme Service - Drizzle ORM
 import { db, schema } from '../../../db/index';
+import { ensureKeywordSequence } from '../../../db/sequenceUtils';
 import { desc, eq } from 'drizzle-orm';
 import type { Theme, Keyword, Competitor, NewTheme } from '../../../db/schema';
 
@@ -104,6 +105,7 @@ export async function createTheme(payload: {
       }));
 
     if (keywordRows.length > 0) {
+      await ensureKeywordSequence();
       await db.insert(schema.keywords).values(keywordRows);
     }
   }
@@ -135,6 +137,8 @@ export async function updateTheme(payload: {
   status?: string;
   analytics?: Record<string, unknown>;
   config?: Record<string, unknown>;
+  keywords?: string[];
+  competitors?: Array<{ name?: string; xhsUserId?: string } | string>;
 }): Promise<Theme> {
   if (!payload.id) {
     throw new Error('themes:update requires id');
@@ -147,15 +151,68 @@ export async function updateTheme(payload: {
   if (payload.analytics !== undefined) updateData.analytics = payload.analytics;
   if (payload.config !== undefined) updateData.config = payload.config;
 
-  const [theme] = await db
-    .update(schema.themes)
-    .set(updateData)
-    .where(eq(schema.themes.id, payload.id))
-    .returning();
+  const keywords = Array.isArray(payload.keywords)
+    ? Array.from(
+        new Set(
+          payload.keywords
+            .map((v) => String(v || '').trim())
+            .filter(Boolean)
+        )
+      )
+    : null;
 
-  if (!theme) {
-    throw new Error('Theme not found');
-  }
+  const competitors = Array.isArray(payload.competitors)
+    ? payload.competitors
+        .map((c) => {
+          const entry = typeof c === 'object' ? c : { name: c };
+          return {
+            themeId: payload.id,
+            xhsUserId: entry?.xhsUserId ?? null,
+            name: entry?.name?.trim() ? entry.name.trim() : null,
+          };
+        })
+        .filter((item) => item.name || item.xhsUserId)
+    : null;
+
+  const theme = await db.transaction(async (tx) => {
+    const [updated] = await tx
+      .update(schema.themes)
+      .set(updateData)
+      .where(eq(schema.themes.id, payload.id))
+      .returning();
+
+    if (!updated) {
+      throw new Error('Theme not found');
+    }
+
+    if (keywords !== null) {
+      await tx.delete(schema.keywords).where(eq(schema.keywords.themeId, payload.id));
+
+      if (keywords.length > 0) {
+        await ensureKeywordSequence(tx);
+        await tx.insert(schema.keywords).values(
+          keywords.map((value) => ({
+            themeId: payload.id,
+            value,
+            keyword: value,
+            source: 'manual' as const,
+            status: 'active' as const,
+            isEnabled: true,
+          }))
+        );
+      }
+    }
+
+    if (competitors !== null) {
+      await tx.delete(schema.competitors).where(eq(schema.competitors.themeId, payload.id));
+
+      if (competitors.length > 0) {
+        await tx.insert(schema.competitors).values(competitors);
+      }
+    }
+
+    return updated;
+  });
 
   return theme;
 }

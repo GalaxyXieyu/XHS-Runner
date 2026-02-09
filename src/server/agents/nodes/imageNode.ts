@@ -1,17 +1,12 @@
-import { HumanMessage, AIMessage } from "@langchain/core/messages";
+import { AIMessage } from "@langchain/core/messages";
 import { ChatOpenAI } from "@langchain/openai";
 import { AgentState, type AgentType } from "../state/agentState";
-import { compressContext, safeSliceMessages } from "../utils";
-import { getAgentPrompt } from "../../services/promptManager";
 import { isHttpUrl, uploadBase64ToSuperbed, generateImageWithReference } from "../../services/xhs/integration/imageProvider";
 import { storeAsset } from "../../services/xhs/integration/assetStore";
 import { getSetting } from "../../settings";
-import { db, schema } from "../../db";
 import { emitImageProgress } from "../utils/progressEmitter";
-import * as fs from "fs";
-import * as path from "path";
 
-export async function imageAgentNode(state: typeof AgentState.State, model: ChatOpenAI) {
+export async function imageAgentNode(state: typeof AgentState.State, _model: ChatOpenAI) {
   const plans = state.imagePlans;
   const optimizedPrompts = state.reviewFeedback?.optimizedPrompts || [];
 

@@ -7,6 +7,9 @@ import { db } from "@/server/db";
 import * as schema from "@/server/db/schema";
 import { eq, and, desc, sql } from "drizzle-orm";
 
+// 避免 tool 泛型在 TS5 上触发深度实例化（TS2589）导致编译极慢/卡死
+const createTool = tool as any;
+
 // 意图类型
 export type IntentType =
   | "create_content"      // 创作内容
@@ -88,9 +91,10 @@ export function detectIntent(message: string): IntentResult {
 /**
  * 推荐模板工具
  */
-export const recommendTemplatesTool = tool(
+export const recommendTemplatesTool = createTool(
   async ({ message, category, limit }) => {
     const intent = detectIntent(message);
+    const safeLimit = Number.isFinite(Number(limit)) && Number(limit) > 0 ? Number(limit) : 5;
 
     // 构建查询条件
     const conditions = [eq(schema.promptProfiles.isTemplate, true)];
@@ -111,7 +115,7 @@ export const recommendTemplatesTool = tool(
       .from(schema.promptProfiles)
       .where(and(...conditions))
       .orderBy(desc(schema.promptProfiles.usageCount))
-      .limit(limit);
+      .limit(safeLimit);
 
     return {
       intent: intent.intent,
@@ -131,7 +135,7 @@ export const recommendTemplatesTool = tool(
         .nullable()
         .optional()
         .describe("指定模板分类（可选）"),
-      limit: z.number().default(5).describe("返回模板数量"),
+      limit: z.number().nullable().describe("返回模板数量，传 null 时默认 5"),
     }),
   }
 );

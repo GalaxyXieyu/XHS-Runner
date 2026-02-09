@@ -7,7 +7,7 @@
     "dev": "npm run build:server && XHS_USER_DATA_PATH=\"$HOME/Library/Application Support/xhs-generator\" concurrently -k \"next dev\" \"wait-on http://localhost:3000 && electron .\"",
     "dev:next": "next dev",
     "dev:electron": "npm run build:server && wait-on http://localhost:3000 && electron .",
-    "build:server": "node_modules/typescript/bin/tsc -p tsconfig.server.json",
+    "build:server": "node --max-old-space-size=12288 node_modules/typescript/bin/tsc -p tsconfig.server.json",
     "smoke:xhs": "npm run build:server && node electron/server/scripts/xhsSmoke.js",
     "smoke:xhs-capture": "npm run build:server && node electron/server/scripts/xhsThemeCaptureSmoke.js",
     "test": "npm run build:server && node scripts/smoke/smokeTest.js",
