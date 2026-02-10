@@ -1,7 +1,13 @@
 import { cn } from '@/components/ui/utils';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, FileText, LayoutGrid, ScanEye, ShieldCheck } from 'lucide-react';
 import type { AgentEvent } from '../types';
 import { getDisplayName } from './ToolEventList';
+
+/** 截断字符串到指定长度 */
+function truncate(text: string, max: number): string {
+  if (!text || text.length <= max) return text;
+  return text.slice(0, max) + '...';
+}
 
 // Agent 状态类型
 export interface AgentState {
@@ -253,54 +259,59 @@ interface BriefResultCardProps {
   brief: any;
   expanded?: boolean;
   onToggle?: () => void;
+  inline?: boolean;
 }
 
-export function BriefResultCard({ brief, expanded = false, onToggle }: BriefResultCardProps) {
+export function BriefResultCard({ brief, expanded = false, onToggle, inline = false }: BriefResultCardProps) {
   const audience = brief?.targetAudience || brief?.audience || '';
   const goal = brief?.goal || brief?.objective || '';
   const style = brief?.style || brief?.tone || '';
+  const showExpanded = inline || expanded;
 
   return (
-    <div className="rounded-lg border border-indigo-200 bg-indigo-50/50 overflow-hidden transition-colors duration-300">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="w-full flex items-center justify-between px-3 py-2 hover:bg-indigo-100/50 transition-colors text-left"
-      >
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-indigo-700">Brief 编译完成</span>
-        </div>
-        <ChevronDown className={cn('w-3.5 h-3.5 text-indigo-500 transition-transform', expanded && 'rotate-180')} />
-      </button>
+    <div className="rounded-xl bg-white/90 shadow-sm overflow-hidden transition-all duration-300">
+      {!inline && (
+        <button
+          type="button"
+          onClick={onToggle}
+          className="w-full flex items-center justify-between px-3 py-2 bg-slate-50/40 hover:bg-slate-50/70 transition-colors text-left"
+        >
+          <div className="flex items-center gap-2">
+            <FileText className="w-3.5 h-3.5 text-slate-400" />
+            <span className="text-sm font-semibold text-slate-700">Brief 编译完成</span>
+          </div>
+          <ChevronDown className={cn('w-3.5 h-3.5 text-slate-400 transition-transform', expanded && 'rotate-180')} />
+        </button>
+      )}
 
-      {!expanded && (
-        <div className="px-3 pb-2 text-xs text-indigo-600">
-          {[
+      {!showExpanded && (
+        <div className="px-3 pb-2 text-xs text-slate-600">
+          {truncate([
             audience && `受众：${audience}`,
             goal && `目标：${goal}`,
             style && `风格：${style}`,
-          ].filter(Boolean).join(' · ')}
+          ].filter(Boolean).join(' · '), 60)}
         </div>
       )}
 
-      {expanded && (
-        <div className="px-3 pb-3 space-y-2">
+      {showExpanded && (
+        <div className={cn('space-y-2', inline ? 'px-3 py-3' : 'px-3 pb-3')}>
           {goal && (
-            <div className="rounded-md bg-white/60 px-2 py-1.5">
-              <div className="text-[11px] text-indigo-400">目标</div>
-              <div className="mt-0.5 text-xs text-indigo-700">{goal}</div>
+            <div className="rounded-lg bg-slate-50/50 px-2.5 py-1.5">
+              <div className="text-[11px] font-normal text-slate-400">目标</div>
+              <div className="mt-0.5 text-xs font-medium text-slate-600">{goal}</div>
             </div>
           )}
           {audience && (
-            <div className="rounded-md bg-white/60 px-2 py-1.5">
-              <div className="text-[11px] text-indigo-400">受众</div>
-              <div className="mt-0.5 text-xs text-indigo-700">{audience}</div>
+            <div className="rounded-lg bg-slate-50/50 px-2.5 py-1.5">
+              <div className="text-[11px] font-normal text-slate-400">受众</div>
+              <div className="mt-0.5 text-xs font-medium text-slate-600">{audience}</div>
             </div>
           )}
           {style && (
-            <div className="rounded-md bg-white/60 px-2 py-1.5">
-              <div className="text-[11px] text-indigo-400">风格</div>
-              <div className="mt-0.5 text-xs text-indigo-700">{style}</div>
+            <div className="rounded-lg bg-slate-50/50 px-2.5 py-1.5">
+              <div className="text-[11px] font-normal text-slate-400">风格</div>
+              <div className="mt-0.5 text-xs font-medium text-slate-600">{style}</div>
             </div>
           )}
         </div>
@@ -317,43 +328,93 @@ interface LayoutSpecCardProps {
   layoutSpec: any;
   expanded?: boolean;
   onToggle?: () => void;
+  inline?: boolean;
 }
 
-export function LayoutSpecCard({ layoutSpec, expanded = false, onToggle }: LayoutSpecCardProps) {
+export function LayoutSpecCard({ layoutSpec, expanded = false, onToggle, inline = false }: LayoutSpecCardProps) {
   const layoutItems = normalizeLayoutSpec(layoutSpec?.layoutSpec || layoutSpec);
   const count = Number.isFinite(Number(layoutSpec?.count))
     ? Number(layoutSpec.count)
     : layoutItems.length;
+  const showExpanded = inline || expanded;
+
+  // 提取偏好/风格信息
+  const preference = layoutSpec?.preference || layoutSpec?.bias || '';
 
   return (
-    <div className="rounded-lg border border-teal-200 bg-teal-50/50 overflow-hidden transition-colors duration-300">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="w-full flex items-center justify-between px-3 py-2 hover:bg-teal-100/50 transition-colors text-left"
-      >
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-teal-700">版式规划完成</span>
-        </div>
-        <ChevronDown className={cn('w-3.5 h-3.5 text-teal-500 transition-transform', expanded && 'rotate-180')} />
-      </button>
+    <div className="rounded-xl bg-white/90 shadow-sm overflow-hidden transition-all duration-300">
+      {!inline && (
+        <button
+          type="button"
+          onClick={onToggle}
+          className="w-full flex items-center justify-between px-3 py-2 bg-slate-50/40 hover:bg-slate-50/70 transition-colors text-left"
+        >
+          <div className="flex items-center gap-2">
+            <LayoutGrid className="w-3.5 h-3.5 text-slate-400" />
+            <span className="text-sm font-semibold text-slate-700">版式规划完成</span>
+            <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded-full font-normal">
+              {count} 张
+            </span>
+          </div>
+          <ChevronDown className={cn('w-3.5 h-3.5 text-slate-400 transition-transform', expanded && 'rotate-180')} />
+        </button>
+      )}
 
-      {!expanded && (
-        <div className="px-3 pb-2 text-xs text-teal-600">
-          共 {count} 张图片
+      {!showExpanded && layoutItems.length > 0 && (
+        <div className="px-3 pb-2 flex flex-wrap gap-1">
+          {layoutItems.map((spec: any, index: number) => (
+            <span key={index} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 bg-slate-50 text-slate-600 rounded-lg">
+              <span className="font-medium">图{index + 1}</span>
+              {spec.layoutType && <span className="text-slate-500">· {spec.layoutType}</span>}
+            </span>
+          ))}
+          {preference && (
+            <span className="text-[10px] text-slate-500 ml-1">偏好={preference}</span>
+          )}
         </div>
       )}
 
-      {expanded && layoutItems.length > 0 && (
-        <div className="px-3 pb-3 space-y-1.5">
-          {layoutItems.map((spec: any, index: number) => (
-            <div key={index} className="rounded-md bg-white/60 px-2 py-1.5">
-              <div className="text-xs font-medium text-teal-700">图 {index + 1}</div>
-              {spec.layoutType && (
-                <div className="mt-0.5 text-[11px] text-teal-600">版式：{spec.layoutType}</div>
-              )}
+      {showExpanded && layoutItems.length > 0 && (
+        <div className={cn(inline ? 'px-3 py-3' : 'px-3 pb-3')}>
+          <div className="grid grid-cols-2 gap-1.5">
+            {layoutItems.map((spec: any, index: number) => (
+              <div key={index} className="rounded-lg bg-slate-50/50 px-2.5 py-2">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-semibold text-slate-700">图 {index + 1}</span>
+                  {spec.layoutType && (
+                    <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded font-normal">
+                      {spec.layoutType}
+                    </span>
+                  )}
+                </div>
+                {spec.imageSize && (
+                  <div className="text-[10px] text-slate-500">尺寸：{spec.imageSize}</div>
+                )}
+                {spec.textZone && (
+                  <div className="text-[10px] text-slate-500">文字区：{typeof spec.textZone === 'string' ? spec.textZone : JSON.stringify(spec.textZone)}</div>
+                )}
+                {spec.description && (
+                  <div className="text-[10px] text-slate-500 mt-1 line-clamp-2">{spec.description}</div>
+                )}
+                {spec.colorScheme && (
+                  <div className="flex items-center gap-1 mt-1">
+                    <span className="text-[10px] text-slate-500">配色：</span>
+                    {Array.isArray(spec.colorScheme)
+                      ? spec.colorScheme.map((c: string, ci: number) => (
+                          <span key={ci} className="w-3 h-3 rounded-sm border border-slate-200" style={{ backgroundColor: c }} title={c} />
+                        ))
+                      : <span className="text-[10px] text-slate-500">{String(spec.colorScheme)}</span>
+                    }
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          {preference && (
+            <div className="mt-2 text-[10px] text-slate-500">
+              整体偏好：{preference}
             </div>
-          ))}
+          )}
         </div>
       )}
     </div>
@@ -368,9 +429,10 @@ interface AlignmentMapCardProps {
   alignment: any;
   expanded?: boolean;
   onToggle?: () => void;
+  inline?: boolean;
 }
 
-export function AlignmentMapCard({ alignment, expanded = false, onToggle }: AlignmentMapCardProps) {
+export function AlignmentMapCard({ alignment, expanded = false, onToggle, inline = false }: AlignmentMapCardProps) {
   const bindings = Array.isArray(alignment?.paragraphImageBindings)
     ? alignment.paragraphImageBindings
     : [];
@@ -386,19 +448,22 @@ export function AlignmentMapCard({ alignment, expanded = false, onToggle }: Alig
     : blocks.length;
 
   return (
-    <div className="rounded-lg border border-cyan-200 bg-cyan-50/50 overflow-hidden transition-colors duration-300">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="w-full flex items-center justify-between px-3 py-2 hover:bg-cyan-100/50 transition-colors text-left"
-      >
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-cyan-700">图文段落绑定完成</span>
-        </div>
-        <ChevronDown className={cn('w-3.5 h-3.5 text-cyan-500 transition-transform', expanded && 'rotate-180')} />
-      </button>
+    <div className="rounded-xl bg-white/90 shadow-sm overflow-hidden transition-all duration-300">
+      {!inline && (
+        <button
+          type="button"
+          onClick={onToggle}
+          className="w-full flex items-center justify-between px-3 py-2 bg-slate-50/40 hover:bg-slate-50/70 transition-colors text-left"
+        >
+          <div className="flex items-center gap-2">
+            <ScanEye className="w-3.5 h-3.5 text-slate-400" />
+            <span className="text-sm font-semibold text-slate-700">图文段落绑定完成</span>
+          </div>
+          <ChevronDown className={cn('w-3.5 h-3.5 text-slate-400 transition-transform', expanded && 'rotate-180')} />
+        </button>
+      )}
 
-      <div className="px-3 pb-2 text-xs text-cyan-600">
+      <div className={cn('text-xs text-slate-600', inline ? 'px-3 py-2' : 'px-3 pb-2')}>
         绑定 {bindingsCount} 条 · 段落 {blocksCount} 个
       </div>
     </div>
@@ -413,11 +478,13 @@ interface QualityScoreCardProps {
   scores: any;
   expanded?: boolean;
   onToggle?: () => void;
+  inline?: boolean;
 }
 
-export function QualityScoreCard({ scores, expanded = false, onToggle }: QualityScoreCardProps) {
+export function QualityScoreCard({ scores, expanded = false, onToggle, inline = false }: QualityScoreCardProps) {
   const overall = scores?.overall || 0;
   const scoresData = scores?.scores || {};
+  const showExpanded = inline || expanded;
 
   const formatScore = (value: unknown) => {
     const num = Number(value);
@@ -426,35 +493,42 @@ export function QualityScoreCard({ scores, expanded = false, onToggle }: Quality
   };
 
   return (
-    <div className="rounded-lg border border-rose-200 bg-rose-50/50 overflow-hidden transition-colors duration-300">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="w-full flex items-center justify-between px-3 py-2 hover:bg-rose-100/50 transition-colors text-left"
-      >
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-rose-700">质量审核完成</span>
-        </div>
-        <ChevronDown className={cn('w-3.5 h-3.5 text-rose-500 transition-transform', expanded && 'rotate-180')} />
-      </button>
+    <div className="rounded-xl bg-white/90 shadow-sm overflow-hidden transition-all duration-300">
+      {!inline && (
+        <button
+          type="button"
+          onClick={onToggle}
+          className="w-full flex items-center justify-between px-3 py-2 bg-slate-50/40 hover:bg-slate-50/70 transition-colors text-left"
+        >
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="w-3.5 h-3.5 text-slate-400" />
+            <span className="text-sm font-semibold text-slate-700">质量审核完成</span>
+          </div>
+          <ChevronDown className={cn('w-3.5 h-3.5 text-slate-400 transition-transform', expanded && 'rotate-180')} />
+        </button>
+      )}
 
-      {!expanded && (
-        <div className="px-3 pb-2 text-xs text-rose-600">
+      {!showExpanded && (
+        <div className="px-3 pb-2 text-xs text-slate-600">
           综合评分：{formatScore(overall)}
         </div>
       )}
 
-      {expanded && (
-        <div className="px-3 pb-3 space-y-2">
-          <div className="rounded-md bg-white/60 px-2 py-1.5">
-            <div className="text-[11px] text-rose-400">综合评分</div>
-            <div className="mt-0.5 text-sm font-medium text-rose-700">{formatScore(overall)}</div>
+      {showExpanded && (
+        <div className={cn('space-y-2', inline ? 'px-3 py-3' : 'px-3 pb-3')}>
+          <div className="rounded-lg bg-slate-50/50 px-2.5 py-1.5">
+            <div className="text-[11px] font-normal text-slate-400">综合评分</div>
+            <div className={cn('mt-0.5 text-sm font-medium', overall >= 0.8 ? 'text-emerald-600' : 'text-slate-700')}>
+              {formatScore(overall)}
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-1.5">
             {Object.entries(scoresData).map(([key, value]) => (
-              <div key={key} className="rounded-md bg-white/60 px-2 py-1">
-                <div className="text-[10px] text-rose-400">{getScoreLabel(key)}</div>
-                <div className="mt-0.5 text-xs text-rose-600">{formatScore(value)}</div>
+              <div key={key} className="rounded-lg bg-slate-50/50 px-2 py-1">
+                <div className="text-[10px] font-normal text-slate-400">{getScoreLabel(key)}</div>
+                <div className={cn('mt-0.5 text-xs', Number(value) >= 0.8 ? 'text-emerald-600' : 'text-slate-600')}>
+                  {formatScore(value)}
+                </div>
               </div>
             ))}
           </div>

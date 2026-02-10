@@ -106,7 +106,7 @@ export function AgentCreatorEmptyState({
                 value={requirement}
                 onChange={(e) => setRequirement(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSubmit()}
-                placeholder="描述你想创作的内容..."
+                placeholder="一句话描述目标（例：给我10条爆款选题）"
                 className="flex-1 text-base text-gray-700 placeholder:text-gray-400 bg-transparent focus:outline-none"
                 disabled={isStreaming}
               />

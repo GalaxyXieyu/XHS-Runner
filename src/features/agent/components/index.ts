@@ -4,6 +4,6 @@ export { ToolEventList, CollapsibleToolCard, getDisplayName } from "./ToolEventL
 export { ContentCard, parseCreativeContent, type ParsedContent } from "./ContentCard";
 export { ImagePlanCard, parseImagePlanContent, type ParsedImagePlan, type ImagePlan } from "./ImagePlanCard";
 export { MaterialGallery } from "./MaterialGallery";
-export { HITLRequestMessage, HITLResponseMessage, isHITLRequest, isHITLResponse } from "./HITLMessage";
+export { HITLResponseMessage, isHITLRequest, isHITLResponse } from "./HITLMessage";
 export { ConversationHistory } from "./ConversationHistory";
 export { AgentCreator } from "./AgentCreator";

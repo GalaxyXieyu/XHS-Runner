@@ -21,6 +21,7 @@ interface InteractiveHITLProps {
 
 /**
  * 可交互的 HITL 气泡组件（当前正在等待用户响应）
+ * 简化版：更紧凑的样式
  */
 export function InteractiveHITLBubble({ state, onStateChange, onSubmit }: InteractiveHITLProps) {
   const [customInput, setCustomInput] = useState(state.customInput || "");
@@ -68,67 +69,75 @@ export function InteractiveHITLBubble({ state, onStateChange, onSubmit }: Intera
   const needsFeedback = selectedId === "reject" && showFeedbackInput;
 
   return (
-    <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 max-w-[80%]">
+    <div className="bg-amber-50/80 border border-amber-200/60 rounded-lg px-3 py-2.5 max-w-[70%]">
       {/* 标题 */}
-      <div className="flex items-center gap-2 mb-3">
-        <div className="w-6 h-6 rounded-full bg-amber-100 flex items-center justify-center">
-          <MessageSquare className="w-3.5 h-3.5 text-amber-600" />
-        </div>
-        <span className="text-sm font-medium text-amber-700">
-          {isContentConfirm ? "内容确认" : "需要您的选择"}
+      <div className="flex items-center gap-1.5 mb-2">
+        <MessageSquare className="w-3.5 h-3.5 text-amber-600" />
+        <span className="text-xs font-medium text-amber-700">
+          {isContentConfirm ? "内容确认" : "需要选择"}
         </span>
       </div>
 
       {/* 问题 */}
-      <p className="text-sm text-gray-700 mb-3">{state.question}</p>
+      <p className="text-xs text-gray-600 mb-2">{state.question}</p>
 
-      {/* 可点击的选项列表 */}
+      {/* 可点击的选项列表 - 更紧凑 */}
       {state.options.length > 0 && (
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           {state.options.map((option) => (
-            <InteractiveOptionItem
+            <button
               key={option.id}
-              option={option}
-              isSelected={state.selectedIds.includes(option.id)}
               onClick={() => handleOptionSelect(option.id)}
-            />
+              className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md border text-left transition-all text-xs ${
+                state.selectedIds.includes(option.id)
+                  ? "bg-gray-800 border-gray-700 text-white"
+                  : "bg-white border-gray-200 hover:border-gray-300 text-gray-700"
+              }`}
+            >
+              <div
+                className={`w-3.5 h-3.5 rounded-full border flex-shrink-0 flex items-center justify-center ${
+                  state.selectedIds.includes(option.id)
+                    ? "border-white bg-white"
+                    : "border-gray-300"
+                }`}
+              >
+                {state.selectedIds.includes(option.id) && <Check className="w-2 h-2 text-gray-900" />}
+              </div>
+              <span>{option.label}</span>
+            </button>
           ))}
         </div>
       )}
 
       {/* 反馈输入框（仅在选择"重生成"时显示） */}
       {needsFeedback && (
-        <div className="mt-3 space-y-2 animate-in slide-in-from-top-2 duration-200">
-          <div className="flex items-center gap-1.5 text-xs text-gray-500">
-            <Edit3 className="w-3 h-3" />
-            <span>请告诉我需要改进的地方</span>
-          </div>
+        <div className="mt-2 space-y-1.5">
           <textarea
             value={customInput}
             onChange={(e) => handleCustomInputChange(e.target.value)}
-            placeholder="例如：标题太平淡了，需要更有吸引力..."
-            className="w-full px-3 py-2 text-sm border border-amber-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-400 resize-none bg-white"
-            rows={3}
+            placeholder="请告诉我需要改进的地方..."
+            className="w-full px-2 py-1.5 text-xs border border-amber-200 rounded focus:outline-none focus:ring-1 focus:ring-amber-400 resize-none bg-white"
+            rows={2}
             autoFocus
           />
-          <div className="flex justify-end gap-2">
+          <div className="flex justify-end gap-1.5">
             <button
               onClick={() => {
                 setShowFeedbackInput(false);
                 setCustomInput("");
                 onStateChange({ ...state, selectedIds: [], customInput: "" });
               }}
-              className="px-3 py-1.5 text-xs text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
+              className="px-2 py-1 text-[11px] text-gray-500 hover:text-gray-700 rounded"
             >
               取消
             </button>
             <button
               onClick={handleSubmit}
               disabled={!customInput.trim()}
-              className="px-4 py-1.5 bg-blue-500 text-white text-xs rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
+              className="px-2.5 py-1 bg-gray-800 text-white text-[11px] rounded hover:bg-gray-900 disabled:opacity-50 flex items-center gap-1"
             >
-              <Check className="w-3.5 h-3.5" />
-              提交反馈
+              <Check className="w-3 h-3" />
+              提交
             </button>
           </div>
         </div>
@@ -136,13 +145,13 @@ export function InteractiveHITLBubble({ state, onStateChange, onSubmit }: Intera
 
       {/* 普通选项的确认按钮（非 approve/reject 时显示） */}
       {selectedId && selectedId !== "approve" && selectedId !== "reject" && !needsFeedback && (
-        <div className="mt-4 flex justify-end">
+        <div className="mt-2 flex justify-end">
           <button
             onClick={onSubmit}
-            className="px-5 py-2 bg-gradient-to-r from-gray-800 to-gray-900 text-white text-sm font-medium rounded-xl hover:from-gray-900 hover:to-black transition-all shadow-md hover:shadow-lg flex items-center gap-2"
+            className="px-3 py-1.5 bg-gray-800 text-white text-xs rounded hover:bg-gray-900 flex items-center gap-1"
           >
-            <Check className="w-4 h-4" />
-            确认选择
+            <Check className="w-3 h-3" />
+            确认
           </button>
         </div>
       )}

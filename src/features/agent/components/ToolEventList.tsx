@@ -87,17 +87,17 @@ interface ToolEventItemProps {
 
 function ToolEventItem({ item }: ToolEventItemProps) {
   return (
-    <div className="px-3 py-2 hover:bg-gray-50 transition-colors">
+    <div className="px-3 py-2 hover:bg-slate-50/60 transition-colors rounded-lg">
       <div className="flex items-center gap-2">
         {item.isComplete ? (
           <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-green-100 text-green-600">完成</span>
         ) : (
-          <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-blue-100 text-blue-600 inline-flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+          <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-slate-100 text-slate-600 inline-flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-slate-500 animate-pulse" />
             处理中
           </span>
         )}
-        <span className="text-xs font-medium text-gray-700">{item.displayName}</span>
+        <span className="text-xs font-medium text-slate-700">{item.displayName}</span>
       </div>
     </div>
   );
@@ -153,7 +153,7 @@ function NotePreviewModal({ note, onClose }: NotePreviewModalProps) {
               href={note.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-blue-600 underline decoration-blue-300 underline-offset-2 hover:text-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-sm"
+              className="inline-flex items-center gap-1 text-xs text-slate-600 underline decoration-slate-300 underline-offset-2 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 rounded-sm"
               onClick={() => trackNoteView(note.id)}
             >
               打开原文
@@ -196,6 +196,7 @@ export interface CollapsibleToolCardProps {
   researchContent?: string;
   containerRef?: RefObject<HTMLDivElement>;
   highlight?: boolean;
+  inline?: boolean;
 }
 
 export function CollapsibleToolCard({
@@ -208,10 +209,13 @@ export function CollapsibleToolCard({
   researchContent,
   containerRef,
   highlight = false,
+  inline = false,
 }: CollapsibleToolCardProps) {
   const mergedEvents = useMemo(() => mergeToolEvents(events, getDisplayName), [events]);
   const latestItem = mergedEvents.length > 0 ? mergedEvents[mergedEvents.length - 1] : null;
   const latestStatus = latestItem ? (latestItem.isComplete ? '已完成' : '处理中') : '';
+  const completedCount = mergedEvents.filter((item) => item.isComplete).length;
+  const progressPercent = mergedEvents.length > 0 ? Math.round((completedCount / mergedEvents.length) * 100) : 0;
   const researchDigest = useMemo(() => buildResearchDigest(mergedEvents), [mergedEvents]);
   const parsedEvidence = useMemo(() => parseEvidenceSummary(researchContent), [researchContent]);
 
@@ -240,59 +244,71 @@ export function CollapsibleToolCard({
   }, [mergedEvents.length, researchDigest]);
 
   const maxTagCount = Math.max(...(researchDigest?.tags.map((tag) => tag.count) || [1]));
+  const effectiveExpanded = inline ? true : expanded;
 
   return (
     <div
       ref={containerRef}
       className={cn(
-        'border border-gray-200 rounded-lg overflow-hidden transition-shadow duration-300',
-        highlight && 'ring-2 ring-yellow-400',
-        !highlight && isResearchCard && expanded && 'ring-2 ring-blue-500',
+        'rounded-xl bg-white/90 shadow-sm overflow-hidden transition-all duration-300',
+        highlight && 'ring-2 ring-amber-300',
       )}
     >
-      <button
-        type="button"
-        onClick={onToggle}
-        className="w-full flex items-center gap-2 px-3 py-2 bg-blue-50/50 hover:bg-blue-50 transition-colors text-left"
-      >
-        {isLoading ? (
-          <span className="w-3 h-3 rounded-full bg-blue-500 animate-pulse" />
-        ) : (
-          <ChevronRight className={cn('w-3.5 h-3.5 text-blue-500 transition-transform', expanded && 'rotate-90')} />
-        )}
+      {!inline && (
+        <>
+          <button
+            type="button"
+            onClick={onToggle}
+            className="w-full flex items-center gap-2 px-3 py-2 bg-slate-50/40 hover:bg-slate-50/70 transition-colors text-left"
+          >
+            {isLoading ? (
+              <span className="w-3 h-3 rounded-full bg-slate-400 animate-pulse" />
+            ) : (
+              <ChevronRight className={cn('w-3.5 h-3.5 text-slate-400 transition-transform', expanded && 'rotate-90')} />
+            )}
 
-        <span className="text-xs font-medium text-blue-700">
-          {!isLoading && isResearchCard && !expanded && hasResearchData ? '研究收集完成' : title}
-        </span>
+            <span className="text-xs font-semibold text-slate-700">
+              {!isLoading && isResearchCard && !expanded && hasResearchData ? '研究收集完成' : title}
+            </span>
 
-        {(phase || latestItem) && (
-          <span className="text-xs text-blue-500 ml-1 truncate">· {phase || `${latestItem?.displayName} ${latestStatus}`}</span>
-        )}
+            {(phase || latestItem) && (
+              <span className="text-xs text-slate-500 ml-1 truncate">· {phase || `${latestItem?.displayName} ${latestStatus}`}</span>
+            )}
 
-        <span className="text-xs text-gray-400 ml-auto truncate">{!expanded && isResearchCard ? summaryLine : `${mergedEvents.length} 个步骤`}</span>
-      </button>
+            <span className="text-xs text-slate-500 ml-auto shrink-0">{completedCount}/{mergedEvents.length} ({progressPercent}%)</span>
+            <span className="text-xs text-slate-400 truncate">{!expanded && isResearchCard ? summaryLine : `${mergedEvents.length} 个步骤`}</span>
+          </button>
 
-      {expanded && (
+          <div className="h-1 w-full bg-slate-100">
+            <div
+              className="h-full bg-slate-400 transition-[width] duration-300"
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+        </>
+      )}
+
+      {effectiveExpanded && (
         <>
           {hasResearchData && researchDigest && (
-            <div className="border-t border-gray-100 bg-white p-3 space-y-3">
+            <div className="bg-white p-3 space-y-3">
               <section className="space-y-2">
-                <h4 className="text-xs font-semibold text-gray-800">搜索摘要</h4>
-                <div className="grid grid-cols-2 gap-2 text-[11px] text-gray-600">
-                  <div className="rounded-md bg-gray-50 px-2 py-1.5">
-                    <div className="text-gray-400">关键词</div>
+                <h4 className="text-xs font-semibold text-slate-800">搜索摘要</h4>
+                <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-600">
+                  <div className="rounded-lg bg-slate-50/50 px-2 py-1.5">
+                    <div className="text-slate-400 font-normal">关键词</div>
                     <div className="mt-0.5 truncate">{researchDigest.query || '-'}</div>
                   </div>
-                  <div className="rounded-md bg-gray-50 px-2 py-1.5">
-                    <div className="text-gray-400">排序</div>
+                  <div className="rounded-lg bg-slate-50/50 px-2 py-1.5">
+                    <div className="text-slate-400 font-normal">排序</div>
                     <div className="mt-0.5">{researchDigest.sortLabel || '-'}</div>
                   </div>
-                  <div className="rounded-md bg-gray-50 px-2 py-1.5">
-                    <div className="text-gray-400">平均点赞</div>
+                  <div className="rounded-lg bg-slate-50/50 px-2 py-1.5">
+                    <div className="text-slate-400 font-normal">平均点赞</div>
                     <div className="mt-0.5">{formatCompactNumber(researchDigest.avgLikes)}</div>
                   </div>
-                  <div className="rounded-md bg-gray-50 px-2 py-1.5">
-                    <div className="text-gray-400">平均收藏</div>
+                  <div className="rounded-lg bg-slate-50/50 px-2 py-1.5">
+                    <div className="text-slate-400 font-normal">平均收藏</div>
                     <div className="mt-0.5">{formatCompactNumber(researchDigest.avgCollects)}</div>
                   </div>
                 </div>
@@ -300,27 +316,27 @@ export function CollapsibleToolCard({
 
               {researchDigest.webResults.length > 0 && (
                 <section className="space-y-2">
-                  <h4 className="text-xs font-semibold text-gray-800">联网检索结果</h4>
+                  <h4 className="text-xs font-semibold text-slate-800">联网检索结果</h4>
                   {researchDigest.webAnswer && (
-                    <p className="text-[11px] text-gray-600 bg-gray-50 rounded-md px-2 py-1.5">{researchDigest.webAnswer}</p>
+                    <p className="text-[11px] text-slate-600 bg-slate-50/50 rounded-lg px-2 py-1.5 font-normal">{researchDigest.webAnswer}</p>
                   )}
 
                   <div className="space-y-1.5">
                     {researchDigest.webResults.slice(0, 3).map((result, index) => (
-                      <div key={`${result.url || result.title}-${index}`} className="rounded-md border border-gray-100 p-2 bg-gray-50/60">
+                      <div key={`${result.url || result.title}-${index}`} className="rounded-lg p-2 bg-slate-50/50">
                         {result.url ? (
                           <a
                             href={result.url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-xs font-medium text-blue-700 underline decoration-blue-300 underline-offset-2 hover:text-blue-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-sm"
+                            className="text-xs font-medium text-slate-700 underline decoration-slate-300 underline-offset-2 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 rounded-sm"
                           >
                             {result.title}
                           </a>
                         ) : (
-                          <div className="text-xs font-medium text-gray-900">{result.title}</div>
+                          <div className="text-xs font-medium text-slate-900">{result.title}</div>
                         )}
-                        {result.content && <p className="mt-1 text-[11px] text-gray-500 line-clamp-2">{result.content}</p>}
+                        {result.content && <p className="mt-1 text-[11px] text-slate-500 line-clamp-2">{result.content}</p>}
                       </div>
                     ))}
                   </div>
@@ -329,22 +345,22 @@ export function CollapsibleToolCard({
 
               {researchDigest.notes.length > 0 && (
                 <section className="space-y-2">
-                  <h4 className="text-xs font-semibold text-gray-800">
+                  <h4 className="text-xs font-semibold text-slate-800">
                     相关笔记
-                    {selectedTag && <span className="ml-1 text-[11px] text-blue-600">(标签：#{selectedTag})</span>}
+                    {selectedTag && <span className="ml-1 text-[11px] text-slate-600">(标签：#{selectedTag})</span>}
                   </h4>
 
                   <div className="space-y-1.5">
                     {filteredNotes.slice(0, 5).map((note, index) => (
-                      <div key={`${note.id || note.title}-${index}`} className="rounded-md border border-gray-100 p-2 bg-gray-50/60">
+                        <div key={`${note.id || note.title}-${index}`} className="rounded-lg p-2 bg-slate-50/50">
                         <button
                           type="button"
                           onClick={() => setPreviewNote(note)}
-                          className="w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
+                          className="w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 rounded"
                           aria-label={`预览笔记：${note.title}`}
                         >
-                          <div className="text-xs font-medium text-gray-900 line-clamp-1">{note.title}</div>
-                          <div className="mt-1 text-[11px] text-gray-500">
+                          <div className="text-xs font-medium text-slate-900 line-clamp-1">{note.title}</div>
+                          <div className="mt-1 text-[11px] text-slate-500">
                             {note.author ? `${note.author} · ` : ''}
                             点赞 {formatCompactNumber(note.likes)} · 评论 {formatCompactNumber(note.comments)}
                           </div>
@@ -354,7 +370,7 @@ export function CollapsibleToolCard({
                             href={note.url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="mt-1 inline-flex items-center gap-1 text-[11px] text-blue-600 underline decoration-blue-300 underline-offset-2 hover:text-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-sm"
+                            className="mt-1 inline-flex items-center gap-1 text-[11px] text-slate-600 underline decoration-slate-300 underline-offset-2 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 rounded-sm"
                             onClick={() => trackNoteView(note.id)}
                           >
                             查看原文
@@ -365,7 +381,7 @@ export function CollapsibleToolCard({
                     ))}
 
                     {selectedTag && filteredNotes.length === 0 && (
-                      <div className="text-[11px] text-gray-500 rounded-md border border-dashed border-gray-200 px-2 py-2">
+                      <div className="text-[11px] text-slate-500 rounded-md border border-dashed border-slate-200 px-2 py-2">
                         该标签下暂无已返回的笔记。
                       </div>
                     )}
@@ -376,8 +392,8 @@ export function CollapsibleToolCard({
               {researchDigest.tags.length > 0 && (
                 <section className="space-y-2">
                   <div className="flex items-center justify-between gap-2">
-                    <h4 className="text-xs font-semibold text-gray-800">热门标签</h4>
-                    <button type="button" onClick={() => setShowAllTags((prev) => !prev)} className="text-[11px] text-blue-600 hover:text-blue-700">
+                    <h4 className="text-xs font-semibold text-slate-800">热门标签</h4>
+                    <button type="button" onClick={() => setShowAllTags((prev) => !prev)} className="text-[11px] text-slate-600 hover:text-slate-700">
                       {showAllTags ? '收起' : `展开全部 ${researchDigest.tags.length} 个`}
                     </button>
                   </div>
@@ -394,13 +410,13 @@ export function CollapsibleToolCard({
                           type="button"
                           onClick={() => setSelectedTag((prev) => (prev === tag.tag ? null : tag.tag))}
                           className={cn(
-                            'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 transition-colors',
-                            isSelected ? 'border-blue-200 bg-blue-100 text-blue-700' : 'border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-100',
+                            'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 transition-colors font-medium',
+                            isSelected ? 'border-slate-200 bg-slate-100 text-slate-700' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-50/80',
                           )}
                           style={{ fontSize: `${fontSize}px` }}
                         >
                           #{tag.tag}
-                          <span className="text-[10px] text-blue-500">{tag.count}</span>
+                          <span className="text-[10px] text-slate-500">{tag.count}</span>
                         </button>
                       );
                     })}
@@ -410,19 +426,19 @@ export function CollapsibleToolCard({
 
               {researchDigest.titlePatterns.length > 0 && (
                 <section className="space-y-2">
-                  <h4 className="text-xs font-semibold text-gray-800">标题规律</h4>
+                  <h4 className="text-xs font-semibold text-slate-800">标题规律</h4>
                   <div className="space-y-2">
                     {researchDigest.titlePatterns.map((pattern) => (
-                      <div key={pattern.key} className="rounded-md bg-gray-50 px-2 py-2">
-                        <div className="flex items-center justify-between text-[11px] text-gray-700">
+                      <div key={pattern.key} className="rounded-lg bg-slate-50/50 px-2 py-2">
+                        <div className="flex items-center justify-between text-[11px] text-slate-700">
                           <span>{pattern.label}</span>
                           <span>{pattern.percent}%</span>
                         </div>
-                        <div className="mt-1 h-1.5 rounded-full bg-gray-200 overflow-hidden">
-                          <div className="h-full bg-blue-500" style={{ width: `${pattern.percent}%` }} />
+                        <div className="mt-1 h-1.5 rounded-full bg-slate-200 overflow-hidden">
+                          <div className="h-full bg-slate-400" style={{ width: `${pattern.percent}%` }} />
                         </div>
                         {pattern.examples.length > 0 && (
-                          <div className="mt-1 text-[11px] text-gray-500 line-clamp-1">示例：{pattern.examples.join(' / ')}</div>
+                          <div className="mt-1 text-[11px] text-slate-500 line-clamp-1">示例：{pattern.examples.join(' / ')}</div>
                         )}
                       </div>
                     ))}
@@ -435,13 +451,13 @@ export function CollapsibleToolCard({
           <ToolEventList events={events} maxHeight="max-h-56" />
 
           {parsedEvidence && (
-            <div className="px-3 py-2 border-t border-gray-100 bg-gray-50/50">
-              <div className="text-xs text-gray-400 mb-1">研究总结</div>
-              <div className="text-xs text-gray-600">{parsedEvidence.summary}</div>
+            <div className="px-3 py-2 bg-slate-50/50">
+              <div className="text-xs text-slate-400 mb-1">研究总结</div>
+              <div className="text-xs text-slate-600">{parsedEvidence.summary}</div>
               {parsedEvidence.items.length > 0 && (
                 <ul className="mt-1 space-y-1">
                   {parsedEvidence.items.slice(0, 4).map((item, index) => (
-                    <li key={`${index}-${item}`} className="text-[11px] text-gray-500">- {item}</li>
+                    <li key={`${index}-${item}`} className="text-[11px] text-slate-500">- {item}</li>
                   ))}
                 </ul>
               )}

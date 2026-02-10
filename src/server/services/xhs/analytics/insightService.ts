@@ -370,12 +370,36 @@ export async function saveTrendReport(themeId: number, stats: any, analysis: str
     return;
   }
 
-  await db.insert(trendReports).values({
-    themeId,
-    reportDate: today,
-    stats: JSON.stringify(stats),
-    analysis: cleaned,
-  });
+  try {
+    await db.insert(trendReports).values({
+      themeId,
+      reportDate: today,
+      stats: JSON.stringify(stats),
+      analysis: cleaned,
+    });
+  } catch (error) {
+    const cause = (error as any)?.cause;
+    const errorCode = cause?.code || (error as any)?.code;
+    const constraint = cause?.constraint_name;
+
+    if (errorCode === '23505' && constraint === 'trend_reports_pkey') {
+      await db.execute(sql`
+        select setval(
+          pg_get_serial_sequence('trend_reports', 'id'),
+          (select coalesce(max(id), 1) from trend_reports)
+        )
+      `);
+      await db.insert(trendReports).values({
+        themeId,
+        reportDate: today,
+        stats: JSON.stringify(stats),
+        analysis: cleaned,
+      });
+      return;
+    }
+
+    throw error;
+  }
 }
 
 // 保存标题分析结果到 themes.analytics_json

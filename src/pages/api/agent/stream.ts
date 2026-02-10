@@ -330,12 +330,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       initialState.layoutPreference = layoutPreference;
     }
 
-    const streamConfig: any = { recursionLimit: 100 };
+    const streamConfig: any = { recursionLimit: 100, streamMode: ["updates", "tasks"] };
     if (threadId) {
       streamConfig.configurable = { thread_id: threadId };
     }
 
-    const stream = await app.stream(initialState, streamConfig);
+    const stream = await app.stream(initialState, streamConfig) as AsyncIterable<[string, any]>;
     let lastNodeName = "";
     let writerContent: { title: string; body: string; tags: string[] } | null = null;
     let imagePlans: any[] = [];
@@ -388,9 +388,39 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       qualityScores: output?.qualityScores,
     });
 
-    for await (const chunk of stream) {
+    // 将 _tools 节点名归一化到父 agent
+    const toParentAgent = (name: string) =>
+      name.endsWith("_tools") ? name.slice(0, -6) : name;
+
+    for await (const [mode, chunk] of stream) {
+      // ---- tasks 模式：节点生命周期事件（真实时间戳） ----
+      if (mode === "tasks") {
+        const taskEvent = chunk as any;
+        const nodeName = taskEvent?.name;
+        if (!nodeName || nodeName === "__start__" || nodeName === "__end__") continue;
+        if (nodeName === "supervisor_with_style" || nodeName === "supervisor_route") continue;
+        // _tools 节点不发独立生命周期，归属于父 agent
+        if (nodeName.endsWith("_tools")) continue;
+
+        if (!("result" in taskEvent)) {
+          // 节点开始（LangGraph 在执行前发出）
+          if (nodeName !== "image_agent") {
+            sendEvent({
+              type: "agent_start",
+              agent: nodeName,
+              content: getAgentDisplayName(nodeName) + " 开始工作...",
+              timestamp: Date.now(),
+            });
+          }
+        }
+        // tasks with result: 忽略，agent_end 由 updates 处理后发送
+        continue;
+      }
+
+      // ---- updates 模式：节点输出数据 ----
+      if (mode !== "updates") continue;
+
       // 检查是否有 interrupt (askUser 工具触发)
-      // chunk 可能是各种类型，需要安全检查
       if (chunk && typeof chunk === "object" && INTERRUPT in chunk) {
         const chunkWithInterrupt = chunk as { [INTERRUPT]: Array<{ value: unknown }> };
         const interrupts = chunkWithInterrupt[INTERRUPT];
@@ -423,21 +453,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       for (const [nodeName, nodeOutput] of Object.entries(chunk)) {
         if (nodeName === "__start__" || nodeName === "__end__") continue;
-        if (nodeName === "supervisor_with_style") continue; // 跳过内部节点
-        if (nodeName === "supervisor_route") continue; // 跳过路由占位节点，避免 UI 闪烁
+        if (nodeName === "supervisor_with_style") continue;
+        if (nodeName === "supervisor_route") continue;
 
+        const isToolsNode = nodeName.endsWith("_tools");
+        const effectiveAgent = toParentAgent(nodeName);
         const output = nodeOutput as any;
         const nodeStartTime = new Date();
         agentInputs.set(nodeName, buildAgentInput(nodeName, output));
 
-        if (nodeName !== "image_agent") {
-          sendEvent({
-            type: "agent_start",
-            agent: nodeName,
-            content: getAgentDisplayName(nodeName) + " 开始工作...",
-            timestamp: Date.now(),
-          });
-        }
+        // agent_start 已由 tasks 模式发送，此处不再手动发送
 
         if (output.messages) {
           // 收集工具调用信息（用于后续关联）
@@ -451,7 +476,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
                 sendEvent({
                   type: "tool_call",
-                  agent: nodeName,
+                  agent: effectiveAgent,
                   tool: tc.name,
                   toolCallId,
                   toolInput: tc.args || {},
@@ -467,7 +492,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
               sendEvent({
                 type: "tool_result",
-                agent: nodeName,
+                agent: effectiveAgent,
                 tool: msg.name,
                 toolCallId,
                 toolOutput: parsedToolOutput,
@@ -482,7 +507,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 name: `tool:${msg.name}`,
                 input: toolInput,
                 output: typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content),
-                metadata: { agent: nodeName },
+                metadata: { agent: effectiveAgent },
               });
             }
 
@@ -513,16 +538,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
               sendEvent({
                 type: "message",
-                agent: nodeName,
+                agent: effectiveAgent,
                 content: msg.content,
                 timestamp: Date.now(),
               });
 
               await logGeneration({
                 traceId,
-                name: nodeName,
+                name: effectiveAgent,
                 model: 'configured-model',
-                input: { agent: nodeName },
+                input: { agent: effectiveAgent },
                 output: msg.content,
                 startTime: nodeStartTime,
                 endTime: new Date(),
@@ -532,9 +557,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               if (nodeName === "writer_agent" && themeId) {
                 try {
                   const parsed = parseWriterContent(msg.content);
-                  writerContent = parsed; // 保存用于 HITL
+                  writerContent = parsed;
 
-                  // Send content update event for real-time UI updates
                   sendContentUpdate(parsed.title, parsed.body, parsed.tags);
 
                   if (creativeId) {
@@ -581,12 +605,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           }
         }
 
-        sendEvent({
-          type: "agent_end",
-          agent: nodeName,
-          content: `${getAgentDisplayName(nodeName)} 完成`,
-          timestamp: Date.now(),
-        });
+        // _tools 节点不发独立 agent_end（归属于父 agent）
+        if (!isToolsNode) {
+          sendEvent({
+            type: "agent_end",
+            agent: effectiveAgent,
+            content: `${getAgentDisplayName(effectiveAgent)} 完成`,
+            timestamp: Date.now(),
+          });
+        }
 
         // 收集 agent 输出（不立即记录到 dataset）
         if (nodeName !== "supervisor_route") {
@@ -610,7 +637,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           }
           if (nodeName === "image_planner_agent" && output.imagePlans?.length > 0) {
             stateChanges.push(`图片规划完成 (${output.imagePlans.length}张)`);
-            // Send initial image progress events (queued status)
             output.imagePlans.forEach((plan: any, index: number) => {
               sendImageProgress(index + 1, 'queued', 0);
             });
@@ -618,7 +644,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           if (nodeName === "image_agent") {
             if (output.imagesComplete) {
               stateChanges.push("图片生成完成");
-              // 保存生成的图片 asset IDs
               if (output.generatedImageAssetIds?.length > 0) {
                 generatedAssetIds = output.generatedImageAssetIds;
                 output.generatedImageAssetIds.forEach((assetId: number, index: number) => {
@@ -626,18 +651,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 });
               } else if (output.generatedImagePaths?.length > 0) {
                 output.generatedImagePaths.forEach((path: string, index: number) => {
-                  // Extract asset ID from path (format: /api/assets/123)
                   const assetIdMatch = path.match(/\/api\/assets\/(\d+)/);
                   const assetId = assetIdMatch ? assetIdMatch[1] : path;
                   sendImageProgress(index + 1, 'complete', 1, assetId);
-                  // 保存 asset ID
                   if (assetIdMatch) {
                     generatedAssetIds.push(parseInt(assetIdMatch[1], 10));
                   }
                 });
               }
             } else if (output.imagePlans?.length > 0) {
-              // Send generating status for images in progress
               output.imagePlans.forEach((plan: any, index: number) => {
                 const currentCount = output.generatedImageAssetIds?.length || output.generatedImagePaths?.length || 0;
                 const progress = currentCount > index ? 1 : 0.5;
@@ -713,44 +735,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         // HITL: 在 writer_agent 或 image_planner_agent 完成后发送确认请求
         if (enableHITL && threadId) {
-          if (nodeName === "writer_agent") {
-            // 如果 writerContent 未设置，尝试从最后一条消息中解析
-            if (!writerContent && output.messages?.length > 0) {
-              const lastMsg = output.messages[output.messages.length - 1];
-              const content = typeof lastMsg.content === "string" ? lastMsg.content : "";
-              if (content) {
-                try {
-                  writerContent = parseWriterContent(content);
-                } catch (e) {
-                  console.error("Failed to parse writer content for HITL:", e);
-                }
-              }
-            }
-
-            if (writerContent) {
-              const writerAskUser = {
-                type: "ask_user",
-                question: "文案已生成，是否继续？",
-                options: [
-                  { id: "approve", label: "继续" },
-                  { id: "reject", label: "重生成（给建议）" },
-                ],
-                selectionType: "single",
-                allowCustomInput: true,
-                context: { __hitl: true, kind: "content", data: writerContent },
-                threadId,
-                timestamp: Date.now(),
-                content: "文案已生成，等待确认",
-              };
-              res.write(`data: ${JSON.stringify(writerAskUser)}\n\n`);
-              res.write(`data: ${JSON.stringify({ type: "workflow_paused", threadId, timestamp: Date.now(), content: "工作流已暂停，等待用户确认" })}\n\n`);
-              // 保存 assistant 消息
-              await saveAssistantMessages(writerAskUser);
-              await flushLangfuse();
-              workflowPaused = true;
-              res.end();
-              return;
-            }
+          if (nodeName === "writer_agent" && writerContent) {
+            const writerAskUser = {
+              type: "ask_user",
+              question: "文案已生成，是否继续？",
+              options: [
+                { id: "approve", label: "继续" },
+                { id: "reject", label: "重生成（给建议）" },
+              ],
+              selectionType: "single",
+              allowCustomInput: true,
+              context: { __hitl: true, kind: "content", data: writerContent },
+              threadId,
+              timestamp: Date.now(),
+              content: "文案已生成，等待确认",
+            };
+            res.write(`data: ${JSON.stringify(writerAskUser)}\n\n`);
+            res.write(`data: ${JSON.stringify({ type: "workflow_paused", threadId, timestamp: Date.now(), content: "工作流已暂停，等待用户确认" })}\n\n`);
+            await saveAssistantMessages(writerAskUser);
+            await flushLangfuse();
+            workflowPaused = true;
+            res.end();
+            return;
           }
           if (nodeName === "image_planner_agent" && imagePlans.length > 0) {
             const imagePlanAskUser = {
@@ -769,7 +775,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             };
             res.write(`data: ${JSON.stringify(imagePlanAskUser)}\n\n`);
             res.write(`data: ${JSON.stringify({ type: "workflow_paused", threadId, timestamp: Date.now(), content: "工作流已暂停，等待用户确认" })}\n\n`);
-            // 保存 assistant 消息
             await saveAssistantMessages(imagePlanAskUser);
             await flushLangfuse();
             workflowPaused = true;

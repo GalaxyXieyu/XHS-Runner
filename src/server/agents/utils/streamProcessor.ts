@@ -77,8 +77,34 @@ export async function* processAgentStream(
 
   console.log("[processAgentStream] 开始处理流, enableHITL:", enableHITL);
 
-  for await (const chunk of stream) {
-    console.log("[processAgentStream] 收到 chunk, keys:", Object.keys(chunk));
+  for await (const [mode, rawChunk] of stream as AsyncIterable<[string, any]>) {
+    // ---- tasks 模式：节点生命周期事件（真实时间戳） ----
+    if (mode === "tasks") {
+      const taskEvent = rawChunk as any;
+      const nodeName = taskEvent?.name;
+      if (!nodeName || nodeName === "__start__" || nodeName === "__end__") continue;
+      if (nodeName === "supervisor_with_style" || nodeName === "supervisor_route") continue;
+      // _tools 节点不发独立生命周期，归属于父 agent
+      if (nodeName.endsWith("_tools")) continue;
+
+      if (!("result" in taskEvent)) {
+        // 节点开始（LangGraph 在执行前发出）
+        yield {
+          type: "agent_start",
+          agent: nodeName,
+          content: `${getAgentDisplayName(nodeName)} 开始工作...`,
+          timestamp: Date.now(),
+        };
+      }
+      // tasks with result: 忽略，agent_end 由 updates 处理后发送
+      continue;
+    }
+
+    // ---- updates 模式：节点输出数据 ----
+    if (mode !== "updates") continue;
+
+    const chunk = rawChunk;
+    console.log("[processAgentStream] 收到 updates chunk, keys:", Object.keys(chunk));
 
     // 检查是否有 interrupt (askUser 工具触发)
     if (chunk && typeof chunk === "object" && INTERRUPT in chunk) {
@@ -117,24 +143,25 @@ export async function* processAgentStream(
       }
     }
 
+    // 将 _tools 节点名归一化到父 agent
+    const toParentAgent = (name: string) =>
+      name.endsWith("_tools") ? name.slice(0, -6) : name;
+
     // 遍历节点输出
     for (const [nodeName, nodeOutput] of Object.entries(chunk)) {
       if (nodeName === "__start__" || nodeName === "__end__") continue;
-      if (nodeName === "supervisor_with_style") continue; // 跳过内部节点
-      if (nodeName === "supervisor_route") continue; // 跳过路由占位节点，避免 UI 闪烁
-      if (nodeName === "__interrupt__") continue; // 跳过 interrupt 标记（interruptAfter 产生）
+      if (nodeName === "supervisor_with_style") continue;
+      if (nodeName === "supervisor_route") continue;
+      if (nodeName === "__interrupt__") continue;
 
-      console.log("[processAgentStream] 处理节点:", nodeName);
+      const isToolsNode = nodeName.endsWith("_tools");
+      const effectiveAgent = toParentAgent(nodeName);
+      console.log("[processAgentStream] 处理节点:", nodeName, isToolsNode ? `(→ ${effectiveAgent})` : '');
 
       const output = nodeOutput as any;
       const nodeStartTime = new Date();
 
-      yield {
-        type: "agent_start",
-        agent: nodeName,
-        content: `${getAgentDisplayName(nodeName)} 开始工作...`,
-        timestamp: Date.now(),
-      };
+      // agent_start 已由 tasks 模式发送，此处不再手动发送
 
       if (output.messages) {
         console.log(`[processAgentStream] ${nodeName} 有 ${output.messages.length} 条消息`);
@@ -148,7 +175,7 @@ export async function* processAgentStream(
 
               yield {
                 type: "tool_call",
-                agent: nodeName,
+                agent: effectiveAgent,
                 tool: tc.name,
                 toolCallId: tc.id || tc.name,
                 toolInput: tc.args || {},
@@ -163,7 +190,7 @@ export async function* processAgentStream(
 
             yield {
               type: "tool_result",
-              agent: nodeName,
+              agent: effectiveAgent,
               tool: msg.name,
               toolCallId: msg.tool_call_id || msg.name,
               toolOutput: parsedToolOutput,
@@ -179,7 +206,7 @@ export async function* processAgentStream(
                 name: `tool:${msg.name}`,
                 input: toolInput,
                 output: typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content),
-                metadata: { agent: nodeName },
+                metadata: { agent: effectiveAgent },
               });
             }
           }
@@ -210,11 +237,11 @@ export async function* processAgentStream(
             const progressMatch = msg.content.match(/^\[PROGRESS\]\s*(.+)$/);
             if (progressMatch) {
               // image_agent 的结构化进度由 image_progress 事件承载，避免重复通道。
-              if (nodeName === "image_agent") continue;
+              if (effectiveAgent === "image_agent") continue;
 
               yield {
                 type: "progress",
-                agent: nodeName,
+                agent: effectiveAgent,
                 content: progressMatch[1],
                 timestamp: Date.now(),
               };
@@ -223,7 +250,7 @@ export async function* processAgentStream(
 
             yield {
               type: "message",
-              agent: nodeName,
+              agent: effectiveAgent,
               content: msg.content,
               timestamp: Date.now(),
             };
@@ -231,9 +258,9 @@ export async function* processAgentStream(
             if (traceId) {
               await logGeneration({
                 traceId,
-                name: nodeName,
+                name: effectiveAgent,
                 model: 'configured-model',
-                input: { agent: nodeName },
+                input: { agent: effectiveAgent },
                 output: msg.content,
                 startTime: nodeStartTime,
                 endTime: new Date(),
@@ -274,17 +301,20 @@ export async function* processAgentStream(
         }
       }
 
-      yield {
-        type: "agent_end",
-        agent: nodeName,
-        content: `${getAgentDisplayName(nodeName)} 完成`,
-        timestamp: Date.now(),
-      };
+      // _tools 节点不发独立 agent_end（归属于父 agent）
+      if (!isToolsNode) {
+        yield {
+          type: "agent_end",
+          agent: effectiveAgent,
+          content: `${getAgentDisplayName(effectiveAgent)} 完成`,
+          timestamp: Date.now(),
+        };
+      }
 
       // 记录 agent 执行结果
       if (trajId && nodeName !== "supervisor" && nodeName !== "supervisor_route") {
         const summary = output.messages?.[0]?.content?.slice?.(0, 500) || "completed";
-        logAgent(trajId, nodeName as AgentType, true, typeof summary === "string" ? summary : "completed");
+        logAgent(trajId, effectiveAgent as AgentType, true, typeof summary === "string" ? summary : "completed");
       }
 
       // HITL: 在 writer_agent 或 image_planner_agent 完成后发送确认请求
@@ -292,47 +322,42 @@ export async function* processAgentStream(
         console.log("[processAgentStream] 检查 HITL, nodeName:", nodeName);
 
         if (nodeName === "writer_agent") {
-          console.log("[processAgentStream] writer_agent 完成，检查是否需要确认");
-          // 优先使用节点输出的 generatedContent，否则尝试从消息中解析
-          if (!generatedContent && output.messages?.length > 0) {
+          // 优先 output.generatedContent，否则从消息解析
+          let contentForHitl = generatedContent;
+          if (!contentForHitl && output.messages?.length) {
             const lastMsg = output.messages[output.messages.length - 1];
-            const content = typeof lastMsg.content === "string" ? lastMsg.content : "";
-            if (content) {
+            const raw = typeof lastMsg?.content === "string" ? lastMsg.content : "";
+            if (raw) {
               try {
-                generatedContent = parseWriterContent(content);
-              } catch (e) {
-                console.error("Failed to parse writer content for HITL:", e);
+                contentForHitl = parseWriterContent(raw);
+              } catch {
+                contentForHitl = null;
               }
             }
           }
-
-          if (generatedContent) {
-            console.log("[processAgentStream] 发送 writer 确认请求（ask_user）");
-            yield {
-              type: "ask_user",
-              question: "文案已生成，是否继续？",
-              options: [
-                { id: "approve", label: "继续" },
-                { id: "reject", label: "重生成（给建议）" },
-              ],
-              selectionType: "single",
-              allowCustomInput: true,
-              context: { __hitl: true, kind: "content", data: generatedContent },
-              threadId,
-              timestamp: Date.now(),
-              content: "文案已生成，等待确认",
-            } as any;
-
-            yield {
-              type: "workflow_paused",
-              threadId,
-              timestamp: Date.now(),
-              content: "工作流已暂停，等待用户确认",
-            } as any;
-
-            console.log("[processAgentStream] writer 确认请求已发送，停止处理");
-            return; // 停止处理，等待用户确认
-          }
+          if (!contentForHitl) continue;
+          console.log("[processAgentStream] 发送 writer 确认请求（ask_user）");
+          yield {
+            type: "ask_user",
+            question: "文案已生成，是否继续？",
+            options: [
+              { id: "approve", label: "继续" },
+              { id: "reject", label: "重生成（给建议）" },
+            ],
+            selectionType: "single",
+            allowCustomInput: true,
+            context: { __hitl: true, kind: "content", data: contentForHitl },
+            threadId,
+            timestamp: Date.now(),
+            content: "文案已生成，等待确认",
+          } as any;
+          yield {
+            type: "workflow_paused",
+            threadId,
+            timestamp: Date.now(),
+            content: "工作流已暂停，等待用户确认",
+          } as any;
+          return;
         }
 
         if (nodeName === "image_planner_agent" && imagePlans.length > 0) {

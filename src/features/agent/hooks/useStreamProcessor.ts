@@ -9,6 +9,7 @@
  */
 
 import type { AgentEvent, ChatMessage, ImageTask, AskUserDialogState } from "../types";
+import type { StateSetter } from "../store/agentStreamStore";
 
 // 默认配置
 const DEFAULT_TIMEOUT_MS = 420000; // 420秒超时（7分钟，multi-agent 工作流 + 图片生成需要较长时间）
@@ -34,12 +35,12 @@ export function extractAssetId(url: string): number {
 
 export interface StreamProcessorCallbacks {
   // 状态更新
-  setEvents: React.Dispatch<React.SetStateAction<AgentEvent[]>>;
-  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
-  setImageTasks: React.Dispatch<React.SetStateAction<ImageTask[]>>;
-  setIsStreaming: React.Dispatch<React.SetStateAction<boolean>>;
-  setStreamPhase: React.Dispatch<React.SetStateAction<string>>;
-  setAskUserDialog: React.Dispatch<React.SetStateAction<AskUserDialogState>>;
+  setEvents: StateSetter<AgentEvent[]>;
+  setMessages: StateSetter<ChatMessage[]>;
+  setImageTasks: StateSetter<ImageTask[]>;
+  setIsStreaming: StateSetter<boolean>;
+  setStreamPhase: StateSetter<string>;
+  setAskUserDialog: StateSetter<AskUserDialogState>;
 
   // 可选回调
   updatePhase?: (event: AgentEvent) => void;
@@ -162,6 +163,17 @@ export function processStreamEvent(
   // 更新阶段提示
   callbacks.updatePhase?.(event);
 
+  // 首个事件到达时立即创建 assistant 消息，以便直接显示执行轨迹（而非「Agent流处理中」）
+  if (collectedEvents.length > 0) {
+    callbacks.setMessages((prev) => {
+      const lastMsg = prev[prev.length - 1];
+      if (lastMsg?.role !== "assistant") {
+        return [...prev, { role: "assistant", content: assistantContent.current, events: [...collectedEvents] }];
+      }
+      return prev;
+    });
+  }
+
   // 提取 conversationId（从首个 agent_start 事件）
   if (event.type === "agent_start" && (event as any).conversationId) {
     callbacks.onConversationId?.((event as any).conversationId);
@@ -215,6 +227,9 @@ export function processStreamEvent(
   // 处理 workflow_paused 事件
   if (event.type === "workflow_paused") {
     console.log(`[${source}] 收到 workflow_paused 事件，设置 isStreaming = false`);
+    // 关键：在 isStreaming 变为 false 之前，把所有 collected 事件同步到最后一条 assistant 消息
+    // 否则 MessageTypeRenderer 切换到 message.events 时会缺少 agent_end 等生命周期事件
+    syncAssistantMessage(assistantContent, collectedEvents, callbacks);
     callbacks.setIsStreaming(false);
     callbacks.setStreamPhase("");
   }
@@ -325,20 +340,21 @@ export function processStreamEvent(
     const completeEvent = event as any;
 
     // 更新最后一条 assistant 消息，添加最终内容和图片
+    // 关键：使用 collectedEvents（包含所有事件），而非仅追加 workflow_complete
     callbacks.setMessages((prev) => {
       const newMessages = [...prev];
       const lastMsg = newMessages[newMessages.length - 1];
 
       if (lastMsg?.role === "assistant") {
-        // 更新最后一条消息的内容和事件
+        // 更新最后一条消息的内容和完整事件列表
         lastMsg.content = completeEvent.content || lastMsg.content;
-        lastMsg.events = [...(lastMsg.events || []), event];
+        lastMsg.events = [...collectedEvents];
       } else {
         // 添加新的 assistant 消息
         newMessages.push({
           role: "assistant",
           content: completeEvent.content || "创作完成",
-          events: [event],
+          events: [...collectedEvents],
         });
       }
       return newMessages;
@@ -517,6 +533,19 @@ export async function processSSEStream(
       }
     }
 
+    // 流结束时，确保所有事件同步到最后一条 assistant 消息
+    // 这样 isStreaming 变为 false 后，MessageTypeRenderer 使用 message.events 仍可拿到完整事件
+    if (collectedEvents.length > 0) {
+      callbacks.setMessages((prev) => {
+        const newMessages = [...prev];
+        const lastMsg = newMessages[newMessages.length - 1];
+        if (lastMsg?.role === "assistant") {
+          return [...prev.slice(0, -1), { ...lastMsg, events: [...collectedEvents] }];
+        }
+        return prev;
+      });
+    }
+
     if (!isAborted) {
       callbacks.onComplete?.();
     }
@@ -585,12 +614,12 @@ export async function processSSEStreamWithRetry(
  */
 export function createStreamCallbacks(
   setters: {
-    setEvents: React.Dispatch<React.SetStateAction<AgentEvent[]>>;
-    setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
-    setImageTasks: React.Dispatch<React.SetStateAction<ImageTask[]>>;
-    setIsStreaming: React.Dispatch<React.SetStateAction<boolean>>;
-    setStreamPhase: React.Dispatch<React.SetStateAction<string>>;
-    setAskUserDialog: React.Dispatch<React.SetStateAction<AskUserDialogState>>;
+    setEvents: StateSetter<AgentEvent[]>;
+    setMessages: StateSetter<ChatMessage[]>;
+    setImageTasks: StateSetter<ImageTask[]>;
+    setIsStreaming: StateSetter<boolean>;
+    setStreamPhase: StateSetter<string>;
+    setAskUserDialog: StateSetter<AskUserDialogState>;
   },
   options?: {
     updatePhase?: (event: AgentEvent) => void;

@@ -39,7 +39,7 @@ export async function resumeWorkflow(
     ("selectedIds" in modifiedStateOrUserResponse || "customInput" in modifiedStateOrUserResponse);
 
   if (isUserResponse) {
-    return app.stream(new Command({ resume: modifiedStateOrUserResponse }), config);
+    return app.stream(new Command({ resume: modifiedStateOrUserResponse }), { ...config, streamMode: ["updates", "tasks"] as any });
   }
 
   // 组装需要写回的状态
@@ -63,7 +63,7 @@ export async function resumeWorkflow(
   }
 
   console.log("[resumeWorkflow] 恢复工作流, updateState:", updateState);
-  return app.stream(null, config);
+  return app.stream(null, { ...config, streamMode: ["updates", "tasks"] as any });
 }
 
 // 创建多 Agent 系统
