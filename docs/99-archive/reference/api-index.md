@@ -11,7 +11,7 @@
   - `referenceImages`：多张参考图（可选）
   - `imageGenProvider`：图片服务商（`jimeng`/`gemini`，可选）
   - `enableHITL`：是否启用人工确认（可选）
-- 响应：SSE 事件流，事件类型详见 `docs/reference/sse-events.md`
+- 响应：SSE 事件流，事件类型详见 `docs/99-archive/reference/sse-events.md`
 
 ## `/api/agent/confirm`
 

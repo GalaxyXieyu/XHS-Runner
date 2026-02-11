@@ -85,6 +85,11 @@ export function MessageTypeRenderer({
 
   // ── HITL 提问：左对齐的对话气泡 ──
   if (isHITLRequest(message)) {
+    // 最后一条 HITL 消息由 InteractiveHITLBubble 渲染，这里跳过避免重复
+    // 用户响应后，HITL 消息不再是最后一条，会正常显示
+    if (index === total - 1) {
+      return null;
+    }
     const { question, options = [] } = message.askUser!;
     return (
       <div className="flex items-start gap-2.5 max-w-[75%]">

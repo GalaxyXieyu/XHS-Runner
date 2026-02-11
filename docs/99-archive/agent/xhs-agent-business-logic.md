@@ -1,12 +1,12 @@
 # XHS Agent 生成小红书业务流程（详细版）
 
-本文先完整描述业务流程与关键决策点，再给出接口与代码实现映射。接口参数、状态字段、事件枚举等高频变动内容放在 `docs/reference/` 里，避免主文档堆叠。
+本文先完整描述业务流程与关键决策点，再给出接口与代码实现映射。接口参数、状态字段、事件枚举等高频变动内容放在 `docs/99-archive/reference/` 里，避免主文档堆叠。
 
 ## 0. 阅读顺序
 
 - 先看第 2-6 章：理解端到端业务流程
 - 再看第 7 章：接口与实现映射
-- 细节查 `docs/reference/`：API、状态字段、事件与工具清单
+- 细节查 `docs/99-archive/reference/`：API、状态字段、事件与工具清单
 
 ## 1. 业务边界与术语
 
@@ -225,8 +225,8 @@
 
 ## 9. 参考文档
 
-- `docs/reference/api-index.md`
-- `docs/reference/agent-state.md`
-- `docs/reference/sse-events.md`
-- `docs/reference/tools-catalog.md`
-- `docs/reference/tech-stack.md`
+- `docs/99-archive/reference/api-index.md`
+- `docs/99-archive/reference/agent-state.md`
+- `docs/99-archive/reference/sse-events.md`
+- `docs/99-archive/reference/tools-catalog.md`
+- `docs/reference.md`

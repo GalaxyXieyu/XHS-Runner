@@ -69,8 +69,13 @@ function canUseLlmBacktrackRoute(
     return false;
   }
 
-  // 仅允许回退或同阶段重跑，避免跳过关键依赖阶段。
-  return llmStage <= deterministicStage;
+  // 允许向前到下一阶段（正常流程推进）或回退（优化迭代）
+  // 只有当 LLM 路由比确定性路由超前超过一个阶段时才拒绝（避免跳过关键阶段）
+  const STAGE_THRESHOLD = 15; // 允许最多超前一个阶段（如从 10 到 20）
+  if (llmStage > deterministicStage + STAGE_THRESHOLD) {
+    return false; // 拒绝：LLM 试图跳过太多阶段
+  }
+  return true;
 }
 
 // 检查 supervisor 是否有工具调用
@@ -146,7 +151,9 @@ function getDeterministicRoute(state: typeof AgentState.State): RouteDecision {
     return "writer_agent";
   }
 
-  if (!state.briefComplete) {
+  // briefComplete 为 true 时表示 brief 已完成，不应再返回 brief_compiler_agent
+  // 让后续逻辑检查是否需要继续到 research_evidence_agent
+  if (!state.briefComplete && !state.creativeBrief) {
     return "brief_compiler_agent";
   }
 

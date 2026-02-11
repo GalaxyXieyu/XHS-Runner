@@ -10,7 +10,7 @@
 XHS-Agent 是一个基于 **LangGraph** 的多 Agent 协作系统，用于自动生成小红书内容（文案 + 图片）。
 
 ### 1.2 技术栈
-技术选型表已拆分到参考文档，便于独立维护：`docs/reference/tech-stack.md`
+技术选型表已拆分到参考文档，便于独立维护：`docs/reference.md`
 
 ---
 

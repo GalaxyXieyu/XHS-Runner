@@ -120,14 +120,15 @@ function syncAssistantMessage(
     if (lastMsg?.role === "assistant" && !lastMsg.askUser) {
       lastMsg.content = assistantContent.current;
       lastMsg.events = [...collectedEvents];
-    } else {
-      // 最后一条是 user 消息或 HITL 提问 → 新建 assistant 消息
+    } else if (lastMsg?.role === "user") {
+      // 最后一条是 user 消息 → 新建 assistant 消息
       newMessages.push({
         role: "assistant",
         content: assistantContent.current,
         events: [...collectedEvents],
       });
     }
+    // 如果最后一条是 HITL 提问，不新建消息，保持 HITL 消息为最后一条
 
     return newMessages;
   });

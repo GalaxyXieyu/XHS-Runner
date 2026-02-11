@@ -3,31 +3,31 @@
 > 目标：把“业务主流程、实现细节、运维操作”拆开，减少重复与冲突。
 > 当前统一按 **单链路 Agent V2** 维护（不再以旧链路为主）。
 
-## 目录导航
+## 项目目标
 
-### 01-overview（先读）
-- `docs/01-overview/README.md`：项目目标、系统边界、阅读顺序
+`xhs-generator` 是一个 Electron + Next.js 的小红书内容生成工作台，核心目标是：
+1. 接收用户需求（可带参考图）
+2. 通过多 Agent 流程生成文案与配图
+3. 通过 SSE 把过程实时反馈给前端
+4. 支持 HITL（人工确认）在关键节点中断/恢复
 
-### 02-architecture（架构）
-- `docs/02-architecture/single-flow-v2.md`：LangGraph 单链路架构与节点职责
+## 当前架构基线
 
-### 03-agent-flow（流程与调试）
-- `docs/03-agent-flow/runtime-lifecycle.md`：一次请求从 `/api/agent/stream` 到 `[DONE]` 的生命周期
-- `docs/03-agent-flow/clarification-and-hitl.md`：统一澄清机制与 HITL 中断/恢复约定
-- `docs/03-agent-flow/debug-playbook.md`：提示词与路由调试手册（含评估脚本）
+- 运行时采用 **单链路 Agent V2**：
+  `supervisor -> brief -> research_evidence -> reference_intelligence -> writer -> layout_planner -> image_planner -> image -> review`
+- 每个主要 agent 允许在信息不足时主动 `ask_user`，而不是静默默认生成。
+- 旧链路节点（如 `research_agent` / `style_analyzer_agent`）不再作为主运行链路。
 
-### 04-reference（高频查阅）
-- `docs/04-reference/agent-api.md`：Agent API（`stream` / `confirm`）
-- `docs/04-reference/sse-events.md`：SSE 事件清单
-- `docs/04-reference/state-fields.md`：`AgentState` 关键字段索引
+## 推荐阅读顺序（合并版）
 
-### 05-ops（运行与发布）
-- `docs/05-ops/commands-and-checks.md`：开发/构建/验证命令清单
-- `docs/deployment/DEPLOYMENT.md`：生产部署步骤
-- `docs/deployment/CI-CD.md`：CI/CD 配置说明
+1. `docs/architecture.md`：单链路 V2 架构、Langfuse Pipeline、统一后台任务架构
+2. `docs/agent-flow.md`：运行生命周期、澄清/HITL、调试手册
+3. `docs/reference.md`：Agent API / SSE 事件 / 状态字段 / 工具清单 / 技术选型
+4. `docs/ops.md`：开发流程、命令清单、测试与部署/CI
+5. `docs/ui-streaming-design.md`：流式输出 UI 设计规划
 
 ## 历史文档
 
-历史设计记录与旧结构文档保留在原目录（如 `docs/agent/`、`docs/reference/`），
-新内容优先写入上述 01~05 目录。历史内容索引见：
+历史设计记录与旧结构文档已统一收敛到 `docs/99-archive/`，
+新内容优先写入上述合并版目录。历史内容索引见：
 - `docs/99-archive/README.md`
