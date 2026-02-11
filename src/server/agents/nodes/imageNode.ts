@@ -5,10 +5,39 @@ import { isHttpUrl, uploadBase64ToSuperbed, generateImageWithReference } from ".
 import { storeAsset } from "../../services/xhs/integration/assetStore";
 import { getSetting } from "../../settings";
 import { emitImageProgress } from "../utils/progressEmitter";
+import { requestAgentClarification } from "../utils/agentClarification";
 
 export async function imageAgentNode(state: typeof AgentState.State, _model: ChatOpenAI) {
   const plans = state.imagePlans;
   const optimizedPrompts = state.reviewFeedback?.optimizedPrompts || [];
+
+  const needImageStyleClarification =
+    plans.length > 0
+    && state.referenceImages.length === 0
+    && state.referenceAnalyses.length === 0;
+
+  if (needImageStyleClarification) {
+    const clarificationResult = requestAgentClarification(state, {
+      key: "image_agent.style_hint",
+      agent: "image_agent",
+      question: "生成图片前，你希望视觉风格偏向哪一类？",
+      options: [
+        { id: "realistic", label: "写实风", description: "真实质感、生活化场景" },
+        { id: "clean_graphic", label: "极简图文风", description: "干净背景+明确信息层次" },
+        { id: "continue_default", label: "按默认风格", description: "系统根据文案自动适配" },
+      ],
+      selectionType: "single",
+      allowCustomInput: true,
+    });
+
+    if (clarificationResult) {
+      return {
+        ...clarificationResult,
+        currentAgent: "image_agent" as AgentType,
+        imagesComplete: false,
+      };
+    }
+  }
 
   // 获取参考图数据并上传
   const rawReferenceImages = state.referenceImages && state.referenceImages.length > 0
@@ -43,7 +72,13 @@ export async function imageAgentNode(state: typeof AgentState.State, _model: Cha
   const messages: any[] = [];
 
   // 获取 threadId 用于发送进度事件
-  const threadId = state.threadId || 'global';
+  const progressThreadId = state.threadId;
+  if (!progressThreadId) {
+    console.warn('[imageAgentNode] missing threadId, skip progress emit');
+  }
+  const reportProgress = progressThreadId
+    ? (event: Parameters<typeof emitImageProgress>[1]) => emitImageProgress(progressThreadId, event)
+    : () => {};
 
   // 生成唯一标识符，确保文件名不冲突
   const batchId = `${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
@@ -62,7 +97,7 @@ export async function imageAgentNode(state: typeof AgentState.State, _model: Cha
       messages.push(new AIMessage(`[PROGRESS] 正在生成第 ${taskId}/${plans.length} 张图片 (${role})...`));
 
       // 发送 generating 状态
-      emitImageProgress(threadId, {
+      reportProgress({
         taskId,
         status: 'generating',
         progress: 0.3,
@@ -106,7 +141,7 @@ export async function imageAgentNode(state: typeof AgentState.State, _model: Cha
       messages.push(new AIMessage(`[PROGRESS] 第 ${taskId}/${plans.length} 张图片生成成功`));
 
       // 发送 complete 状态（实时推送到前端）
-      emitImageProgress(threadId, {
+      reportProgress({
         taskId,
         status: 'complete',
         progress: 1,
@@ -122,7 +157,7 @@ export async function imageAgentNode(state: typeof AgentState.State, _model: Cha
       messages.push(new AIMessage(`[PROGRESS] 第 ${taskId}/${plans.length} 张图片生成失败: ${errorMsg}`));
 
       // 发送 failed 状态
-      emitImageProgress(threadId, {
+      reportProgress({
         taskId,
         status: 'failed',
         progress: 0,

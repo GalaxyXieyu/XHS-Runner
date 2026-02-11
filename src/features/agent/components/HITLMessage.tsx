@@ -4,7 +4,7 @@
  */
 
 import { useState } from "react";
-import { Check, MessageSquare, Edit3 } from "lucide-react";
+import { Check, MessageSquare, Edit3, ChevronDown, ChevronUp, FileText } from "lucide-react";
 import type { ChatMessage, AskUserOption, AskUserDialogState } from "../types";
 
 interface HITLMessageProps {
@@ -19,6 +19,111 @@ interface InteractiveHITLProps {
   onSubmit: () => void;
 }
 
+// ─── 内容提取与预览 ─────────────────────────────
+
+interface HITLContentData {
+  kind: "content" | "image_plans" | "unknown";
+  title: string;
+  body: string;
+  tags: string[];
+}
+
+const MAX_PREVIEW_LENGTH = 200;
+
+/** 从 HITL context 中提取内容数据 */
+export function extractHITLContent(context: unknown): HITLContentData | null {
+  if (!context || typeof context !== "object") return null;
+  const ctx = context as Record<string, any>;
+  if (!ctx.__hitl || !ctx.data) return null;
+
+  const data = ctx.data as Record<string, any>;
+
+  if (ctx.kind === "content" && (data.title || data.body)) {
+    const tags: string[] = Array.isArray(data.tags)
+      ? data.tags.map((t: any) => String(t).replace(/^#/, "")).filter(Boolean)
+      : typeof data.tags === "string"
+        ? data.tags.split(/[,，#]/).map((t: string) => t.trim()).filter(Boolean)
+        : [];
+    return {
+      kind: "content",
+      title: String(data.title || "未命名"),
+      body: String(data.body || ""),
+      tags,
+    };
+  }
+
+  if (ctx.kind === "image_plans" && Array.isArray(data.plans)) {
+    return {
+      kind: "image_plans",
+      title: "图片规划",
+      body: data.plans.map((p: any, i: number) => `${i + 1}. ${p.description || p.prompt || ""}`.trim()).join("\n"),
+      tags: [],
+    };
+  }
+
+  return null;
+}
+
+/** 内联内容预览组件 */
+function ContentPreview({
+  data,
+  isExpanded,
+  onToggle,
+}: {
+  data: HITLContentData;
+  isExpanded: boolean;
+  onToggle: () => void;
+}) {
+  const shouldTruncate = data.body.length > MAX_PREVIEW_LENGTH;
+  const displayBody = shouldTruncate && !isExpanded
+    ? data.body.slice(0, MAX_PREVIEW_LENGTH) + "..."
+    : data.body;
+
+  return (
+    <div className="mx-3.5 mb-2 rounded-2xl bg-gradient-to-b from-gray-50/80 to-gray-100/50 border border-black/[0.04] overflow-hidden">
+      {/* 标题 */}
+      <div className="px-4 pt-3.5 pb-1.5">
+        <h4 className="text-[13px] font-semibold text-gray-900 leading-snug tracking-[-0.01em]">{data.title}</h4>
+      </div>
+
+      {/* 正文 */}
+      {data.body && (
+        <div className="px-4 pb-2.5">
+          <p className="text-xs text-gray-500 whitespace-pre-wrap leading-[1.65]">
+            {displayBody}
+          </p>
+          {shouldTruncate && (
+            <button
+              onClick={onToggle}
+              className="inline-flex items-center gap-0.5 mt-1.5 text-xs text-blue-500 hover:text-blue-600 font-medium transition-colors"
+            >
+              {isExpanded ? (
+                <>收起 <ChevronUp className="w-3 h-3" /></>
+              ) : (
+                <>展开全文 <ChevronDown className="w-3 h-3" /></>
+              )}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* 标签 */}
+      {data.tags.length > 0 && (
+        <div className="px-4 pb-3.5 flex flex-wrap gap-1.5">
+          {data.tags.map((tag, i) => (
+            <span
+              key={i}
+              className="inline-block px-2.5 py-[3px] rounded-full bg-violet-500/[0.08] text-violet-600 text-[11px] font-medium"
+            >
+              #{tag}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * 可交互的 HITL 气泡组件（当前正在等待用户响应）
  * 简化版：更紧凑的样式
@@ -26,8 +131,12 @@ interface InteractiveHITLProps {
 export function InteractiveHITLBubble({ state, onStateChange, onSubmit }: InteractiveHITLProps) {
   const [customInput, setCustomInput] = useState(state.customInput || "");
   const [showFeedbackInput, setShowFeedbackInput] = useState(false);
+  const [isContentExpanded, setIsContentExpanded] = useState(false);
 
   const isContentConfirm = !!(state.context as any)?.__hitl;
+
+  // 从 context 中提取内容数据（文案/图片规划）
+  const contentData = extractHITLContent(state.context);
 
   const handleOptionSelect = (optionId: string) => {
     if (state.selectionType === "single") {
@@ -68,75 +177,92 @@ export function InteractiveHITLBubble({ state, onStateChange, onSubmit }: Intera
   const selectedId = state.selectedIds[0];
   const needsFeedback = selectedId === "reject" && showFeedbackInput;
 
+  // 有内容预览时加宽显示区域
+  const bubbleMaxWidth = contentData ? "max-w-[85%]" : "max-w-[70%]";
+
   return (
-    <div className="bg-amber-50/80 border border-amber-200/60 rounded-lg px-3 py-2.5 max-w-[70%]">
-      {/* 标题 */}
-      <div className="flex items-center gap-1.5 mb-2">
-        <MessageSquare className="w-3.5 h-3.5 text-amber-600" />
-        <span className="text-xs font-medium text-amber-700">
+    <div className={`bg-white/95 backdrop-blur-xl border border-black/[0.06] rounded-2xl ${bubbleMaxWidth}`}
+      style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.03), 0 4px 14px rgba(0,0,0,0.06), 0 16px 40px -8px rgba(0,0,0,0.08)' }}
+    >
+      {/* 标题栏 */}
+      <div className="flex items-center gap-2 px-4 pt-4 pb-2">
+        <div className="w-5 h-5 rounded-full bg-amber-50 border border-amber-200/60 flex items-center justify-center flex-shrink-0">
+          {contentData ? <FileText className="w-2.5 h-2.5 text-amber-500" /> : <MessageSquare className="w-2.5 h-2.5 text-amber-500" />}
+        </div>
+        <span className="text-[13px] font-semibold text-gray-800 tracking-[-0.01em]">
           {isContentConfirm ? "内容确认" : "需要选择"}
         </span>
       </div>
 
-      {/* 问题 */}
-      <p className="text-xs text-gray-600 mb-2">{state.question}</p>
+      {/* 内容预览区域（从 context 中提取的文案/图片规划） */}
+      {contentData && (
+        <ContentPreview
+          data={contentData}
+          isExpanded={isContentExpanded}
+          onToggle={() => setIsContentExpanded(!isContentExpanded)}
+        />
+      )}
 
-      {/* 可点击的选项列表 - 更紧凑 */}
+      {/* 操作区域 */}
+      <div className="px-4 pb-4 pt-2">
+        {/* 问题提示 */}
+        {!contentData && (
+          <p className="text-[13px] text-gray-500 mb-3.5 leading-relaxed">{state.question}</p>
+        )}
+
+      {/* 可点击的选项列表 */}
       {state.options.length > 0 && (
-        <div className="space-y-1.5">
-          {state.options.map((option) => (
-            <button
-              key={option.id}
-              onClick={() => handleOptionSelect(option.id)}
-              className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md border text-left transition-all text-xs ${
-                state.selectedIds.includes(option.id)
-                  ? "bg-gray-800 border-gray-700 text-white"
-                  : "bg-white border-gray-200 hover:border-gray-300 text-gray-700"
-              }`}
-            >
-              <div
-                className={`w-3.5 h-3.5 rounded-full border flex-shrink-0 flex items-center justify-center ${
-                  state.selectedIds.includes(option.id)
-                    ? "border-white bg-white"
-                    : "border-gray-300"
+        <div className="flex flex-wrap gap-2">
+          {state.options.map((option) => {
+            const isSelected = state.selectedIds.includes(option.id);
+            return (
+              <button
+                key={option.id}
+                onClick={() => handleOptionSelect(option.id)}
+                className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl border text-[13px] font-medium transition-all duration-200 ${
+                  isSelected
+                    ? "bg-emerald-500 border-emerald-500 text-white"
+                    : "bg-white border-black/[0.08] text-gray-700 hover:border-black/[0.15] hover:bg-gray-50/80 active:scale-[0.98]"
                 }`}
+                style={isSelected ? { boxShadow: '0 2px 8px rgba(16,185,129,0.3)' } : { boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}
               >
-                {state.selectedIds.includes(option.id) && <Check className="w-2 h-2 text-gray-900" />}
-              </div>
-              <span>{option.label}</span>
-            </button>
-          ))}
+                {isSelected && <Check className="w-3.5 h-3.5" strokeWidth={2.5} />}
+                <span>{option.label}</span>
+              </button>
+            );
+          })}
         </div>
       )}
 
       {/* 反馈输入框（仅在选择"重生成"时显示） */}
       {needsFeedback && (
-        <div className="mt-2 space-y-1.5">
+        <div className="mt-3 space-y-2.5">
           <textarea
             value={customInput}
             onChange={(e) => handleCustomInputChange(e.target.value)}
             placeholder="请告诉我需要改进的地方..."
-            className="w-full px-2 py-1.5 text-xs border border-amber-200 rounded focus:outline-none focus:ring-1 focus:ring-amber-400 resize-none bg-white"
+            className="w-full px-3.5 py-2.5 text-[13px] border border-black/[0.08] rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 resize-none bg-gray-50/50 transition-all placeholder:text-gray-400"
             rows={2}
             autoFocus
           />
-          <div className="flex justify-end gap-1.5">
+          <div className="flex justify-end gap-2">
             <button
               onClick={() => {
                 setShowFeedbackInput(false);
                 setCustomInput("");
                 onStateChange({ ...state, selectedIds: [], customInput: "" });
               }}
-              className="px-2 py-1 text-[11px] text-gray-500 hover:text-gray-700 rounded"
+              className="px-3 py-1.5 text-[12px] text-gray-500 hover:text-gray-700 rounded-lg transition-colors"
             >
               取消
             </button>
             <button
               onClick={handleSubmit}
               disabled={!customInput.trim()}
-              className="px-2.5 py-1 bg-gray-800 text-white text-[11px] rounded hover:bg-gray-900 disabled:opacity-50 flex items-center gap-1"
+              className="px-4 py-1.5 bg-emerald-500 text-white text-[12px] font-medium rounded-xl hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 transition-all active:scale-[0.97]"
+              style={{ boxShadow: '0 2px 8px rgba(16,185,129,0.25)' }}
             >
-              <Check className="w-3 h-3" />
+              <Check className="w-3 h-3" strokeWidth={2.5} />
               提交
             </button>
           </div>
@@ -145,16 +271,18 @@ export function InteractiveHITLBubble({ state, onStateChange, onSubmit }: Intera
 
       {/* 普通选项的确认按钮（非 approve/reject 时显示） */}
       {selectedId && selectedId !== "approve" && selectedId !== "reject" && !needsFeedback && (
-        <div className="mt-2 flex justify-end">
+        <div className="mt-3 flex justify-end">
           <button
             onClick={onSubmit}
-            className="px-3 py-1.5 bg-gray-800 text-white text-xs rounded hover:bg-gray-900 flex items-center gap-1"
+            className="px-4 py-2 bg-emerald-500 text-white text-[13px] font-medium rounded-xl hover:bg-emerald-600 flex items-center gap-1.5 transition-all active:scale-[0.97]"
+            style={{ boxShadow: '0 2px 8px rgba(16,185,129,0.25)' }}
           >
-            <Check className="w-3 h-3" />
+            <Check className="w-3.5 h-3.5" strokeWidth={2.5} />
             确认
           </button>
         </div>
       )}
+      </div>{/* end 操作区域 */}
     </div>
   );
 }
@@ -256,12 +384,16 @@ export function HITLRequestMessage({ message }: HITLMessageProps) {
  */
 export function HITLResponseMessage({ message }: { message: ChatMessage }) {
   const { askUserResponse } = message;
+  const [isContentCollapsed, setIsContentCollapsed] = useState(true);
   
   if (!askUserResponse) {
     // 普通用户消息
     return (
-      <div className="bg-gradient-to-br from-gray-800 to-gray-900 text-white rounded-2xl px-5 py-3.5 max-w-[70%] shadow-md">
-        <p className="text-sm leading-relaxed">{message.content}</p>
+      <div
+        className="bg-gray-900 text-white rounded-2xl px-5 py-3 max-w-[70%]"
+        style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }}
+      >
+        <p className="text-[13px] leading-relaxed">{message.content}</p>
       </div>
     );
   }
@@ -270,34 +402,153 @@ export function HITLResponseMessage({ message }: { message: ChatMessage }) {
   const hasSelection = selectedLabels.length > 0;
   const hasCustomInput = customInput && customInput.trim();
 
+  // 检查是否携带 HITL 内容（文案/图片规划）
+  // 注意：有内容的确认由 MessageTypeRenderer 拆分渲染（左内容+右确认），
+  // 这里只处理被 MessageTypeRenderer fallback 调用的情况
+  const contentData = extractHITLContent(askUserResponse.context);
+  const hasContent = !!contentData;
+
+  if (hasContent) {
+    return (
+      <div className="max-w-[85%] space-y-2">
+        <div className="flex items-center justify-end gap-2">
+          <button
+            onClick={() => setIsContentCollapsed(!isContentCollapsed)}
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] text-gray-400 hover:text-gray-600 hover:bg-black/[0.03] transition-colors"
+          >
+            {isContentCollapsed ? (
+              <>查看内容 <ChevronDown className="w-3 h-3" /></>
+            ) : (
+              <>收起 <ChevronUp className="w-3 h-3" /></>
+            )}
+          </button>
+          <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full
+            bg-emerald-50 border border-emerald-200/60 text-emerald-700
+            text-xs font-medium select-none">
+            <Check className="w-3.5 h-3.5 text-emerald-500" strokeWidth={2.5} />
+            <span>{selectedLabels.join("、") || "已确认"}</span>
+          </div>
+        </div>
+
+        {!isContentCollapsed && (
+          <CollapsedContentCard data={contentData} />
+        )}
+
+        {hasCustomInput && (
+          <div className="flex justify-end">
+            <span className="inline-block px-4 py-2 rounded-xl bg-gray-900 text-white text-[12px]"
+              style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}
+            >
+              {customInput}
+            </span>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // 简单确认（无内容、无自定义输入）→ 精致胶囊
+  const isSimpleConfirm = hasSelection && !hasCustomInput;
+
+  if (isSimpleConfirm) {
+    return (
+      <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full
+        bg-emerald-50 border border-emerald-200/60 text-emerald-700
+        text-xs font-medium select-none">
+        <Check className="w-3.5 h-3.5 text-emerald-500" strokeWidth={2.5} />
+        <span>{selectedLabels.join("、")}</span>
+      </div>
+    );
+  }
+
+  // 带自定义反馈的响应
   return (
-    <div className="bg-gradient-to-br from-gray-800 to-gray-900 text-white rounded-2xl px-5 py-4 max-w-[80%] shadow-md">
-      {/* 选择的选项 */}
+    <div
+      className="rounded-2xl max-w-[80%] overflow-hidden border border-black/[0.06] bg-white/95 backdrop-blur-xl"
+      style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.03), 0 4px 14px rgba(0,0,0,0.06)' }}
+    >
       {hasSelection && (
-        <div className="flex flex-wrap gap-2 mb-3">
+        <div className="flex flex-wrap gap-1.5 px-4 pt-3.5 pb-2">
           {selectedLabels.map((label, i) => (
             <span
               key={i}
-              className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/15 backdrop-blur rounded-full text-xs font-medium"
+              className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-600 text-[11px] font-medium"
             >
-              <Check className="w-3 h-3 text-green-400" />
+              <Check className="w-3 h-3" strokeWidth={2.5} />
               {label}
             </span>
           ))}
         </div>
       )}
 
-      {/* 自定义输入 */}
       {hasCustomInput && (
-        <p className="text-sm leading-relaxed">
-          {hasSelection && <span className="text-gray-400 mr-1">反馈:</span>}
-          {customInput}
-        </p>
+        <div className="px-4 py-3 bg-gray-50/50">
+          <p className="text-[13px] text-gray-700 leading-relaxed">{customInput}</p>
+        </div>
       )}
 
-      {/* 如果既没有选择也没有自定义输入，显示原始内容 */}
       {!hasSelection && !hasCustomInput && (
-        <p className="text-sm leading-relaxed">{message.content}</p>
+        <div className="px-4 py-3 bg-gray-50/50">
+          <p className="text-[13px] text-gray-700 leading-relaxed">{message.content}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 折叠状态的内容卡片（确认后的历史展示）
+ */
+export function CollapsedContentCard({ data }: { data: HITLContentData }) {
+  const [isBodyExpanded, setIsBodyExpanded] = useState(false);
+  const shouldTruncate = data.body.length > MAX_PREVIEW_LENGTH;
+  const displayBody = shouldTruncate && !isBodyExpanded
+    ? data.body.slice(0, MAX_PREVIEW_LENGTH) + "..."
+    : data.body;
+
+  return (
+    <div
+      className="rounded-2xl border border-black/[0.06] bg-white/95 backdrop-blur-xl overflow-hidden"
+      style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.03), 0 4px 14px rgba(0,0,0,0.06), 0 16px 40px -8px rgba(0,0,0,0.08)' }}
+    >
+      {/* 标题 */}
+      <div className="px-5 pt-4 pb-1.5">
+        <h4 className="text-[14px] font-semibold text-gray-900 leading-snug tracking-[-0.01em]">{data.title}</h4>
+      </div>
+
+      {/* 正文 */}
+      {data.body && (
+        <div className="px-5 pb-3">
+          <p className="text-[13px] text-gray-500 whitespace-pre-wrap leading-[1.7]">
+            {displayBody}
+          </p>
+          {shouldTruncate && (
+            <button
+              onClick={() => setIsBodyExpanded(!isBodyExpanded)}
+              className="inline-flex items-center gap-0.5 mt-2 text-[12px] text-blue-500 hover:text-blue-600 font-medium transition-colors"
+            >
+              {isBodyExpanded ? (
+                <>收起 <ChevronUp className="w-3 h-3" /></>
+              ) : (
+                <>展开全文 <ChevronDown className="w-3 h-3" /></>
+              )}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* 标签 */}
+      {data.tags.length > 0 && (
+        <div className="px-5 pb-4 flex flex-wrap gap-1.5">
+          {data.tags.map((tag, i) => (
+            <span
+              key={i}
+              className="inline-block px-2.5 py-[3px] rounded-full bg-violet-500/[0.08] text-violet-600 text-[11px] font-medium"
+            >
+              #{tag}
+            </span>
+          ))}
+        </div>
       )}
     </div>
   );

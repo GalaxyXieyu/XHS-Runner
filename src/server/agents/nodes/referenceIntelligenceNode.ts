@@ -8,6 +8,7 @@ import {
   type StyleAnalysis,
 } from "../state/agentState";
 import { analyzeReferenceImage } from "../../services/xhs/llm/geminiClient";
+import { requestAgentClarification } from "../utils/agentClarification";
 
 function classifyReferenceType(
   inputType: ReferenceInput["type"],
@@ -78,6 +79,26 @@ export async function referenceIntelligenceNode(state: typeof AgentState.State) 
     : (state.referenceImages || []).map((url) => ({ url } as ReferenceInput));
 
   if (inputs.length === 0) {
+    const clarificationResult = requestAgentClarification(state, {
+      key: "reference_intelligence_agent.style_source",
+      agent: "reference_intelligence_agent",
+      question: "当前没有参考图，你希望我按哪种风格继续？",
+      options: [
+        { id: "default_style", label: "按平台默认风格", description: "走通用小红书图文风格" },
+        { id: "custom_style", label: "我补充风格关键词", description: "输入氛围、色调、质感等关键词" },
+      ],
+      selectionType: "single",
+      allowCustomInput: true,
+    });
+
+    if (clarificationResult) {
+      return {
+        ...clarificationResult,
+        currentAgent: "reference_intelligence_agent" as AgentType,
+        referenceIntelligenceComplete: false,
+      };
+    }
+
     return {
       currentAgent: "reference_intelligence_agent" as AgentType,
       referenceIntelligenceComplete: true,

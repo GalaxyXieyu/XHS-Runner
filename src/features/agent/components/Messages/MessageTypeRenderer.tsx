@@ -2,8 +2,13 @@ import type { AgentEvent, ChatMessage, ImageTask } from '../../types';
 import { Markdown } from '@/components/ui/markdown';
 import { buildAgentTimeline } from '../../utils/buildAgentTimeline';
 import { AgentTimelineView } from './AgentTimelineView';
-import { HITLResponseMessage, isHITLRequest } from '../HITLMessage';
-import { MessageSquare } from 'lucide-react';
+import {
+  HITLResponseMessage,
+  isHITLRequest,
+  extractHITLContent,
+  CollapsedContentCard,
+} from '../HITLMessage';
+import { Check, MessageSquare } from 'lucide-react';
 
 interface MessageTypeRendererProps {
   message: ChatMessage;
@@ -30,7 +35,47 @@ export function MessageTypeRenderer({
   onImageClick,
   nextMessageRole,
 }: MessageTypeRendererProps) {
+  // ── 用户消息 ──
   if (message.role === 'user') {
+    const { askUserResponse } = message;
+    const contentData = askUserResponse?.context
+      ? extractHITLContent(askUserResponse.context)
+      : null;
+
+    // 有 HITL 内容（文案/图片规划）→ 左边内容卡 + 右边确认胶囊
+    if (contentData) {
+      const labels = askUserResponse!.selectedLabels;
+      const customInput = askUserResponse!.customInput;
+      return (
+        <div className="space-y-2.5">
+          {/* 左对齐：系统产出的内容 */}
+          <div className="max-w-[85%]">
+            <CollapsedContentCard data={contentData} />
+          </div>
+          {/* 右对齐：用户的确认决策 */}
+          <div className="flex items-center justify-end gap-2">
+            <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full
+              bg-emerald-50 border border-emerald-200/60 text-emerald-700
+              text-xs font-medium select-none">
+              <Check className="w-3.5 h-3.5 text-emerald-500" strokeWidth={2.5} />
+              <span>{labels.join('、') || '已确认'}</span>
+            </div>
+          </div>
+          {/* 自定义反馈（如果有） */}
+          {customInput && customInput.trim() && (
+            <div className="flex justify-end">
+              <span className="inline-block px-4 py-2 rounded-xl bg-gray-900 text-white text-[12px]"
+                style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}
+              >
+                {customInput}
+              </span>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // 普通用户消息 / 无内容的确认 → 右对齐
     return (
       <div className="flex justify-end">
         <HITLResponseMessage message={message} />
@@ -38,21 +83,35 @@ export function MessageTypeRenderer({
     );
   }
 
-  // HITL 请求：只渲染紧凑的行内提示，不渲染大卡片
-  // 实际的交互 UI 由 InteractiveHITLBubble 负责
+  // ── HITL 提问：左对齐的对话气泡 ──
   if (isHITLRequest(message)) {
+    const { question, options = [] } = message.askUser!;
     return (
-      <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-amber-700 bg-amber-50/60 border border-amber-100 rounded-lg w-fit">
-        <MessageSquare className="w-3 h-3 text-amber-500 flex-shrink-0" />
-        <span>{message.askUser?.question || '等待确认'}</span>
+      <div className="flex items-start gap-2.5 max-w-[75%]">
+        <div className="mt-0.5 w-5 h-5 rounded-full bg-amber-50 border border-amber-200/60 flex items-center justify-center shrink-0">
+          <MessageSquare className="w-2.5 h-2.5 text-amber-500" />
+        </div>
+        <div className="space-y-2">
+          <p className="text-[13px] text-gray-700 leading-relaxed tracking-[-0.005em]">{question}</p>
+          {options.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {options.map((opt) => (
+                <span
+                  key={opt.id}
+                  className="text-[11px] px-2.5 py-[3px] rounded-full bg-black/[0.04] text-gray-500 font-medium"
+                >
+                  {opt.label}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
 
   const isCurrentlyStreaming = isStreaming && index === total - 1;
   const isLastMessage = index === total - 1;
-  // 对最后一条 assistant 消息，优先使用 liveEvents（Zustand 实时事件），
-  // 即使 isStreaming=false，也能拿到完整的 agent_end 等生命周期事件
   const effectiveEvents = isCurrentlyStreaming
     ? liveEvents
     : (isLastMessage && liveEvents.length > 0)
@@ -61,8 +120,6 @@ export function MessageTypeRenderer({
   const isHistoricalMessage = !isStreaming || index < total - 1;
   const isLastAssistantMessage = index === total - 1 || nextMessageRole !== 'assistant';
 
-  // 简化：直接调用 buildAgentTimeline，避免 useMemo 导致的循环问题
-  // 优化：buildAgentTimeline 本身应该足够快，对于大多数情况
   const timeline = buildAgentTimeline({
     events: effectiveEvents,
     messageContent: message.content || '',
@@ -74,20 +131,12 @@ export function MessageTypeRenderer({
     streamPhase,
   });
 
-  // 历史 assistant 消息仅显示紧凑摘要，避免出现上下重复的完整执行轨迹
+  // ── 历史 assistant 执行轨迹：不渲染（底部有完整的最新时间线） ──
   if (!isCurrentlyStreaming && hasLaterAssistant && timeline.hasOutputs) {
-    const stepCount = [
-      ...timeline.historyStages,
-      ...(timeline.currentStage ? [timeline.currentStage] : []),
-    ].reduce((acc, stage) => acc + stage.groups.length, 0);
-
-    return (
-      <div className="rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-xs text-slate-500">
-        历史执行轨迹（{stepCount} 步）已折叠
-      </div>
-    );
+    return null;
   }
 
+  // ── 纯文本 assistant 消息 ──
   if (!timeline.hasOutputs && message.content) {
     return (
       <div className="bg-gray-50 rounded-xl px-4 py-3">
@@ -96,6 +145,7 @@ export function MessageTypeRenderer({
     );
   }
 
+  // ── 当前/最新的执行时间线 ──
   return (
     <AgentTimelineView
       timeline={timeline}

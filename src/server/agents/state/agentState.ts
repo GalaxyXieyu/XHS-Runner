@@ -8,9 +8,7 @@ export type AgentType =
   | "research_evidence_agent"
   | "reference_intelligence_agent"
   | "layout_planner_agent"
-  | "research_agent"
   | "writer_agent"
-  | "style_analyzer_agent"
   | "image_planner_agent"
   | "image_agent"
   | "review_agent";
@@ -298,6 +296,14 @@ export const AgentState = Annotation.Root({
   maxIterations: Annotation<number>({
     value: (_, y) => y,
     default: () => 3,
+  }),
+  clarificationRounds: Annotation<number>({
+    value: (_, y) => y,
+    default: () => 0,
+  }),
+  agentClarificationKeys: Annotation<string[]>({
+    value: (x, y) => Array.from(new Set([...(x || []), ...(y || [])])),
+    default: () => [],
   }),
   imageGenProvider: Annotation<string>({
     value: (_, y) => y,

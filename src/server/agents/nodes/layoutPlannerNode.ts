@@ -3,6 +3,7 @@ import { ChatOpenAI } from "@langchain/openai";
 import { AgentState, type AgentType, type LayoutSpec } from "../state/agentState";
 import { compressContext, safeSliceMessages } from "../utils";
 import { getAgentPrompt } from "../../services/promptManager";
+import { requestAgentClarification } from "../utils/agentClarification";
 
 function defaultLayoutSpec(total: number): LayoutSpec[] {
   const count = Math.max(1, Math.min(4, total || 3));
@@ -68,6 +69,37 @@ export async function layoutPlannerNode(state: typeof AgentState.State, model: C
       layoutComplete: false,
       lastError: "MISSING_BODY_FOR_LAYOUT",
     };
+  }
+
+  const needLayoutPreferenceClarification =
+    !state.layoutComplete
+    && state.layoutPreference === "balanced"
+    && state.referenceAnalyses.length === 0;
+
+  if (needLayoutPreferenceClarification) {
+    const clarificationResult = requestAgentClarification(state, {
+      key: "layout_planner_agent.preference",
+      agent: "layout_planner_agent",
+      question: "排版阶段你更偏好哪种图文密度？",
+      options: [
+        { id: "dense", label: "信息密集", description: "每张图承载更多信息，偏干货" },
+        { id: "balanced", label: "均衡", description: "信息与视觉平衡，通用场景" },
+        { id: "visual_first", label: "视觉优先", description: "更强调画面，文字更精炼" },
+      ],
+      selectionType: "single",
+      allowCustomInput: true,
+      context: {
+        currentLayoutPreference: state.layoutPreference,
+      },
+    });
+
+    if (clarificationResult) {
+      return {
+        ...clarificationResult,
+        currentAgent: "layout_planner_agent" as AgentType,
+        layoutComplete: false,
+      };
+    }
   }
 
   const promptFromStore = await getAgentPrompt("layout_planner_agent");

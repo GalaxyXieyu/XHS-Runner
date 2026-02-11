@@ -9,9 +9,11 @@ const AGENT_PROMPTS = [
     systemPrompt: `你是小红书内容创作团队的主管。根据当前状态决定下一步行动。
 
 ## 可用的专家
-- research_agent: 研究专家，搜索笔记、分析标签、研究爆款标题
+- brief_compiler_agent: 任务梳理专家，补齐受众/目标/约束
+- research_evidence_agent: 证据研究专家，提取可验证事实
+- reference_intelligence_agent: 参考图智能专家，融合风格与视觉信号
+- layout_planner_agent: 版式规划专家，设计图文版式
 - writer_agent: 创作专家，创作标题和正文
-- style_analyzer_agent: 风格分析专家，分析参考图的视觉风格
 - image_planner_agent: 图片规划专家，规划图片序列和生成 prompt
 - image_agent: 图片生成专家，根据 prompt 生成配图
 - review_agent: 审核专家，多模态审核图文相关性
@@ -39,13 +41,15 @@ const AGENT_PROMPTS = [
 {{/if}}
 
 ## 标准工作流程
-1. 有参考图且未分析风格 → style_analyzer_agent
-2. 未完成研究 → research_agent
-3. 未创作内容 → writer_agent
-4. 未规划图片 → image_planner_agent
-5. 未生成图片 → image_agent
-6. 未审核 → review_agent
-7. 审核通过 → END
+1. 未完成任务梳理 → brief_compiler_agent
+2. 未完成证据研究 → research_evidence_agent
+3. 未完成参考图智能分析 → reference_intelligence_agent
+4. 未创作内容 → writer_agent
+5. 未完成版式规划 → layout_planner_agent
+6. 未规划图片 → image_planner_agent
+7. 未生成图片 → image_agent
+8. 未审核 → review_agent
+9. 审核通过 → END
 
 请回复你的决定，格式：
 NEXT: [agent_name] 或 NEXT: END
@@ -53,15 +57,15 @@ REASON: [简短说明原因]`,
     userTemplate: '{{message}}',
   },
   {
-    name: 'research_agent',
+    name: 'research_evidence_agent',
     category: 'agent',
-    description: '研究专家，负责搜索笔记、分析标签、研究爆款标题',
-    systemPrompt: `你是小红书内容研究专家。你的职责是：
-1. 搜索相关笔记获取灵感
-2. 分析热门标签了解趋势
-3. 研究爆款标题的写作技巧
+    description: '证据研究专家，负责提取可验证事实与结论',
+    systemPrompt: `你是小红书内容证据研究专家。你的职责是：
+1. 提取可验证、可引用的事实
+2. 优先输出可直接写入正文的结论
+3. 保持来源可追踪，避免空泛描述
 
-请使用工具进行研究，完成后总结发现的关键信息。`,
+请输出结构化研究证据。`,
     userTemplate: '{{message}}',
   },
   {

@@ -1,6 +1,7 @@
 // 每日自动生成任务 - 生成 ideas 并自动调用 Agent 生成草稿
 
 import { HumanMessage } from '@langchain/core/messages';
+import { v4 as uuidv4 } from 'uuid';
 
 import { ScheduledJob, ExecutionResult, DailyGenerateJobParams } from '../types';
 import { ExecutionContext } from '../jobExecutor';
@@ -107,19 +108,22 @@ async function runAgentForIdea(params: { themeId: number; creativeId: number; id
   }
 
   const app = await createMultiAgentSystem({ enableHITL: false });
+  const streamThreadId = uuidv4();
 
   const initialState: any = {
     messages: [new HumanMessage(params.idea)],
     themeId: params.themeId,
     creativeId: params.creativeId,
+    threadId: streamThreadId,
   };
 
-  const stream = await app.stream(initialState, { recursionLimit: 100 } as any);
+  const stream = await app.stream(initialState, { recursionLimit: 100, streamMode: ['updates', 'tasks'] } as any);
 
   for await (const _event of processAgentStream(stream, {
     themeId: params.themeId,
     creativeId: params.creativeId,
     enableHITL: false,
+    threadId: streamThreadId,
   })) {
     // no-op
   }

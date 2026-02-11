@@ -1,15 +1,33 @@
-# Docs 目录索引
+# 文档总览（V2）
 
-## 核心文档（业务与架构）
-- [Agent 架构](agent/AGENT_ARCHITECTURE.md) - 系统架构与数据流
-- [业务逻辑](agent/xhs-agent-business-logic.md) - 业务逻辑主流程与关键决策点
+> 目标：把“业务主流程、实现细节、运维操作”拆开，减少重复与冲突。
+> 当前统一按 **单链路 Agent V2** 维护（不再以旧链路为主）。
 
-## 数据库管理
-- [数据库 Schema 管理](DATABASE_SCHEMA_MANAGEMENT.md) - Drizzle ORM 使用指南
+## 目录导航
 
-## 部署文档
-- [CI/CD 部署](deployment/CI-CD.md) - GitHub Actions 自动化部署
-- [生产环境部署](deployment/DEPLOYMENT.md) - 服务器配置与部署流程
+### 01-overview（先读）
+- `docs/01-overview/README.md`：项目目标、系统边界、阅读顺序
 
-## 参考文档（接口/字段/事件等高频变动内容）
-- [参考文档索引](reference/README.md)
+### 02-architecture（架构）
+- `docs/02-architecture/single-flow-v2.md`：LangGraph 单链路架构与节点职责
+
+### 03-agent-flow（流程与调试）
+- `docs/03-agent-flow/runtime-lifecycle.md`：一次请求从 `/api/agent/stream` 到 `[DONE]` 的生命周期
+- `docs/03-agent-flow/clarification-and-hitl.md`：统一澄清机制与 HITL 中断/恢复约定
+- `docs/03-agent-flow/debug-playbook.md`：提示词与路由调试手册（含评估脚本）
+
+### 04-reference（高频查阅）
+- `docs/04-reference/agent-api.md`：Agent API（`stream` / `confirm`）
+- `docs/04-reference/sse-events.md`：SSE 事件清单
+- `docs/04-reference/state-fields.md`：`AgentState` 关键字段索引
+
+### 05-ops（运行与发布）
+- `docs/05-ops/commands-and-checks.md`：开发/构建/验证命令清单
+- `docs/deployment/DEPLOYMENT.md`：生产部署步骤
+- `docs/deployment/CI-CD.md`：CI/CD 配置说明
+
+## 历史文档
+
+历史设计记录与旧结构文档保留在原目录（如 `docs/agent/`、`docs/reference/`），
+新内容优先写入上述 01~05 目录。历史内容索引见：
+- `docs/99-archive/README.md`

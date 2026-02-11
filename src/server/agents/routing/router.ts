@@ -1,6 +1,6 @@
 import { END } from "@langchain/langgraph";
 import { AIMessage } from "@langchain/core/messages";
-import { AgentState, type AgentType, type QualityScores, type StyleAnalysis } from "../state/agentState";
+import { AgentState, type AgentType, type QualityScores } from "../state/agentState";
 import { REVIEW_THRESHOLDS } from "../utils/reviewThresholds";
 
 const MODERATE_THRESHOLDS = REVIEW_THRESHOLDS;
@@ -17,9 +17,7 @@ const ROUTE_STAGE_ORDER: Record<AgentType, number> = {
   supervisor: 0,
   brief_compiler_agent: 10,
   research_evidence_agent: 20,
-  research_agent: 20,
   reference_intelligence_agent: 30,
-  style_analyzer_agent: 30,
   writer_agent: 40,
   layout_planner_agent: 50,
   image_planner_agent: 60,
@@ -57,6 +55,11 @@ function canUseLlmBacktrackRoute(
 
   if (deterministicRoute === "supervisor") {
     return llmRoute === "supervisor";
+  }
+
+  // review 作为最终质量门禁，不允许 supervisor 在进入 review 前跳回更早阶段。
+  if (deterministicRoute === "review_agent") {
+    return llmRoute === "review_agent";
   }
 
   const llmStage = ROUTE_STAGE_ORDER[llmRoute];
@@ -128,9 +131,7 @@ function extractNextFromSupervisor(content: string): RouteDecision | null {
     "research_evidence_agent",
     "reference_intelligence_agent",
     "layout_planner_agent",
-    "research_agent",
     "writer_agent",
-    "style_analyzer_agent",
     "image_planner_agent",
     "image_agent",
     "review_agent",
@@ -224,7 +225,7 @@ export function routeFromSupervisor(state: typeof AgentState.State): string {
 export function shouldContinueResearch(state: typeof AgentState.State): string {
   const lastMessage = state.messages[state.messages.length - 1];
   if (lastMessage && "tool_calls" in lastMessage && (lastMessage as AIMessage).tool_calls?.length) {
-    return "research_tools";
+    return "research_evidence_tools";
   }
   return "supervisor";
 }
@@ -233,7 +234,8 @@ export function shouldContinueResearch(state: typeof AgentState.State): string {
 const imageToolCallCounterByThread = new Map<string, number>();
 const MAX_IMAGE_TOOL_CALLS = 10;
 
-export function resetImageToolCallCount(threadId = "global") {
+export function resetImageToolCallCount(threadId: string) {
+  if (!threadId) return;
   imageToolCallCounterByThread.delete(threadId);
 }
 
@@ -243,7 +245,11 @@ export function shouldContinueImage(state: typeof AgentState.State): string {
   }
 
   const lastMessage = state.messages[state.messages.length - 1];
-  const threadId = state.threadId || "global";
+  const threadId = state.threadId;
+  if (!threadId) {
+    console.warn("[shouldContinueImage] missing threadId, fallback to supervisor");
+    return "supervisor";
+  }
 
   if (lastMessage && "tool_calls" in lastMessage && (lastMessage as AIMessage).tool_calls?.length) {
     const nextCount = (imageToolCallCounterByThread.get(threadId) || 0) + 1;
@@ -254,25 +260,6 @@ export function shouldContinueImage(state: typeof AgentState.State): string {
     return "image_tools";
   }
 
-  return "supervisor";
-}
-
-export function shouldContinueStyle(state: typeof AgentState.State): string {
-  const lastMessage = state.messages[state.messages.length - 1];
-  if (lastMessage && "tool_calls" in lastMessage && (lastMessage as AIMessage).tool_calls?.length) {
-    return "style_tools";
-  }
-  const content = lastMessage && typeof lastMessage.content === "string" ? lastMessage.content : "";
-  let styleAnalysis: StyleAnalysis | null = null;
-  try {
-    const jsonMatch = content.match(/\{[\s\S]*"style"[\s\S]*\}/);
-    if (jsonMatch) {
-      styleAnalysis = JSON.parse(jsonMatch[0]);
-    }
-  } catch {}
-  if (styleAnalysis) {
-    return "supervisor_with_style";
-  }
   return "supervisor";
 }
 

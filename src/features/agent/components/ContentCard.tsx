@@ -6,7 +6,7 @@
  */
 
 import { useState, useCallback, type ReactNode } from "react";
-import { X, Copy, Check, ImageIcon, ChevronDown } from "lucide-react";
+import { X, Copy, Check, ImageIcon, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/components/ui/utils";
 import type { ImageTask } from "../types";
 
@@ -137,7 +137,85 @@ export function parseCreativeContent(content: string, fallback: boolean = false)
 }
 
 // ---------------------------------------------------------------------------
-// ContentCard - 小红书风格帖子预览
+// ImageCarousel - 图片轮播（自适应高度，填满卡片左侧）
+// ---------------------------------------------------------------------------
+interface ImageCarouselProps {
+  doneImages: ImageTask[];
+  onImageClick?: (imageUrl: string) => void;
+}
+
+function ImageCarousel({ doneImages, onImageClick }: ImageCarouselProps) {
+  const [activeIndex, setActiveIndex] = useState(0);
+  const total = doneImages.length;
+  const currentTask = doneImages[activeIndex];
+  const imageUrl = currentTask?.assetId ? `/api/assets/${currentTask.assetId}` : undefined;
+
+  const goPrev = () => setActiveIndex((i) => (i <= 0 ? total - 1 : i - 1));
+  const goNext = () => setActiveIndex((i) => (i >= total - 1 ? 0 : i + 1));
+
+  return (
+    <div className="relative w-1/2 flex-shrink-0 bg-neutral-900 group/carousel self-stretch flex items-center justify-center overflow-hidden">
+      {/* 图片 - 完整展示，居中适配 */}
+      {imageUrl && (
+        <img
+          src={imageUrl}
+          alt={`图片 ${activeIndex + 1}`}
+          className="w-full h-full object-contain cursor-pointer"
+          onClick={() => onImageClick?.(imageUrl)}
+        />
+      )}
+
+      {/* 序号角标 */}
+      {total > 1 && (
+        <span className="absolute top-2.5 right-2.5 bg-black/40 text-white text-[10px] px-2 py-0.5 rounded-full backdrop-blur-sm font-medium tabular-nums">
+          {activeIndex + 1}/{total}
+        </span>
+      )}
+
+      {/* 左右箭头 - hover 显示，小巧精致 */}
+      {total > 1 && (
+        <>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); goPrev(); }}
+            className="absolute left-1.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-white/80 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover/carousel:opacity-100 transition-opacity"
+          >
+            <ChevronLeft className="w-3.5 h-3.5 text-gray-700" />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); goNext(); }}
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-white/80 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover/carousel:opacity-100 transition-opacity"
+          >
+            <ChevronRight className="w-3.5 h-3.5 text-gray-700" />
+          </button>
+        </>
+      )}
+
+      {/* 底部圆点指示器 */}
+      {total > 1 && (
+        <div className="absolute bottom-2.5 left-0 right-0 flex justify-center gap-1">
+          {Array.from({ length: total }).map((_, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => setActiveIndex(i)}
+              className={cn(
+                "rounded-full transition-all",
+                i === activeIndex
+                  ? "w-4 h-1.5 bg-white"
+                  : "w-1.5 h-1.5 bg-white/50"
+              )}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ContentCard - 小红书风格帖子预览（左图右文布局）
 // ---------------------------------------------------------------------------
 export function ContentCard({
   content,
@@ -147,7 +225,6 @@ export function ContentCard({
   onImageClick,
 }: ContentCardProps) {
   const [copied, setCopied] = useState(false);
-  const [bodyExpanded, setBodyExpanded] = useState(false);
 
   const displayTitle = cleanTitle(content.title);
   const doneImages = imageTasks.filter((t) => t.status === "done");
@@ -168,158 +245,100 @@ export function ContentCard({
     });
   }, [content]);
 
-  // Body 是否过长需要折叠
   const bodyText = content.body || "";
-  const isBodyLong = bodyText.length > 300;
-  const shouldTruncateBody = isBodyLong && !bodyExpanded;
+
+  const useLeftRightLayout = imageTasks.length > 0 && hasImages;
+
+  // ── 标题 ──
+  const titleBlock = (
+    <h3 className="text-[15px] font-bold text-gray-900 leading-snug tracking-[-0.01em] flex-shrink-0">
+      {displayTitle}
+      {isStreaming && (
+        <span className="inline-block w-0.5 h-4 bg-gray-400 ml-0.5 animate-pulse align-text-bottom" />
+      )}
+    </h3>
+  );
+
+  // ── 正文（自适应高度，内部滚动） ──
+  const bodyBlock = (
+    <div className="text-[13px] text-gray-500 leading-[1.75] whitespace-pre-wrap overflow-y-auto min-h-0 flex-1 mt-3 scrollbar-thin">
+      {bodyRenderer || bodyText}
+    </div>
+  );
+
+  // ── 标签区 ──
+  const tagsBlock = content.tags.length > 0 && (
+    <div className="flex flex-wrap gap-x-2 gap-y-1.5 pt-3 border-t border-gray-100">
+      {content.tags.map((tag, i) => (
+        <span key={i} className="text-[12px] text-[#ff2442] font-medium">
+          #{tag}
+        </span>
+      ))}
+    </div>
+  );
+
+  // ── 操作栏 ──
+  const actionBar = !isStreaming && (
+    <div className="pt-3 border-t border-gray-100">
+      <button
+        type="button"
+        onClick={handleCopy}
+        className={cn(
+          "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium transition-all",
+          copied ? "bg-emerald-50 text-emerald-600" : "text-gray-400 hover:text-gray-600 hover:bg-gray-50",
+        )}
+      >
+        {copied ? (
+          <><Check className="w-3 h-3" /> 已复制</>
+        ) : (
+          <><Copy className="w-3 h-3" /> 复制文案</>
+        )}
+      </button>
+    </div>
+  );
 
   return (
-    <div className="rounded-2xl border border-gray-100 bg-white shadow-lg shadow-gray-100/60 overflow-hidden">
-      {/* ====== 图片区域（置顶） ====== */}
-      {imageTasks.length > 0 && (
-        <div className="border-b border-gray-50">
-          {hasImages ? (
-            <div className={cn(
-              "grid gap-0.5",
-              doneImages.length === 1 && "grid-cols-1",
-              doneImages.length === 2 && "grid-cols-2",
-              doneImages.length === 3 && "grid-cols-3",
-              doneImages.length >= 4 && "grid-cols-4",
-            )}>
-              {doneImages.map((task, i) => {
-                const imageUrl = task.assetId ? `/api/assets/${task.assetId}` : undefined;
-                return imageUrl ? (
-                  <div
-                    key={task.id || i}
-                    className={cn(
-                      "relative bg-gray-50 overflow-hidden cursor-pointer group",
-                      doneImages.length === 1 ? "aspect-[16/9]" : "aspect-[3/4]",
-                    )}
-                    onClick={() => onImageClick?.(imageUrl)}
-                  >
-                    <img
-                      src={imageUrl}
-                      alt={`图片 ${i + 1}`}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    />
-                    {/* 序号角标 */}
-                    <span className="absolute top-1.5 left-1.5 bg-black/50 text-white text-[10px] px-1.5 py-0.5 rounded-full backdrop-blur-sm">
-                      {i + 1}/{imageTasks.length}
-                    </span>
-                  </div>
-                ) : null;
-              })}
-              {/* 加载中的图片占位 */}
-              {pendingImages.map((task, i) => (
-                <div
-                  key={`pending-${task.id || i}`}
-                  className="aspect-[3/4] bg-gray-50 flex items-center justify-center"
-                >
-                  <div className="flex flex-col items-center gap-1.5">
-                    <div className="w-5 h-5 border-2 border-gray-200 border-t-gray-400 rounded-full animate-spin" />
-                    <span className="text-[10px] text-gray-400">生成中</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            /* 全部加载中 */
-            <div className="px-4 py-3 flex items-center gap-2 bg-gray-50/50">
-              <ImageIcon className="w-3.5 h-3.5 text-gray-400" />
-              <span className="text-xs text-gray-500">
-                正在生成 {imageTasks.length} 张配图...
-              </span>
-              <div className="w-3.5 h-3.5 border-2 border-gray-200 border-t-gray-400 rounded-full animate-spin" />
-            </div>
-          )}
+    <div
+      className="rounded-2xl border border-black/[0.06] bg-white overflow-hidden"
+      style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.04), 0 6px 20px rgba(0,0,0,0.06)" }}
+    >
+      {useLeftRightLayout ? (
+        /* ── 左右布局：左图轮播 + 右文字 ── */
+        <div className="flex flex-row h-[360px]">
+          <ImageCarousel doneImages={doneImages} onImageClick={onImageClick} />
+          <div className="flex-1 p-5 flex flex-col min-w-0 min-h-0">
+            {titleBlock}
+            {bodyBlock}
+            {tagsBlock}
+            {actionBar}
+          </div>
         </div>
-      )}
-
-      {/* ====== 内容区域 ====== */}
-      <div className="p-4 space-y-3">
-        {/* 标题 */}
-        <h3 className="text-[15px] font-bold text-gray-900 leading-snug">
-          {displayTitle}
-          {isStreaming && (
-            <span className="inline-block w-0.5 h-4 bg-gray-400 ml-0.5 animate-pulse align-text-bottom" />
-          )}
-        </h3>
-
-        {/* 正文 */}
-        <div className="relative">
-          <div
-            className={cn(
-              "text-[13px] text-gray-600 leading-[1.8] whitespace-pre-wrap",
-              shouldTruncateBody && "max-h-[120px] overflow-hidden",
-            )}
-          >
+      ) : imageTasks.length > 0 && !hasImages ? (
+        /* ── 图片加载中：左侧占位 + 右侧文字 ── */
+        <div className="flex flex-row h-[360px]">
+          <div className="w-1/2 flex-shrink-0 bg-gray-50 flex items-center justify-center">
+            <div className="flex flex-col items-center gap-2">
+              <ImageIcon className="w-5 h-5 text-gray-300" />
+              <span className="text-[11px] text-gray-400">生成 {imageTasks.length} 张配图...</span>
+              <div className="w-4 h-4 border-2 border-gray-200 border-t-gray-400 rounded-full animate-spin" />
+            </div>
+          </div>
+          <div className="flex-1 p-5 flex flex-col min-w-0 min-h-0">
+            {titleBlock}
+            {bodyBlock}
+            {tagsBlock}
+            {actionBar}
+          </div>
+        </div>
+      ) : (
+        /* ── 无图片：全宽布局 ── */
+        <div className="p-5 space-y-3">
+          {titleBlock}
+          <div className="text-[13px] text-gray-500 leading-[1.75] whitespace-pre-wrap">
             {bodyRenderer || bodyText}
           </div>
-          {/* 渐隐遮罩 + 展开按钮 */}
-          {isBodyLong && !bodyExpanded && !bodyRenderer && (
-            <div className="absolute bottom-0 left-0 right-0">
-              <div className="h-10 bg-gradient-to-t from-white to-transparent" />
-              <button
-                type="button"
-                onClick={() => setBodyExpanded(true)}
-                className="w-full flex items-center justify-center gap-1 py-1.5 text-xs text-gray-500 hover:text-gray-700 transition-colors bg-white"
-              >
-                展开全文
-                <ChevronDown className="w-3 h-3" />
-              </button>
-            </div>
-          )}
-          {isBodyLong && bodyExpanded && !bodyRenderer && (
-            <button
-              type="button"
-              onClick={() => setBodyExpanded(false)}
-              className="mt-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
-            >
-              收起
-            </button>
-          )}
-        </div>
-
-        {/* 标签 */}
-        {content.tags.length > 0 && (
-          <div className="flex flex-wrap gap-x-2 gap-y-1">
-            {content.tags.map((tag, i) => (
-              <span
-                key={i}
-                className="text-[13px] text-[#ff2442] font-medium"
-              >
-                #{tag}
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* ====== 底部操作栏 ====== */}
-      {!isStreaming && (
-        <div className="px-4 pb-3 pt-1 flex items-center gap-2 border-t border-gray-50">
-          <button
-            type="button"
-            onClick={handleCopy}
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
-              copied
-                ? "bg-green-50 text-green-600"
-                : "bg-gray-50 text-gray-600 hover:bg-gray-50/80",
-            )}
-          >
-            {copied ? (
-              <>
-                <Check className="w-3 h-3" />
-                已复制
-              </>
-            ) : (
-              <>
-                <Copy className="w-3 h-3" />
-                复制文案
-              </>
-            )}
-          </button>
+          {tagsBlock}
+          {actionBar}
         </div>
       )}
     </div>

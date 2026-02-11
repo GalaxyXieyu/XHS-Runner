@@ -182,11 +182,9 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
         research_evidence_agent: "正在提取研究证据...",
         reference_intelligence_agent: "正在解析参考图...",
         layout_planner_agent: "正在规划版式...",
-        research_agent: "正在检索相关内容...",
         writer_agent: "正在创作文案...",
         image_agent: "正在生成图片...",
         image_planner_agent: "正在规划图片...",
-        style_analyzer_agent: "正在分析风格...",
         review_agent: "正在审核内容...",
         supervisor: "正在规划任务...",
       };
@@ -360,7 +358,8 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
       .filter(opt => askUserDialog.selectedIds.includes(opt.id))
       .map(opt => opt.label);
 
-    // 添加紧凑的用户选择记录（不添加带 askUser 的大卡片，避免看起来像重复弹出确认框）
+    // 添加紧凑的用户选择记录，同时保存 HITL context（文案/图片规划）以便历史回溯
+    const isHITLWithContent = !!(askUserDialog.context as any)?.__hitl && (askUserDialog.context as any)?.data;
     setMessages(prev => [
       ...prev,
       {
@@ -370,6 +369,7 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
           selectedIds: askUserDialog.selectedIds,
           selectedLabels: selectedLabelsList,
           customInput: customInput || undefined,
+          ...(isHITLWithContent ? { context: askUserDialog.context } : {}),
         },
       },
     ]);
@@ -547,8 +547,8 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
                   value={requirement}
                   onChange={(e) => setRequirement(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSubmit()}
-                  placeholder="继续补充需求（让 AI 按你的想法改）"
-                  aria-label="继续对话输入框"
+                  placeholder="发起新生成（会重置上下文）"
+                  aria-label="新任务输入框"
                   className="flex-1 text-sm text-gray-700 placeholder:text-gray-400 bg-transparent focus-visible:outline-none"
                   disabled={isStreaming}
                 />

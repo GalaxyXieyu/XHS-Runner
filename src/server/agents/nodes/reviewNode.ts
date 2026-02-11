@@ -6,7 +6,10 @@ import { REVIEW_THRESHOLDS, buildReviewThresholdHint } from "../utils/reviewThre
 import { getAgentPrompt } from "../../services/promptManager";
 import { db } from "@/server/db";
 import * as schema from "@/server/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
+import { requestAgentClarification } from "../utils/agentClarification";
+import { loadStorageConfig } from "../../services/storage/config";
+import { StorageService } from "../../services/storage/StorageService";
 
 const THRESHOLDS = REVIEW_THRESHOLDS;
 
@@ -146,32 +149,117 @@ function decideRerouteTarget(scores: QualityDimensionScores): AgentType {
   return "image_planner_agent";
 }
 
+function guessImageMimeType(path: string): string {
+  if (path.endsWith(".png")) return "image/png";
+  if (path.endsWith(".webp")) return "image/webp";
+  if (path.endsWith(".jpg") || path.endsWith(".jpeg")) return "image/jpeg";
+  return "image/png";
+}
+
 export async function reviewAgentNode(state: typeof AgentState.State) {
   const visionModel = await createLLM(true);
 
   const imageContents: Array<{ type: "image_url"; image_url: { url: string } }> = [];
-  for (const imagePath of state.generatedImagePaths.slice(-4)) {
+  const imageAssetIds: number[] = [];
+  const seenAssetIds = new Set<number>();
+
+  const pushAssetId = (id: number) => {
+    if (!Number.isFinite(id) || seenAssetIds.has(id)) return;
+    seenAssetIds.add(id);
+    imageAssetIds.push(id);
+  };
+
+  if (Array.isArray(state.generatedImageAssetIds)) {
+    state.generatedImageAssetIds.forEach(pushAssetId);
+  }
+
+  if (Array.isArray(state.generatedImagePaths)) {
+    state.generatedImagePaths.forEach((path) => {
+      const match = typeof path === "string" ? path.match(/\/api\/assets\/(\d+)/) : null;
+      if (match) {
+        pushAssetId(Number(match[1]));
+      }
+    });
+  }
+
+  const recentAssetIds = imageAssetIds.slice(-4);
+  if (recentAssetIds.length > 0) {
     try {
-      if (fs.existsSync(imagePath)) {
-        const imageBuffer = fs.readFileSync(imagePath);
-        const base64 = imageBuffer.toString("base64");
-        const mimeType = imagePath.endsWith(".png") ? "image/png" : "image/jpeg";
-        imageContents.push({
-          type: "image_url",
-          image_url: { url: `data:${mimeType};base64,${base64}` },
-        });
+      const storageConfig = await loadStorageConfig();
+      const storageService = StorageService.reinitialize(storageConfig);
+      const assets = await db
+        .select({ id: schema.assets.id, path: schema.assets.path })
+        .from(schema.assets)
+        .where(inArray(schema.assets.id, recentAssetIds));
+
+      const assetPathMap = new Map(assets.map((asset) => [asset.id, asset.path]));
+      for (const assetId of recentAssetIds) {
+        const assetPath = assetPathMap.get(assetId);
+        if (!assetPath) continue;
+        try {
+          const imageBuffer = await storageService.retrieve(assetPath);
+          const base64 = imageBuffer.toString("base64");
+          const mimeType = guessImageMimeType(assetPath);
+          imageContents.push({
+            type: "image_url",
+            image_url: { url: `data:${mimeType};base64,${base64}` },
+          });
+        } catch (e) {
+          console.error(`[reviewAgentNode] Failed to load asset ${assetId}: ${assetPath}`, e);
+        }
       }
     } catch (e) {
-      console.error(`[reviewAgentNode] Failed to load image: ${imagePath}`, e);
+      console.error("[reviewAgentNode] Failed to load assets for review", e);
+    }
+  }
+
+  if (imageContents.length === 0) {
+    for (const imagePath of state.generatedImagePaths.slice(-4)) {
+      if (!imagePath || typeof imagePath !== "string") continue;
+      if (/\/api\/assets\/\d+/.test(imagePath)) continue;
+      try {
+        if (fs.existsSync(imagePath)) {
+          const imageBuffer = fs.readFileSync(imagePath);
+          const base64 = imageBuffer.toString("base64");
+          const mimeType = guessImageMimeType(imagePath);
+          imageContents.push({
+            type: "image_url",
+            image_url: { url: `data:${mimeType};base64,${base64}` },
+          });
+        }
+      } catch (e) {
+        console.error(`[reviewAgentNode] Failed to load image: ${imagePath}`, e);
+      }
     }
   }
 
   const hasImages = imageContents.length > 0;
 
+  if (!hasImages) {
+    const clarificationResult = requestAgentClarification(state, {
+      key: "review_agent.no_images",
+      agent: "review_agent",
+      question: "当前还没有生成图片，是否先进行文字向审核？",
+      options: [
+        { id: "text_only_review", label: "先做文字审核", description: "先看信息密度与可读性" },
+        { id: "continue_default", label: "按默认继续", description: "系统自动判定当前结果" },
+      ],
+      selectionType: "single",
+      allowCustomInput: true,
+    });
+
+    if (clarificationResult) {
+      return {
+        ...clarificationResult,
+        currentAgent: "review_agent" as AgentType,
+      };
+    }
+  }
+
   const stateVariables = {
     imagePlans: JSON.stringify(state.imagePlans),
     styleAnalysis: JSON.stringify(state.styleAnalysis),
-    generatedImageCount: String(state.generatedImagePaths.length),
+    generatedImageCount: String(Math.max(state.generatedImagePaths.length, state.generatedImageAssetIds.length)),
     bodyBlocks: JSON.stringify(state.bodyBlocks),
     paragraphImageBindings: JSON.stringify(state.paragraphImageBindings),
     layoutSpec: JSON.stringify(state.layoutSpec),

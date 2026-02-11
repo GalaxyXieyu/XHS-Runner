@@ -1,21 +1,20 @@
 import { NextApiRequest, NextApiResponse } from "next";
 import { HumanMessage } from "@langchain/core/messages";
-import { INTERRUPT } from "@langchain/langgraph";
 import { createMultiAgentSystem } from "@/server/agents/multiAgentSystem";
-import { AgentEvent, AgentType } from "@/server/agents/state/agentState";
-import { addDatasetItem, createTrace, logGeneration, logSpan, flushLangfuse } from "@/server/services/langfuseService";
+import { processAgentStream } from "@/server/agents/utils/streamProcessor";
+import { AgentEvent } from "@/server/agents/state/agentState";
+import { addDatasetItem, createTrace, flushLangfuse } from "@/server/services/langfuseService";
 import { createCreative, updateCreative } from "@/server/services/xhs/data/creativeService";
 import { v4 as uuidv4 } from "uuid";
-import type { AskUserInterrupt } from "@/server/agents/tools/askUserTool";
 import { detectIntent } from "@/server/agents/tools/intentTools";
 import { resetImageToolCallCount } from "@/server/agents/routing";
-import { startTraj, endTraj, logAgent } from "@/server/agents/utils";
+import { startTraj, endTraj } from "@/server/agents/utils";
 import { registerProgressCallback, unregisterProgressCallback } from "@/server/agents/utils/progressEmitter";
 import { detectContentType } from "@/server/services/contentTypeDetector";
 import { db } from "@/server/db";
 import { conversations, conversationMessages } from "@/server/db/schema";
 import { eq } from "drizzle-orm";
-import { CollectedMessage, getAgentDisplayName, parseWriterContent } from "./streamUtils";
+import { parseWriterContent } from "./streamUtils";
 
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -53,7 +52,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const refImages: string[] = normalizedReferenceInputs.map((item) => item.url);
   const hasReferenceImage = refImages.length > 0;
   const provider = imageGenProvider || 'jimeng'; // 默认使用即梦
-  const threadId = enableHITL ? uuidv4() : undefined;
+  const streamThreadId = uuidv4();
+  const threadId = enableHITL ? streamThreadId : undefined;
 
   // 设置 SSE 响应头
   res.setHeader("Content-Type", "text/event-stream");
@@ -96,7 +96,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   };
 
   // 注册图片进度回调，用于 imageAgentNode 实时推送进度
-  const progressCallbackId = threadId || 'global';
+  const progressCallbackId = streamThreadId;
   registerProgressCallback(progressCallbackId, (event) => {
     sendImageProgress(
       event.taskId,
@@ -133,18 +133,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       currentAgent,
       timestamp: Date.now(),
     } as any);
-  };
-
-  const parseToolOutput = (raw: unknown) => {
-    if (typeof raw !== 'string') return raw;
-    const trimmed = raw.trim();
-    if (!trimmed) return '';
-
-    try {
-      return JSON.parse(trimmed);
-    } catch {
-      return raw;
-    }
   };
 
   // 保存 assistant 消息到数据库
@@ -195,7 +183,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   
   // 对话持久化：创建 conversation 记录
   let conversationId: number | undefined;
-  const collectedMessages: CollectedMessage[] = [];
   const collectedEvents: any[] = [];
   
   if (threadId) {
@@ -258,7 +245,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   });
 
   // 开始轨迹记录
-  const trajId = threadId || uuidv4();
+  const trajId = streamThreadId;
   startTraj(trajId, message, hasReferenceImage, themeId);
 
   // 意图识别
@@ -288,7 +275,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     // 重置图片生成计数（每次请求独立计数）
-    resetImageToolCallCount(threadId || "global");
+    resetImageToolCallCount(streamThreadId);
 
     // 提前创建 creative，确保后续图片能关联到同一条记录
     if (themeId) {
@@ -317,7 +304,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const initialState: any = {
       messages: [new HumanMessage(contextMessage)],
       imageGenProvider: provider,
-      threadId: threadId || "",
+      threadId: streamThreadId,
       contentType: contentTypeDetection.type,
       creativeId: creativeId ?? null,
     };
@@ -336,13 +323,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const stream = await app.stream(initialState, streamConfig) as AsyncIterable<[string, any]>;
-    let lastNodeName = "";
     let writerContent: { title: string; body: string; tags: string[] } | null = null;
     let imagePlans: any[] = [];
     let generatedAssetIds: number[] = [];
     const agentInputs = new Map<string, any>();
     const agentOutputs = new Map<string, any>(); // 收集 agent 输出，延迟记录
-    // workflowCompleted 已在外层定义
 
     const buildAgentInput = (agent: string, output: any) => ({
       agent,
@@ -351,7 +336,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       contentType: contentTypeDetection.type,
       referenceImages: refImages,
       imageGenProvider: provider,
-      threadId: threadId || null,
+      threadId: threadId || streamThreadId,
       creativeId: creativeId ?? null,
       state: {
         currentAgent: output?.currentAgent,
@@ -392,475 +377,231 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const toParentAgent = (name: string) =>
       name.endsWith("_tools") ? name.slice(0, -6) : name;
 
-    for await (const [mode, chunk] of stream) {
-      // ---- tasks 模式：节点生命周期事件（真实时间戳） ----
-      if (mode === "tasks") {
-        const taskEvent = chunk as any;
-        const nodeName = taskEvent?.name;
-        if (!nodeName || nodeName === "__start__" || nodeName === "__end__") continue;
-        if (nodeName === "supervisor_with_style" || nodeName === "supervisor_route") continue;
-        // _tools 节点不发独立生命周期，归属于父 agent
-        if (nodeName.endsWith("_tools")) continue;
+    const handleNodeOutput = async (nodeName: string, output: any) => {
+      if (nodeName === "__start__" || nodeName === "__end__" || nodeName === "__interrupt__") return;
+      if (nodeName === "supervisor_route") return;
 
-        if (!("result" in taskEvent)) {
-          // 节点开始（LangGraph 在执行前发出）
-          if (nodeName !== "image_agent") {
-            sendEvent({
-              type: "agent_start",
-              agent: nodeName,
-              content: getAgentDisplayName(nodeName) + " 开始工作...",
-              timestamp: Date.now(),
+      const effectiveAgent = toParentAgent(nodeName);
+
+      agentInputs.set(nodeName, buildAgentInput(nodeName, output));
+      if (nodeName !== "supervisor_route") {
+        const agentOutput = buildAgentOutput(output);
+        agentOutputs.set(nodeName, agentOutput);
+      }
+
+      if (nodeName === "writer_agent") {
+        let parsed: { title: string; body: string; tags: string[] } | null = output?.generatedContent || null;
+        if (!parsed && output?.messages?.length) {
+          const lastMsg = output.messages[output.messages.length - 1];
+          if (typeof lastMsg?.content === "string" && lastMsg.content.trim()) {
+            try {
+              parsed = parseWriterContent(lastMsg.content);
+            } catch {
+              parsed = null;
+            }
+          }
+        }
+
+        if (parsed) {
+          writerContent = parsed;
+          sendContentUpdate(parsed.title, parsed.body, parsed.tags);
+
+          try {
+            if (creativeId) {
+              await updateCreative({
+                id: creativeId,
+                title: parsed.title,
+                content: parsed.body,
+                tags: parsed.tags.join(","),
+                model: "agent",
+                prompt: message,
+              });
+            }
+          } catch (saveError) {
+            console.error("Failed to save creative:", saveError);
+          }
+        }
+      }
+
+      const stateChanges: string[] = [];
+      if (nodeName === "writer_agent" && output.contentComplete) {
+        stateChanges.push("内容创作完成");
+      }
+      if (nodeName === "image_planner_agent" && output.imagePlans?.length > 0) {
+        imagePlans = output.imagePlans;
+        stateChanges.push(`图片规划完成 (${output.imagePlans.length}张)`);
+        output.imagePlans.forEach((plan: any, index: number) => {
+          sendImageProgress(index + 1, 'queued', 0);
+        });
+      }
+      if (nodeName === "image_agent") {
+        if (output.imagesComplete) {
+          stateChanges.push("图片生成完成");
+          if (output.generatedImageAssetIds?.length > 0) {
+            generatedAssetIds = output.generatedImageAssetIds;
+            output.generatedImageAssetIds.forEach((assetId: number, index: number) => {
+              sendImageProgress(index + 1, 'complete', 1, String(assetId));
+            });
+          } else if (output.generatedImagePaths?.length > 0) {
+            output.generatedImagePaths.forEach((path: string, index: number) => {
+              const assetIdMatch = path.match(/\/api\/assets\/(\d+)/);
+              const assetId = assetIdMatch ? assetIdMatch[1] : path;
+              sendImageProgress(index + 1, 'complete', 1, assetId);
+              if (assetIdMatch) {
+                generatedAssetIds.push(parseInt(assetIdMatch[1], 10));
+              }
             });
           }
-        }
-        // tasks with result: 忽略，agent_end 由 updates 处理后发送
-        continue;
-      }
-
-      // ---- updates 模式：节点输出数据 ----
-      if (mode !== "updates") continue;
-
-      // 检查是否有 interrupt (askUser 工具触发)
-      if (chunk && typeof chunk === "object" && INTERRUPT in chunk) {
-        const chunkWithInterrupt = chunk as { [INTERRUPT]: Array<{ value: unknown }> };
-        const interrupts = chunkWithInterrupt[INTERRUPT];
-        const interruptData = interrupts?.[0];
-        if (interruptData?.value && typeof interruptData.value === "object" && (interruptData.value as AskUserInterrupt).type === "ask_user") {
-          const askUserData = interruptData.value as AskUserInterrupt;
-          const askUserEvent = {
-            type: "ask_user",
-            question: askUserData.question,
-            options: askUserData.options,
-            selectionType: askUserData.selectionType,
-            allowCustomInput: askUserData.allowCustomInput,
-            context: askUserData.context,
-            threadId: threadId!,
-            timestamp: askUserData.timestamp,
-          };
-          sendEvent(askUserEvent as any);
-          sendEvent({
-            type: "workflow_paused",
-            threadId: threadId!,
-            timestamp: Date.now(),
-          } as any);
-          // 保存 assistant 消息（包含 askUser 信息）
-          await saveAssistantMessages(askUserEvent);
-          await flushLangfuse();
-          res.end();
-          return;
-        }
-      }
-
-      for (const [nodeName, nodeOutput] of Object.entries(chunk)) {
-        if (nodeName === "__start__" || nodeName === "__end__") continue;
-        if (nodeName === "supervisor_with_style") continue;
-        if (nodeName === "supervisor_route") continue;
-
-        const isToolsNode = nodeName.endsWith("_tools");
-        const effectiveAgent = toParentAgent(nodeName);
-        const output = nodeOutput as any;
-        const nodeStartTime = new Date();
-        agentInputs.set(nodeName, buildAgentInput(nodeName, output));
-
-        // agent_start 已由 tasks 模式发送，此处不再手动发送
-
-        if (output.messages) {
-          // 收集工具调用信息（用于后续关联）
-          const toolCallsMap = new Map<string, any>();
-
-          for (const msg of output.messages) {
-            if (msg.tool_calls?.length) {
-              for (const tc of msg.tool_calls) {
-                const toolCallId = tc.id || tc.name;
-                toolCallsMap.set(toolCallId, tc.args);
-
-                sendEvent({
-                  type: "tool_call",
-                  agent: effectiveAgent,
-                  tool: tc.name,
-                  toolCallId,
-                  toolInput: tc.args || {},
-                  content: `调用工具: ${tc.name}`,
-                  timestamp: Date.now(),
-                });
-              }
+        } else if (output.imagePlans?.length > 0) {
+          output.imagePlans.forEach((plan: any, index: number) => {
+            const currentCount = output.generatedImageAssetIds?.length || output.generatedImagePaths?.length || 0;
+            const progress = currentCount > index ? 1 : 0.5;
+            const status = currentCount > index ? 'complete' : 'generating';
+            if (currentCount > index && output.generatedImageAssetIds?.[index]) {
+              sendImageProgress(index + 1, status, progress, String(output.generatedImageAssetIds[index]));
+            } else if (currentCount > index && output.generatedImagePaths?.[index]) {
+              const path = output.generatedImagePaths[index];
+              const assetIdMatch = path.match(/\/api\/assets\/(\d+)/);
+              const assetId = assetIdMatch ? assetIdMatch[1] : path;
+              sendImageProgress(index + 1, status, progress, assetId);
+            } else {
+              sendImageProgress(index + 1, status, progress);
             }
-
-            if (msg.name && msg.content) {
-              const toolCallId = msg.tool_call_id || msg.name;
-              const parsedToolOutput = parseToolOutput(msg.content);
-
-              sendEvent({
-                type: "tool_result",
-                agent: effectiveAgent,
-                tool: msg.name,
-                toolCallId,
-                toolOutput: parsedToolOutput,
-                content: `${msg.name} 返回结果`,
-                timestamp: Date.now(),
-              });
-
-              // 记录完整的工具调用到 Langfuse（input + output）
-              const toolInput = toolCallsMap.get(msg.tool_call_id) || toolCallsMap.get(msg.name) || {};
-              await logSpan({
-                traceId,
-                name: `tool:${msg.name}`,
-                input: toolInput,
-                output: typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content),
-                metadata: { agent: effectiveAgent },
-              });
-            }
-
-            if (msg.content && typeof msg.content === "string" && !msg.name) {
-              // Supervisor 消息特殊处理：提取路由决策
-              if (nodeName === "supervisor") {
-                const nextMatch = msg.content.match(/NEXT:\s*(\S+)/);
-                const reasonMatch = msg.content.match(/REASON:\s*(.+?)(?:\n|$)/);
-
-                if (nextMatch) {
-                  const nextAgent = nextMatch[1];
-                  const reason = reasonMatch?.[1] || "继续流程";
-
-                  sendEvent({
-                    type: "supervisor_decision",
-                    agent: "supervisor",
-                    content: `NEXT: ${nextAgent}`,
-                    decision: nextAgent,
-                    reason: reason,
-                    timestamp: Date.now(),
-                  } as any);
-                }
-                continue; // 不显示原始 supervisor prompt
-              }
-
-              // 跳过包含内部路由信息的消息
-              if (msg.content.includes("NEXT:") || msg.content.includes("REASON:")) continue;
-
-              sendEvent({
-                type: "message",
-                agent: effectiveAgent,
-                content: msg.content,
-                timestamp: Date.now(),
-              });
-
-              await logGeneration({
-                traceId,
-                name: effectiveAgent,
-                model: 'configured-model',
-                input: { agent: effectiveAgent },
-                output: msg.content,
-                startTime: nodeStartTime,
-                endTime: new Date(),
-              });
-
-              // 保存 writer_agent 生成的内容到数据库
-              if (nodeName === "writer_agent" && themeId) {
-                try {
-                  const parsed = parseWriterContent(msg.content);
-                  writerContent = parsed;
-
-                  sendContentUpdate(parsed.title, parsed.body, parsed.tags);
-
-                  if (creativeId) {
-                    await updateCreative({
-                      id: creativeId,
-                      title: parsed.title,
-                      content: parsed.body,
-                      tags: parsed.tags.join(","),
-                      model: "agent",
-                      prompt: message,
-                    });
-                  } else {
-                    const creative = await createCreative({
-                      themeId,
-                      title: parsed.title,
-                      content: parsed.body,
-                      tags: parsed.tags.join(","),
-                      status: "processing",
-                      model: "agent",
-                      prompt: message,
-                    });
-                    creativeId = creative.id;
-                  }
-                } catch (saveError) {
-                  console.error("Failed to save creative:", saveError);
-                }
-              }
-
-              // 捕获 image_planner_agent 的输出用于 HITL
-              if (nodeName === "image_planner_agent") {
-                try {
-                  const planMatch = msg.content.match(/```json\s*([\s\S]*?)\s*```/);
-                  if (planMatch) {
-                    const parsed = JSON.parse(planMatch[1]);
-                    imagePlans = Array.isArray(parsed)
-                      ? parsed
-                      : (Array.isArray(parsed.imagePlans) ? parsed.imagePlans : []);
-                  }
-                } catch (e) {
-                  console.error("Failed to parse image plans:", e);
-                }
-              }
-            }
-          }
-        }
-
-        // _tools 节点不发独立 agent_end（归属于父 agent）
-        if (!isToolsNode) {
-          sendEvent({
-            type: "agent_end",
-            agent: effectiveAgent,
-            content: `${getAgentDisplayName(effectiveAgent)} 完成`,
-            timestamp: Date.now(),
           });
         }
+      }
+      if (nodeName === "brief_compiler_agent" && output.creativeBrief) {
+        sendEvent({
+          type: "brief_ready",
+          agent: nodeName,
+          content: "创作 Brief 已生成",
+          brief: output.creativeBrief,
+          timestamp: Date.now(),
+        } as any);
+      }
+      if (nodeName === "layout_planner_agent" && output.layoutSpec?.length > 0) {
+        sendEvent({
+          type: "layout_spec_ready",
+          agent: nodeName,
+          content: `版式规划完成 (${output.layoutSpec.length}张)`,
+          layoutSpec: output.layoutSpec,
+          timestamp: Date.now(),
+        } as any);
+      }
+      if (nodeName === "image_planner_agent" && output.paragraphImageBindings?.length > 0) {
+        sendEvent({
+          type: "alignment_map_ready",
+          agent: nodeName,
+          content: `段落映射完成 (${output.paragraphImageBindings.length}条)`,
+          paragraphImageBindings: output.paragraphImageBindings,
+          textOverlayPlan: output.textOverlayPlan || [],
+          bodyBlocks: output.bodyBlocks || [],
+          timestamp: Date.now(),
+        } as any);
+      }
+      if (nodeName === "review_agent" && output.qualityScores) {
+        sendEvent({
+          type: "quality_score",
+          agent: nodeName,
+          content: `综合评分 ${(Number(output.qualityScores?.overall || 0) * 100).toFixed(0)} 分`,
+          qualityScores: output.qualityScores,
+          timestamp: Date.now(),
+        } as any);
+      }
+      if (nodeName === "review_agent" && output.reviewFeedback?.approved) {
+        stateChanges.push("审核通过 - 流程结束");
+      }
+      if (stateChanges.length > 0) {
+        sendEvent({
+          type: "state_update",
+          agent: effectiveAgent,
+          changes: stateChanges.join("; "),
+          timestamp: Date.now(),
+        } as any);
+      }
+    };
 
-        // 收集 agent 输出（不立即记录到 dataset）
-        if (nodeName !== "supervisor_route") {
-          const agentOutput = buildAgentOutput(output);
-          agentOutputs.set(nodeName, agentOutput);
+    let lastAskUser: AgentEvent | null = null;
+    const onCreativeCreated = (newCreativeId: number) => {
+      creativeId = newCreativeId;
+    };
+
+    for await (const event of processAgentStream(stream, {
+      themeId,
+      traceId,
+      trajId,
+      threadId: threadId ?? undefined,
+      enableHITL,
+      creativeId,
+      onCreativeCreated,
+      onImagePlansExtracted: (plans) => {
+        imagePlans = plans;
+      },
+      onNodeOutput: handleNodeOutput,
+    })) {
+      if (event.type === "agent_start" && event.agent === "image_agent") {
+        if (imageAgentStarted) {
+          continue;
         }
+        imageAgentStarted = true;
+      }
 
-        if (nodeName === "image_planner_agent" && output.imagePlans?.length > 0) {
-          imagePlans = output.imagePlans;
+      sendEvent(event);
+
+      if (event.type === "ask_user") {
+        lastAskUser = event;
+      }
+
+      if (event.type === "workflow_paused") {
+        workflowPaused = true;
+      }
+
+      if (event.type === "workflow_complete") {
+        workflowCompleted = true;
+        const completeEvent = event as any;
+        if (completeEvent.creativeId) {
+          creativeId = completeEvent.creativeId;
         }
-
-        // 记录 agent 执行结果
-        if (nodeName !== "supervisor" && nodeName !== "supervisor_route") {
-          const summary = output.messages?.[0]?.content?.slice?.(0, 500) || "completed";
-          logAgent(trajId, nodeName as AgentType, true, typeof summary === "string" ? summary : "completed");
-
-          // 显示关键状态变化
-          const stateChanges: string[] = [];
-          if (nodeName === "writer_agent" && output.contentComplete) {
-            stateChanges.push("内容创作完成");
-          }
-          if (nodeName === "image_planner_agent" && output.imagePlans?.length > 0) {
-            stateChanges.push(`图片规划完成 (${output.imagePlans.length}张)`);
-            output.imagePlans.forEach((plan: any, index: number) => {
-              sendImageProgress(index + 1, 'queued', 0);
-            });
-          }
-          if (nodeName === "image_agent") {
-            if (output.imagesComplete) {
-              stateChanges.push("图片生成完成");
-              if (output.generatedImageAssetIds?.length > 0) {
-                generatedAssetIds = output.generatedImageAssetIds;
-                output.generatedImageAssetIds.forEach((assetId: number, index: number) => {
-                  sendImageProgress(index + 1, 'complete', 1, String(assetId));
-                });
-              } else if (output.generatedImagePaths?.length > 0) {
-                output.generatedImagePaths.forEach((path: string, index: number) => {
-                  const assetIdMatch = path.match(/\/api\/assets\/(\d+)/);
-                  const assetId = assetIdMatch ? assetIdMatch[1] : path;
-                  sendImageProgress(index + 1, 'complete', 1, assetId);
-                  if (assetIdMatch) {
-                    generatedAssetIds.push(parseInt(assetIdMatch[1], 10));
-                  }
-                });
-              }
-            } else if (output.imagePlans?.length > 0) {
-              output.imagePlans.forEach((plan: any, index: number) => {
-                const currentCount = output.generatedImageAssetIds?.length || output.generatedImagePaths?.length || 0;
-                const progress = currentCount > index ? 1 : 0.5;
-                const status = currentCount > index ? 'complete' : 'generating';
-                if (currentCount > index && output.generatedImageAssetIds?.[index]) {
-                  sendImageProgress(index + 1, status, progress, String(output.generatedImageAssetIds[index]));
-                } else if (currentCount > index && output.generatedImagePaths?.[index]) {
-                  const path = output.generatedImagePaths[index];
-                  const assetIdMatch = path.match(/\/api\/assets\/(\d+)/);
-                  const assetId = assetIdMatch ? assetIdMatch[1] : path;
-                  sendImageProgress(index + 1, status, progress, assetId);
-                } else {
-                  sendImageProgress(index + 1, status, progress);
-                }
-              });
-            }
-          }
-          if (nodeName === "brief_compiler_agent" && output.creativeBrief) {
-            sendEvent({
-              type: "brief_ready",
-              agent: nodeName,
-              content: "创作 Brief 已生成",
-              brief: output.creativeBrief,
-              timestamp: Date.now(),
-            } as any);
-          }
-
-          if (nodeName === "layout_planner_agent" && output.layoutSpec?.length > 0) {
-            sendEvent({
-              type: "layout_spec_ready",
-              agent: nodeName,
-              content: `版式规划完成 (${output.layoutSpec.length}张)`,
-              layoutSpec: output.layoutSpec,
-              timestamp: Date.now(),
-            } as any);
-          }
-
-          if (nodeName === "image_planner_agent" && output.paragraphImageBindings?.length > 0) {
-            sendEvent({
-              type: "alignment_map_ready",
-              agent: nodeName,
-              content: `段落映射完成 (${output.paragraphImageBindings.length}条)`,
-              paragraphImageBindings: output.paragraphImageBindings,
-              textOverlayPlan: output.textOverlayPlan || [],
-              bodyBlocks: output.bodyBlocks || [],
-              timestamp: Date.now(),
-            } as any);
-          }
-
-          if (nodeName === "review_agent" && output.qualityScores) {
-            sendEvent({
-              type: "quality_score",
-              agent: nodeName,
-              content: `综合评分 ${(Number(output.qualityScores?.overall || 0) * 100).toFixed(0)} 分`,
-              qualityScores: output.qualityScores,
-              timestamp: Date.now(),
-            } as any);
-          }
-
-          if (nodeName === "review_agent" && output.reviewFeedback?.approved) {
-            stateChanges.push("审核通过 - 流程结束");
-          }
-
-          if (stateChanges.length > 0) {
-            sendEvent({
-              type: "state_update",
-              agent: nodeName,
-              changes: stateChanges.join("; "),
-              timestamp: Date.now(),
-            } as any);
-          }
+        if (Array.isArray(completeEvent.imageAssetIds)) {
+          generatedAssetIds = completeEvent.imageAssetIds;
         }
-
-        // HITL: 在 writer_agent 或 image_planner_agent 完成后发送确认请求
-        if (enableHITL && threadId) {
-          if (nodeName === "writer_agent" && writerContent) {
-            const writerAskUser = {
-              type: "ask_user",
-              question: "文案已生成，是否继续？",
-              options: [
-                { id: "approve", label: "继续" },
-                { id: "reject", label: "重生成（给建议）" },
-              ],
-              selectionType: "single",
-              allowCustomInput: true,
-              context: { __hitl: true, kind: "content", data: writerContent },
-              threadId,
-              timestamp: Date.now(),
-              content: "文案已生成，等待确认",
-            };
-            res.write(`data: ${JSON.stringify(writerAskUser)}\n\n`);
-            res.write(`data: ${JSON.stringify({ type: "workflow_paused", threadId, timestamp: Date.now(), content: "工作流已暂停，等待用户确认" })}\n\n`);
-            await saveAssistantMessages(writerAskUser);
-            await flushLangfuse();
-            workflowPaused = true;
-            res.end();
-            return;
-          }
-          if (nodeName === "image_planner_agent" && imagePlans.length > 0) {
-            const imagePlanAskUser = {
-              type: "ask_user",
-              question: "图片规划已生成，是否继续生成图片？",
-              options: [
-                { id: "approve", label: "继续" },
-                { id: "reject", label: "重规划（给建议）" },
-              ],
-              selectionType: "single",
-              allowCustomInput: true,
-              context: { __hitl: true, kind: "image_plans", data: { plans: imagePlans } },
-              threadId,
-              timestamp: Date.now(),
-              content: "图片规划已生成，等待确认",
-            };
-            res.write(`data: ${JSON.stringify(imagePlanAskUser)}\n\n`);
-            res.write(`data: ${JSON.stringify({ type: "workflow_paused", threadId, timestamp: Date.now(), content: "工作流已暂停，等待用户确认" })}\n\n`);
-            await saveAssistantMessages(imagePlanAskUser);
-            await flushLangfuse();
-            workflowPaused = true;
-            res.end();
-            return;
-          }
-        }
-
-        lastNodeName = nodeName;
       }
     }
 
-    // 发送最终的完整创作内容（供前端渲染最终结果卡片）
-    if (writerContent || generatedAssetIds.length > 0) {
-      // 如果有 writerContent，更新 creative 记录
-      if (writerContent && creativeId) {
-        try {
-          await updateCreative({
-            id: creativeId,
-            title: writerContent.title,
-            content: writerContent.body,
-            tags: writerContent.tags.join(', '),
-            status: 'draft',
-          });
-          console.log(`[stream] Updated creative ${creativeId} with title, content, tags`);
-        } catch (error) {
-          console.error(`[stream] Failed to update creative ${creativeId}:`, error);
-        }
-      } else if (writerContent && themeId && !creativeId) {
-        try {
-          const creative = await createCreative({
+    if (lastAskUser) {
+      await saveAssistantMessages(lastAskUser);
+      await flushLangfuse();
+      res.end();
+      return;
+    }
+
+    if (creativeId && workflowCompleted) {
+      console.log(`[stream] Workflow completed successfully, recording to dataset. creativeId: ${creativeId}`);
+
+      for (const [agentName, output] of agentOutputs.entries()) {
+        const input = agentInputs.get(agentName) || { message, themeId };
+
+        void addDatasetItem({
+          agentName,
+          input,
+          output,
+          traceId,
+          metadata: {
             themeId,
-            title: writerContent.title,
-            content: writerContent.body,
-            tags: writerContent.tags.join(', '),
-            status: 'draft',
-            model: 'agent',
-            prompt: message,
-          });
-          creativeId = creative.id;
-        } catch (error) {
-          console.error('[stream] Failed to create creative on completion:', error);
-        }
+            creativeId,
+            timestamp: new Date().toISOString(),
+            agent: agentName,
+            workflowCompleted: true,
+          },
+        }).catch((error) => {
+          console.error(`[langfuse] Failed to record dataset item for ${agentName}:`, error);
+        });
       }
-
-      workflowCompleted = true;
-
-      sendEvent({
-        type: "workflow_complete",
-        content: writerContent ? `标题: ${writerContent.title}\n\n${writerContent.body}\n\n标签: ${writerContent.tags.map(t => `#${t}`).join(' ')}` : "",
-        title: writerContent?.title || "",
-        body: writerContent?.body || "",
-        tags: writerContent?.tags || [],
-        imageAssetIds: generatedAssetIds,
-      } as any);
-
-      // 只有在流程成功完成且有 creativeId 时，才记录到 dataset
-      if (creativeId && workflowCompleted) {
-        console.log(`[stream] Workflow completed successfully, recording to dataset. creativeId: ${creativeId}`);
-
-        // 批量记录所有 agent 输出到 dataset
-        for (const [agentName, output] of agentOutputs.entries()) {
-          const input = agentInputs.get(agentName) || { message, themeId };
-
-          void addDatasetItem({
-            agentName,
-            input,
-            output,
-            traceId,
-            metadata: {
-              themeId,
-              creativeId,
-              timestamp: new Date().toISOString(),
-              agent: agentName,
-              workflowCompleted: true,
-            },
-          }).catch((error) => {
-            console.error(`[langfuse] Failed to record dataset item for ${agentName}:`, error);
-          });
-        }
-      } else {
-        if (!creativeId) {
-          console.log(`[stream] No creativeId created, skipping dataset recording`);
-        } else if (!workflowCompleted) {
-          console.log(`[stream] Workflow did not complete successfully, skipping dataset recording`);
-        }
+    } else {
+      if (!creativeId) {
+        console.log(`[stream] No creativeId created, skipping dataset recording`);
+      } else if (!workflowCompleted) {
+        console.log(`[stream] Workflow did not complete successfully, skipping dataset recording`);
       }
     }
 

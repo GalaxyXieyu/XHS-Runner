@@ -116,10 +116,12 @@ function syncAssistantMessage(
     const newMessages = [...prev];
     const lastMsg = newMessages[newMessages.length - 1];
 
-    if (lastMsg?.role === "assistant") {
+    // 如果最后一条是普通 assistant 消息（非 HITL 提问），直接更新
+    if (lastMsg?.role === "assistant" && !lastMsg.askUser) {
       lastMsg.content = assistantContent.current;
       lastMsg.events = [...collectedEvents];
     } else {
+      // 最后一条是 user 消息或 HITL 提问 → 新建 assistant 消息
       newMessages.push({
         role: "assistant",
         content: assistantContent.current,
@@ -208,9 +210,28 @@ export function processStreamEvent(
   }
 
   // 处理 ask_user 事件
-  // 只打开弹窗，不立即添加消息到对话流
-  // 用户确认后由 handleAskUserSubmit 添加问答记录
+  // 1. 将提问保存为 assistant 消息（确保历史可见）
+  // 2. 打开交互弹窗等待用户响应
   if (event.type === "ask_user" && event.question) {
+    const ctx = (event as any).context || {};
+
+    // 保存 HITL 提问到消息列表，这样历史记录中能看到系统问了什么
+    callbacks.setMessages((prev) => [
+      ...prev,
+      {
+        role: "assistant" as const,
+        content: event.question,
+        askUser: {
+          question: event.question,
+          options: event.options || [],
+          selectionType: event.selectionType || "single",
+          allowCustomInput: event.allowCustomInput || false,
+          isHITL: !!ctx.__hitl,
+          data: ctx.data,
+        },
+      },
+    ]);
+
     callbacks.setAskUserDialog({
       isOpen: true,
       question: event.question,
@@ -218,7 +239,7 @@ export function processStreamEvent(
       selectionType: event.selectionType || "single",
       allowCustomInput: event.allowCustomInput || false,
       threadId: event.threadId || "",
-      context: (event as any).context || {},
+      context: ctx,
       selectedIds: [],
       customInput: "",
     });

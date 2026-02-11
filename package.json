@@ -21,7 +21,10 @@
     "db:migrate": "tsx scripts/migrate-db.ts",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "db:sync": "bash scripts/sync-schema.sh"
+    "db:sync": "bash scripts/sync-schema.sh",
+    "eval:clarification": "npx tsx scripts/eval-supervisor-clarification.ts",
+    "eval:agent-clarification": "npx tsx scripts/eval-agent-clarification-matrix.ts",
+    "lint:supervisor-prompt": "npx tsx scripts/lint-supervisor-prompt.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.7",

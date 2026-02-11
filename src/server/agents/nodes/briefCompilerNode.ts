@@ -3,6 +3,8 @@ import { ChatOpenAI } from "@langchain/openai";
 import { AgentState, type AgentType, type CreativeBrief } from "../state/agentState";
 import { compressContext, safeSliceMessages } from "../utils";
 import { getAgentPrompt } from "../../services/promptManager";
+import { analyzeRequirementClarity, extractLatestUserRequirement } from "../utils/requirementClarity";
+import { requestAgentClarification } from "../utils/agentClarification";
 
 function parseBrief(content: string): CreativeBrief {
   const fallback: CreativeBrief = {
@@ -41,6 +43,36 @@ export async function briefCompilerNode(state: typeof AgentState.State, model: C
       currentAgent: "brief_compiler_agent" as AgentType,
       briefComplete: true,
     };
+  }
+
+  const latestRequirement = extractLatestUserRequirement(state.messages);
+  const clarityReport = analyzeRequirementClarity(latestRequirement);
+  if (clarityReport.level === "low") {
+    const clarificationResult = requestAgentClarification(state, {
+      key: "brief_compiler_agent.requirement_scope",
+      agent: "brief_compiler_agent",
+      question: "为了让 brief 更准确，你希望先补充哪些关键信息？",
+      options: [
+        { id: "add_audience", label: "补充目标人群", description: "例如新手、学生党、职场人" },
+        { id: "add_goal", label: "补充创作目标", description: "例如提升收藏、评论、转化" },
+        { id: "add_style", label: "补充风格结构", description: "例如清单体、口语化、强干货" },
+        { id: "continue_default", label: "按默认继续", description: "不补充，直接用默认策略" },
+      ],
+      selectionType: "single",
+      allowCustomInput: true,
+      context: {
+        missingDimensions: clarityReport.missingDimensions,
+        clarityScore: Number(clarityReport.score.toFixed(2)),
+      },
+    });
+
+    if (clarificationResult) {
+      return {
+        ...clarificationResult,
+        currentAgent: "brief_compiler_agent" as AgentType,
+        briefComplete: false,
+      };
+    }
   }
 
   const compressed = await compressContext(state, model);

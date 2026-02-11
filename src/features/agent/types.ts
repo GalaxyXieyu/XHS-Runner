@@ -88,6 +88,8 @@ export interface ChatMessage {
     selectedIds: string[];
     selectedLabels: string[];
     customInput?: string;
+    /** 确认时携带的 HITL 上下文（文案/图片规划等），用于历史展示 */
+    context?: Record<string, unknown>;
   };
 }
 

@@ -2,16 +2,14 @@ import { StateGraph, END, START } from "@langchain/langgraph";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { AIMessage } from "@langchain/core/messages";
 import { ChatOpenAI } from "@langchain/openai";
-import { AgentState, type StyleAnalysis } from "../state/agentState";
+import { AgentState } from "../state/agentState";
 import {
   supervisorNode,
   briefCompilerNode,
   researchEvidenceNode,
   referenceIntelligenceNode,
   layoutPlannerNode,
-  researchAgentNode,
   writerAgentNode,
-  styleAnalyzerNode,
   imagePlannerNode,
   imageAgentNode,
   reviewAgentNode,
@@ -21,13 +19,12 @@ import {
   shouldContinueSupervisor,
   shouldContinueResearch,
   shouldContinueImage,
-  shouldContinueStyle,
   shouldContinueReview,
 } from "../routing";
 import {
   researchTools,
   imageTools,
-  styleTools,
+  askUserTool,
   referenceImageTools,
   promptTools,
   intentTools,
@@ -108,11 +105,9 @@ function createReferenceImageToolNode(baseToolNode: ToolNode) {
 }
 
 export async function buildGraph(model: ChatOpenAI, hitlConfig?: HITLConfig) {
-  const researchToolNode = new ToolNode(researchTools);
   const researchEvidenceToolNode = new ToolNode(researchTools);
   const imageToolNode = new ToolNode(imageTools);
-  const styleToolNode = new ToolNode(styleTools);
-  const supervisorToolNode = new ToolNode([...promptTools, ...intentTools]);
+  const supervisorToolNode = new ToolNode([...promptTools, ...intentTools, askUserTool]);
   const baseReferenceImageToolNode = new ToolNode(referenceImageTools);
   const referenceImageToolNode = createReferenceImageToolNode(baseReferenceImageToolNode);
 
@@ -127,35 +122,15 @@ export async function buildGraph(model: ChatOpenAI, hitlConfig?: HITLConfig) {
     .addNode("research_evidence_agent", (state) => researchEvidenceNode(state, model))
     .addNode("reference_intelligence_agent", referenceIntelligenceNode)
     .addNode("layout_planner_agent", (state) => layoutPlannerNode(state, model))
-
-    // Backward-compatible agents
-    .addNode("research_agent", (state) => researchAgentNode(state, model))
     .addNode("writer_agent", (state) => writerAgentNode(state, model))
-    .addNode("style_analyzer_agent", styleAnalyzerNode)
     .addNode("image_planner_agent", (state) => imagePlannerNode(state, model))
     .addNode("image_agent", (state) => imageAgentNode(state, model))
     .addNode("review_agent", reviewAgentNode)
 
     // Tool nodes
-    .addNode("research_tools", researchToolNode)
     .addNode("research_evidence_tools", researchEvidenceToolNode)
     .addNode("image_tools", imageToolNode)
-    .addNode("style_tools", styleToolNode)
     .addNode("reference_image_tools", referenceImageToolNode)
-
-    // Style post-process
-    .addNode("supervisor_with_style", async (state: typeof AgentState.State) => {
-      const lastMessage = state.messages[state.messages.length - 1];
-      const content = lastMessage && typeof lastMessage.content === "string" ? lastMessage.content : "";
-      let styleAnalysis: StyleAnalysis | null = null;
-      try {
-        const jsonMatch = content.match(/\{[\s\S]*"style"[\s\S]*\}/);
-        if (jsonMatch) {
-          styleAnalysis = JSON.parse(jsonMatch[0]);
-        }
-      } catch {}
-      return { styleAnalysis };
-    })
 
     // Entry
     .addEdge(START, "supervisor")
@@ -170,9 +145,7 @@ export async function buildGraph(model: ChatOpenAI, hitlConfig?: HITLConfig) {
       research_evidence_agent: "research_evidence_agent",
       reference_intelligence_agent: "reference_intelligence_agent",
       layout_planner_agent: "layout_planner_agent",
-      research_agent: "research_agent",
       writer_agent: "writer_agent",
-      style_analyzer_agent: "style_analyzer_agent",
       image_planner_agent: "image_planner_agent",
       image_agent: "image_agent",
       review_agent: "review_agent",
@@ -184,31 +157,15 @@ export async function buildGraph(model: ChatOpenAI, hitlConfig?: HITLConfig) {
     // New phase nodes
     .addEdge("brief_compiler_agent", "supervisor")
     .addConditionalEdges("research_evidence_agent", shouldContinueResearch, {
-      research_tools: "research_evidence_tools",
+      research_evidence_tools: "research_evidence_tools",
       supervisor: "supervisor",
     })
     .addEdge("research_evidence_tools", "research_evidence_agent")
     .addEdge("reference_intelligence_agent", "supervisor")
     .addEdge("layout_planner_agent", "supervisor")
 
-    // Legacy research flow kept for compatibility
-    .addConditionalEdges("research_agent", shouldContinueResearch, {
-      research_tools: "research_tools",
-      supervisor: "supervisor",
-    })
-    .addEdge("research_tools", "research_agent")
-
     // Writer
     .addEdge("writer_agent", "supervisor")
-
-    // Style
-    .addConditionalEdges("style_analyzer_agent", shouldContinueStyle, {
-      style_tools: "style_tools",
-      supervisor: "supervisor",
-      supervisor_with_style: "supervisor_with_style",
-    })
-    .addEdge("style_tools", "style_analyzer_agent")
-    .addEdge("supervisor_with_style", "supervisor")
 
     // Image planner
     .addEdge("image_planner_agent", "supervisor")

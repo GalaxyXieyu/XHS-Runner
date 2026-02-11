@@ -1,14 +1,51 @@
-import { HumanMessage } from "@langchain/core/messages";
+import { AIMessage, HumanMessage } from "@langchain/core/messages";
 import { ChatOpenAI } from "@langchain/openai";
 import { AgentState, AgentType } from "../state/agentState";
 import { compressContext, safeSliceMessages, extractState, logSupervisor } from "../utils";
 import { getAgentPrompt } from "../../services/promptManager";
-import { managePromptTool, recommendTemplatesTool } from "../tools";
+import { managePromptTool, recommendTemplatesTool, askUserTool } from "../tools";
+import {
+  analyzeRequirementClarity,
+  buildClarificationAskUserArgs,
+  extractLatestUserRequirement,
+} from "../utils/requirementClarity";
 
 export async function supervisorNode(state: typeof AgentState.State, model: ChatOpenAI) {
   const threadId = state.threadId || "unknown";
+  const clarificationRounds = state.clarificationRounds || 0;
+  const latestUserRequirement = extractLatestUserRequirement(state.messages);
+  const clarityReport = analyzeRequirementClarity(latestUserRequirement);
 
-  const modelWithTools = model.bindTools([managePromptTool, recommendTemplatesTool]);
+  const shouldAskClarification =
+    Boolean(state.threadId)
+    && !state.briefComplete
+    && clarificationRounds < 1
+    && !clarityReport.shouldSkipClarification
+    && clarityReport.level === "low";
+
+  if (shouldAskClarification) {
+    const askArgs = buildClarificationAskUserArgs(clarityReport);
+
+    const clarificationMessage = new AIMessage({
+      content: "为了保证规划质量，先澄清关键需求。",
+      tool_calls: [
+        {
+          id: `ask_user_${Date.now()}`,
+          name: "askUser",
+          args: askArgs,
+          type: "tool_call",
+        },
+      ],
+    });
+
+    return {
+      messages: [clarificationMessage],
+      summary: state.summary,
+      clarificationRounds: clarificationRounds + 1,
+    };
+  }
+
+  const modelWithTools = model.bindTools([managePromptTool, recommendTemplatesTool, askUserTool]);
   const compressed = await compressContext(state, model);
 
   let reviewFeedbackInfo = state.reviewFeedback
@@ -35,6 +72,11 @@ export async function supervisorNode(state: typeof AgentState.State, model: Chat
     lastError: state.lastError || "无",
     iterationCount: String(state.iterationCount),
     maxIterations: String(state.maxIterations),
+    clarificationRounds: String(clarificationRounds),
+    requirementClarityLevel: clarityReport.level,
+    requirementClarityScore: clarityReport.score.toFixed(2),
+    requirementMissingDimensions: clarityReport.missingDimensions.length > 0 ? clarityReport.missingDimensions.join("、") : "无",
+    latestUserRequirement: clarityReport.normalizedRequirement || "无",
     needsOptimization:
       state.reviewFeedback && !state.reviewFeedback.approved && state.reviewFeedback.suggestions.length > 0
         ? "是"
@@ -53,6 +95,11 @@ export async function supervisorNode(state: typeof AgentState.State, model: Chat
     ...safeSliceMessages(compressed.messages, 6),
   ]);
 
+  const hasAskUserToolCall = Boolean(
+    "tool_calls" in response
+    && response.tool_calls?.some((toolCall: any) => toolCall?.name === "askUser")
+  );
+
   const content = typeof response.content === "string" ? response.content : "";
   const nextMatch = content.match(/NEXT:\s*(\S+)/);
   const reasonMatch = content.match(/REASON:\s*(.+?)(?:\n|$)/);
@@ -67,5 +114,6 @@ export async function supervisorNode(state: typeof AgentState.State, model: Chat
   return {
     messages: [response],
     summary: compressed.summary,
+    clarificationRounds: hasAskUserToolCall ? clarificationRounds + 1 : clarificationRounds,
   };
 }

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Activity } from 'lucide-react';
+import { ChevronDown, Activity } from 'lucide-react';
 import { cn } from '@/components/ui/utils';
 import type { ImageTask } from '../../types';
 import { ContentCard } from '../ContentCard';
@@ -131,6 +131,72 @@ function computeTotalDuration(steps: FlatStep[]): number {
 }
 
 // ---------------------------------------------------------------------------
+// GenericResultCard - 通用结果卡片（未匹配专用卡片时的 fallback）
+// ---------------------------------------------------------------------------
+function GenericResultCard({ result, agentKey }: { result: any; agentKey: string }) {
+  // 字符串结果
+  if (typeof result === 'string') {
+    if (!result.trim()) return null;
+    return (
+      <div className="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap">
+        {result.length > 300 ? `${result.slice(0, 300)}...` : result}
+      </div>
+    );
+  }
+
+  // 对象结果：尝试提取 title/body/tags 等常见字段
+  if (typeof result === 'object' && result !== null) {
+    const title = result.title || result.name || result.summary || '';
+    const body = result.body || result.content || result.description || result.text || '';
+    const tags: string[] = Array.isArray(result.tags) ? result.tags : [];
+
+    // 如果有可识别的内容字段
+    if (title || body) {
+      return (
+        <div className="space-y-1">
+          {title && <div className="text-xs font-medium text-slate-700">{String(title).slice(0, 100)}</div>}
+          {body && (
+            <div className="text-[11px] text-slate-500 leading-relaxed whitespace-pre-wrap">
+              {String(body).length > 200 ? `${String(body).slice(0, 200)}...` : String(body)}
+            </div>
+          )}
+          {tags.length > 0 && (
+            <div className="flex flex-wrap gap-1 pt-0.5">
+              {tags.slice(0, 8).map((tag, i) => (
+                <span key={i} className="text-[10px] text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded">
+                  #{String(tag).replace(/^#/, '')}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // 数组结果（如图片列表、规划项等）
+    if (Array.isArray(result) && result.length > 0) {
+      return (
+        <div className="text-[11px] text-slate-500">
+          共 {result.length} 项结果
+        </div>
+      );
+    }
+
+    // 其他对象：显示 key 概览
+    const keys = Object.keys(result).filter(k => result[k] != null);
+    if (keys.length > 0 && keys.length <= 10) {
+      return (
+        <div className="text-[11px] text-slate-500">
+          输出: {keys.join(', ')}
+        </div>
+      );
+    }
+  }
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // renderStreamItem - 使用专用卡片组件渲染各步骤内容
 // ---------------------------------------------------------------------------
 function renderStreamItem({
@@ -170,7 +236,7 @@ function renderStreamItem({
       const agent = payload.state?.agent || '';
       const result = payload.state?.result;
       if (!result) {
-        return <div className="text-[11px] text-slate-500">已完成</div>;
+        return null; // 无结果数据时不渲染展开内容
       }
       if (agent === 'brief_compiler_agent') {
         return <BriefResultCard brief={result} expanded={expanded} onToggle={onToggle} inline />;
@@ -184,7 +250,8 @@ function renderStreamItem({
       if (agent === 'review_agent') {
         return <QualityScoreCard scores={result} expanded={expanded} onToggle={onToggle} inline />;
       }
-      return <div className="text-[11px] text-slate-500">已完成</div>;
+      // 通用结果展示：尝试从结果中提取有用信息
+      return <GenericResultCard result={result} agentKey={agent} />;
     }
     case 'status': {
       const payload = item.payload as { state: any };
@@ -226,7 +293,7 @@ export function AgentTimelineView({ timeline, isStreaming = false, onImageClick 
   const [expandedGroupIds, setExpandedGroupIds] = useState<Record<string, boolean>>({});
   const traceExpanded = traceExpandedOverride ?? isStreaming;
 
-  const { currentStage, historyStages, finalContent, nextDecisionLabel } = timeline;
+  const { currentStage, historyStages, finalContent, nextDecisionLabel, isThinking } = timeline;
   const allStages = currentStage
     ? [...historyStages, currentStage]
     : historyStages;
@@ -269,147 +336,164 @@ export function AgentTimelineView({ timeline, isStreaming = false, onImageClick 
     <div className="space-y-3 max-w-[80%]">
       {/* ====== 执行轨迹区域 ====== */}
       {steps.length > 0 && (
-        <div className="rounded-xl bg-white shadow-sm shadow-slate-200/50 overflow-hidden">
-          {/* Header */}
+        <div className="py-1">
+          {/* Header - 极简 */}
           <button
             type="button"
             onClick={() => setTraceExpandedOverride(!traceExpanded)}
-            className="w-full px-3.5 py-2.5 flex items-center justify-between hover:bg-slate-50/60 transition-colors"
+            className="w-full flex items-center justify-between py-1.5 group/header"
           >
             <span className="flex items-center gap-2">
-              <Activity className="w-3.5 h-3.5 text-slate-400" />
-              <span className="text-xs font-semibold text-slate-700">执行轨迹</span>
-              <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded-full font-normal">
+              <Activity className="w-3.5 h-3.5 text-slate-300" />
+              <span className="text-xs font-semibold text-slate-600">执行轨迹</span>
+              <span className="text-[10px] text-slate-400 tabular-nums">
                 {completedCount}/{steps.length}
               </span>
             </span>
             <span className="flex items-center gap-2">
-              {/* 折叠态：活动步骤 chip */}
               {!traceExpanded && activeLabel && (
-                <span className="flex items-center gap-1.5 text-[11px] text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full">
+                <span className="inline-flex items-center gap-1.5 text-[11px] text-purple-600">
                   <span className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse" />
                   {activeLabel}
                 </span>
               )}
-              {/* 总耗时 */}
               {totalDurationMs > 0 && (
                 <span className="text-[10px] text-slate-400 tabular-nums">
                   {formatTotalDuration(totalDurationMs)}
                 </span>
               )}
               <ChevronDown className={cn(
-                'w-3.5 h-3.5 text-slate-400 transition-transform duration-200',
+                'w-3.5 h-3.5 text-slate-300 transition-transform duration-200 group-hover/header:text-slate-500',
                 traceExpanded && 'rotate-180'
               )} />
             </span>
           </button>
 
-          {/* 进度条 */}
-          <div className="h-[2px] bg-slate-100">
+          {/* 进度条 - 细线 */}
+          <div className="h-px bg-slate-100 mb-1">
             <div
-              className="h-full bg-gradient-to-r from-purple-400 to-purple-600 transition-all duration-700 ease-out"
+              className="h-full bg-gradient-to-r from-purple-400 to-purple-500 transition-all duration-700 ease-out"
               style={{ width: `${progressPercent}%` }}
             />
           </div>
 
-          {/* Steps */}
+          {/* Steps - 时间线 */}
           <div className={cn(
             'grid transition-[grid-template-rows] duration-300 ease-out',
             traceExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
           )}>
             <div className="overflow-hidden">
-              <div className="px-3.5 py-2.5">
-                <div className="relative">
-                  {steps.map((step, index) => {
-                    const isLast = index === steps.length - 1;
-                    const isWorking = step.status === 'working';
-                    const expanded = isGroupExpanded(step.id, isWorking);
-                    const hasCollapsibleContent = step.items.some((item) => {
-                      if (item.kind === 'content') return true;
-                      if (item.kind === 'tool' && ((item.payload as any)?.events?.length || 0) > 0) return true;
-                      if (item.kind === 'result') return true;
-                      if (item.kind === 'image_plan') return true;
-                      if (item.kind === 'status') return true;
-                      return false;
-                    });
+              <div className="relative ml-2">
+                {/* 纵轴线 */}
+                <div className="absolute left-[3px] top-3 bottom-3 w-px bg-slate-200" />
 
-                    return (
-                      <div key={step.id} className="relative flex items-start group/step">
-                        {/* 内容区 */}
-                        <div className={cn(
-                          'flex-1 min-w-0 pb-3 rounded-lg transition-colors duration-200',
-                          isWorking && 'bg-purple-50/60 px-2.5 py-1.5',
-                        )}>
-                          {/* 标题行 */}
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0">
-                              <span className={cn(
-                                'text-xs font-medium',
-                                isWorking ? 'text-purple-700' : 'text-slate-700'
-                              )}>
-                                {step.label}
+                {steps.map((step, index) => {
+                  const isLast = index === steps.length - 1;
+                  const isWorking = step.status === 'working';
+                  const expanded = isGroupExpanded(step.id, isWorking);
+                  const hasCollapsibleContent = step.items.some((item) => {
+                    if (item.kind === 'content') return true;
+                    if (item.kind === 'tool' && ((item.payload as any)?.events?.length || 0) > 0) return true;
+                    if (item.kind === 'result') {
+                      const result = (item.payload as any)?.state?.result;
+                      return result != null && result !== undefined;
+                    }
+                    if (item.kind === 'image_plan') return true;
+                    if (item.kind === 'status') return true;
+                    return false;
+                  });
+
+                  return (
+                    <div key={step.id} className="relative flex items-start gap-3 group/step">
+                      {/* 时间线圆点 */}
+                      <div className="relative z-10 mt-[9px] shrink-0">
+                        {isWorking ? (
+                          <span className="block w-[7px] h-[7px] rounded-full bg-purple-500 ring-2 ring-purple-200 animate-pulse" />
+                        ) : (
+                          <span className="block w-[7px] h-[7px] rounded-full bg-emerald-500 ring-2 ring-white" />
+                        )}
+                      </div>
+
+                      {/* 内容区 */}
+                      <div className="flex-1 min-w-0 pb-4">
+                        {/* 标题行 */}
+                        <div
+                          className={cn(
+                            'flex items-center justify-between gap-2',
+                            hasCollapsibleContent && 'cursor-pointer',
+                          )}
+                          onClick={hasCollapsibleContent ? () => toggleGroup(step.id) : undefined}
+                        >
+                          <div className="flex items-center gap-x-2 min-w-0 flex-1">
+                            <span className={cn(
+                              'text-xs font-medium whitespace-nowrap',
+                              isWorking ? 'text-purple-700' : 'text-slate-700'
+                            )}>
+                              {step.label}
+                            </span>
+                            {isWorking ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-purple-50 text-purple-600 font-medium shrink-0">
+                                <span className="w-1 h-1 rounded-full bg-purple-500 animate-pulse" />
+                                运行中
                               </span>
-                              <span className={cn(
-                                'text-[10px] px-1.5 py-0.5 rounded-full shrink-0 font-medium',
-                                isWorking ? 'bg-purple-100 text-purple-600' : 'bg-slate-100 text-slate-500'
-                              )}>
-                                {isWorking ? '运行中' : '已完成'}
+                            ) : (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-600 font-medium shrink-0">
+                                已完成
                               </span>
-                              {/* 耗时 badge */}
-                              {!isWorking && step.durationMs != null && step.durationMs > 0 && (
-                                <span className="text-[10px] text-slate-400 tabular-nums">
-                                  {formatDuration(step.durationMs)}
-                                </span>
-                              )}
-                              {/* 摘要 */}
-                              {step.summary && !expanded && (
-                                <span className="text-[11px] text-slate-400 truncate max-w-[180px]">
-                                  {step.summary}
-                                </span>
-                              )}
-                            </div>
-                            {/* 折叠按钮 */}
-                            {hasCollapsibleContent && (
-                              <button
-                                type="button"
-                                onClick={() => toggleGroup(step.id)}
-                                className="shrink-0 p-0.5 rounded-lg hover:bg-slate-50/70 transition-colors"
-                                title={expanded ? '收起' : '展开'}
-                              >
-                                <ChevronRight className={cn(
-                                  'w-3.5 h-3.5 text-slate-400 transition-transform duration-200',
-                                  expanded && 'rotate-90'
-                                )} />
-                              </button>
+                            )}
+                            {!isWorking && step.durationMs != null && step.durationMs > 0 && (
+                              <span className="text-[10px] text-slate-400 tabular-nums shrink-0">
+                                {formatDuration(step.durationMs)}
+                              </span>
+                            )}
+                            {step.summary && !expanded && (
+                              <span className="text-[11px] text-slate-400 truncate max-w-[180px]">
+                                {step.summary}
+                              </span>
                             )}
                           </div>
-                          {/* 展开内容 (动画) */}
                           {hasCollapsibleContent && (
-                            <div className={cn(
-                              'grid transition-[grid-template-rows] duration-300 ease-out',
-                              expanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
-                            )}>
-                              <div className="overflow-hidden">
-                                <div className="mt-2">
-                                  {renderStepContent(step)}
-                                </div>
-                              </div>
-                            </div>
+                            <ChevronDown className={cn(
+                              'w-3.5 h-3.5 text-slate-300 shrink-0 transition-transform duration-200',
+                              expanded && 'rotate-180'
+                            )} />
                           )}
                         </div>
-                      </div>
-                    );
-                  })}
 
-                  {/* Ghost row: 下一步预测 */}
-                  {isStreaming && nextDecisionLabel && (
-                    <div className="flex items-center opacity-40 pt-1">
-                      <span className="text-[11px] text-slate-400">
-                        下一步: {nextDecisionLabel}
+                        {/* 展开内容 */}
+                        {hasCollapsibleContent && (
+                          <div className={cn(
+                            'grid transition-[grid-template-rows] duration-300 ease-out',
+                            expanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
+                          )}>
+                            <div className="overflow-hidden">
+                              <div className="mt-2 ml-0.5">
+                                {renderStepContent(step)}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* 思考中：supervisor 正在决策下一步 */}
+                {isStreaming && isThinking && (
+                  <div className="relative flex items-start gap-3">
+                    <div className="relative z-10 mt-[9px] shrink-0">
+                      <span className="block w-[7px] h-[7px] rounded-full bg-slate-300 ring-2 ring-white animate-pulse" />
+                    </div>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-[11px] text-slate-400">思考中</span>
+                      <span className="flex gap-0.5">
+                        <span className="w-1 h-1 rounded-full bg-slate-300 animate-bounce" style={{ animationDelay: '0ms' }} />
+                        <span className="w-1 h-1 rounded-full bg-slate-300 animate-bounce" style={{ animationDelay: '150ms' }} />
+                        <span className="w-1 h-1 rounded-full bg-slate-300 animate-bounce" style={{ animationDelay: '300ms' }} />
                       </span>
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

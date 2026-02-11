@@ -50,6 +50,8 @@ export interface AgentTimeline {
   historyStages: StageNode[];
   finalContent: FinalContent | null;
   nextDecisionLabel?: string;
+  /** supervisor 正在决策下一步（思考中） */
+  isThinking: boolean;
   hasOutputs: boolean;
 }
 
@@ -68,7 +70,6 @@ interface BuildAgentTimelineOptions {
 function isInternalNode(agentKey: string): boolean {
   if (!agentKey) return false;
   if (agentKey === 'supervisor' || agentKey === 'supervisor_route') return true;
-  if (agentKey === 'supervisor_with_style') return true;
   // _tools 节点不过滤，通过 normalizeAgentKey 归属到父 agent
   return false;
 }
@@ -114,7 +115,7 @@ export function buildAgentTimeline({
 
   const researchEvents = events.filter(
     (event) =>
-      (event.agent === 'research_agent' || event.agent === 'research_evidence_agent') &&
+      event.agent === 'research_evidence_agent' &&
       event.type === 'message'
   );
   const writerEvents = events.filter((event) => event.agent === 'writer_agent' && event.type === 'message');
@@ -148,7 +149,7 @@ export function buildAgentTimeline({
   const imagePlannerState = agentStates.get('image_planner_agent') || agentStates.get('reference_intelligence_agent');
   const reviewState = agentStates.get('review_agent');
   const writerState = agentStates.get('writer_agent');
-  const researchState = agentStates.get('research_evidence_agent') || agentStates.get('research_agent');
+  const researchState = agentStates.get('research_evidence_agent');
 
   const briefTimestamp = findLastEvent(events, (event) => event.type === 'brief_ready')?.timestamp
     || briefState?.endTime
@@ -493,6 +494,10 @@ export function buildAgentTimeline({
     ? getAgentDisplayName(latestDecision.decision || '')
     : undefined;
 
+  // supervisor 正在 working → 正在思考/决策下一步
+  const supervisorState = agentStates.get('supervisor');
+  const isThinking = isStreaming && supervisorState?.status === 'working';
+
   const hasOutputs = !!finalContent
     || (currentStage && currentStage.groups.length > 0)
     || historyStages.length > 0;
@@ -502,6 +507,7 @@ export function buildAgentTimeline({
     historyStages,
     finalContent,
     nextDecisionLabel,
+    isThinking,
     hasOutputs,
   };
 }

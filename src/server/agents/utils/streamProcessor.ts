@@ -22,9 +22,7 @@ function getAgentDisplayName(name: string): string {
     research_evidence_agent: "证据研究",
     reference_intelligence_agent: "参考图智能",
     layout_planner_agent: "版式规划",
-    research_agent: "研究专家",
     writer_agent: "创作专家",
-    style_analyzer_agent: "风格分析",
     image_planner_agent: "图片规划",
     image_agent: "图片生成",
     review_agent: "审核专家",
@@ -56,6 +54,7 @@ export interface StreamProcessorOptions {
   creativeId?: number;
   // 恢复流程时传入之前保存的内容
   previousGeneratedContent?: { title: string; body: string; tags: string[] } | null;
+  onNodeOutput?: (nodeName: string, output: any) => void | Promise<void>;
 }
 
 /**
@@ -66,7 +65,18 @@ export async function* processAgentStream(
   stream: AsyncIterable<any>,
   options: StreamProcessorOptions = {}
 ): AsyncGenerator<AgentEvent, void, unknown> {
-  const { themeId, traceId, trajId, threadId, enableHITL, onCreativeCreated, onImagePlansExtracted, creativeId, previousGeneratedContent } = options;
+  const {
+    themeId,
+    traceId,
+    trajId,
+    threadId,
+    enableHITL,
+    onCreativeCreated,
+    onImagePlansExtracted,
+    creativeId,
+    previousGeneratedContent,
+    onNodeOutput,
+  } = options;
 
   // 从节点输出收集 generatedContent（持久化在 state 中）
   // 如果是恢复流程，使用之前保存的内容
@@ -83,7 +93,7 @@ export async function* processAgentStream(
       const taskEvent = rawChunk as any;
       const nodeName = taskEvent?.name;
       if (!nodeName || nodeName === "__start__" || nodeName === "__end__") continue;
-      if (nodeName === "supervisor_with_style" || nodeName === "supervisor_route") continue;
+      if (nodeName === "supervisor_route") continue;
       // _tools 节点不发独立生命周期，归属于父 agent
       if (nodeName.endsWith("_tools")) continue;
 
@@ -150,7 +160,6 @@ export async function* processAgentStream(
     // 遍历节点输出
     for (const [nodeName, nodeOutput] of Object.entries(chunk)) {
       if (nodeName === "__start__" || nodeName === "__end__") continue;
-      if (nodeName === "supervisor_with_style") continue;
       if (nodeName === "supervisor_route") continue;
       if (nodeName === "__interrupt__") continue;
 
@@ -160,6 +169,9 @@ export async function* processAgentStream(
 
       const output = nodeOutput as any;
       const nodeStartTime = new Date();
+      if (onNodeOutput) {
+        await onNodeOutput(nodeName, output);
+      }
 
       // agent_start 已由 tasks 模式发送，此处不再手动发送
 

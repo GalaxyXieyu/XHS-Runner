@@ -3,11 +3,32 @@ import { ChatOpenAI } from "@langchain/openai";
 import { AgentState, type AgentType } from "../state/agentState";
 import { compressContext, safeSliceMessages } from "../utils";
 import { getAgentPrompt } from "../../services/promptManager";
-import { askUserTool } from "../tools";
 import { parseWriterContent } from "../utils/contentParser";
+import { requestAgentClarification } from "../utils/agentClarification";
 
 export async function writerAgentNode(state: typeof AgentState.State, model: ChatOpenAI) {
-  const modelWithTools = model.bindTools([askUserTool]);
+  const needEvidenceClarification = !state.evidencePack?.items?.length;
+  if (needEvidenceClarification) {
+    const clarificationResult = requestAgentClarification(state, {
+      key: "writer_agent.evidence_gap",
+      agent: "writer_agent",
+      question: "当前研究证据较少，文案阶段你希望我怎么处理？",
+      options: [
+        { id: "continue_with_general_knowledge", label: "先按通用经验写", description: "先生成可读版本，再迭代补证据" },
+        { id: "need_more_facts", label: "先补更多事实", description: "强调数据与结论，降低空泛风险" },
+      ],
+      selectionType: "single",
+      allowCustomInput: true,
+    });
+
+    if (clarificationResult) {
+      return {
+        ...clarificationResult,
+        currentAgent: "writer_agent" as AgentType,
+        contentComplete: false,
+      };
+    }
+  }
 
   const compressed = await compressContext(state, model);
 
@@ -24,7 +45,7 @@ export async function writerAgentNode(state: typeof AgentState.State, model: Cha
     ? `【研究证据】\n${state.evidencePack.items.map((item, idx) => `${idx + 1}. ${item.fact}${item.source ? `（来源：${item.source}）` : ""}`).join("\n")}`
     : "【研究证据】暂无结构化证据，请补充具体事实并避免空洞表达。";
 
-  const response = await modelWithTools.invoke([
+  const response = await model.invoke([
     new HumanMessage(systemPrompt),
     new HumanMessage(`${briefHint}\n\n${evidenceHint}`),
     ...safeSliceMessages(compressed.messages, 15),

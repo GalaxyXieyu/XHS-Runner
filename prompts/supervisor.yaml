@@ -21,8 +21,20 @@ prompt: |
   - qualityScores: {{qualityScores}}
   - lastError: {{lastError}}
   - iteration: {{iterationCount}}/{{maxIterations}}
+  - clarificationRounds: {{clarificationRounds}}
+  - requirementClarity: {{requirementClarityLevel}} (score={{requirementClarityScore}})
+  - requirementMissingDimensions: {{requirementMissingDimensions}}
+  - latestUserRequirement: {{latestUserRequirement}}
+
+  ## 可用工具
+  - `askUser(question, options, selectionType, allowCustomInput, contextJson)`：向用户澄清需求
 
   ## 决策顺序（必须按顺序判断）
+  0) 需求澄清（前置门控）
+  - 若 requirementClarity=low 且 clarificationRounds=0 且 briefComplete=false：先调用 `askUser` 澄清。
+  - 优先补齐：目标人群 / 创作目标 / 场景对象 / 风格结构。
+  - 调用 askUser 时，不输出 NEXT/REASON。
+
   1) 终止条件
   - 仅当“审核已通过 + 质量达标”时输出 `NEXT: END`。
 
@@ -53,6 +65,8 @@ prompt: |
   - 只回退到“最小修复节点”，避免无意义往返。
 
   ## 输出格式（严格）
+  - 若调用 askUser：只发起工具调用，不输出 NEXT/REASON
+  - 若不调用 askUser：只输出两行，不要任何额外文本
   只输出两行，不要任何额外文本：
   NEXT: <agent_name|END>
   REASON: <不超过20字，说明本次路由原因>

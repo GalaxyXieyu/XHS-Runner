@@ -63,8 +63,8 @@ function generateOptimizedPrompt(
     suggestions.push("图片规划应更加清晰，每个图片的描述要具体明确。");
   } else if (agentName === "image_agent") {
     suggestions.push("生成的图片应更符合小红书风格，注重视觉效果。");
-  } else if (agentName === "research_agent") {
-    suggestions.push("研究分析应更加深入，提供更有价值的洞察。");
+  } else if (agentName === "research_evidence_agent") {
+    suggestions.push("研究结论需可验证，优先输出可直接写入正文的事实证据。");
   }
 
   // 将优化建议附加到 prompt 末尾

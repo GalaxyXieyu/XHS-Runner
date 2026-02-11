@@ -4,6 +4,7 @@ import { createMultiAgentSystem } from "@/server/agents/multiAgentSystem";
 import { processAgentStream } from "@/server/agents/utils/streamProcessor";
 import { createCreative } from "@/server/services/xhs/data/creativeService";
 import { db } from "@/server/db";
+import { v4 as uuidv4 } from "uuid";
 
 /**
  * POST /api/agent/run-background
@@ -113,14 +114,16 @@ async function runAgentInBackground(params: {
   try {
     // 创建 Agent（不启用 HITL）
     const app = await createMultiAgentSystem({ enableHITL: false });
+    const streamThreadId = uuidv4();
 
     const initialState: any = {
       messages: [new HumanMessage(message)],
       themeId,
       creativeId,
+      threadId: streamThreadId,
     };
 
-    const stream = await app.stream(initialState, { recursionLimit: 100 } as any);
+    const stream = await app.stream(initialState, { recursionLimit: 100, streamMode: ["updates", "tasks"] } as any);
 
     // 设置超时
     const timeoutPromise = new Promise<never>((_, reject) =>
@@ -133,6 +136,7 @@ async function runAgentInBackground(params: {
         themeId,
         creativeId,
         enableHITL: false,
+        threadId: streamThreadId,
       })) {
         // 后台运行，不需要处理事件
       }

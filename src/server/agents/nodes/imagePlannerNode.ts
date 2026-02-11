@@ -11,7 +11,7 @@ import {
 } from "../state/agentState";
 import { compressContext, safeSliceMessages } from "../utils";
 import { getAgentPrompt } from "../../services/promptManager";
-import { askUserTool } from "../tools";
+import { requestAgentClarification } from "../utils/agentClarification";
 
 interface PlannerOutput {
   bodyBlocks: BodyBlock[];
@@ -187,9 +187,6 @@ function buildFallbackOutput(
 }
 
 export async function imagePlannerNode(state: typeof AgentState.State, model: ChatOpenAI) {
-  const modelWithTools = model.bindTools([askUserTool]);
-  const compressed = await compressContext(state, model);
-
   const generated = state.generatedContent;
   const title = generated?.title || "AI 生成内容";
   const body = generated?.body || "";
@@ -210,6 +207,35 @@ export async function imagePlannerNode(state: typeof AgentState.State, model: Ch
       lastError: "MISSING_BODY_FOR_IMAGE_PLANNER",
     };
   }
+
+  const needImagePlannerClarification = state.layoutSpec.length === 0;
+  if (needImagePlannerClarification) {
+    const clarificationResult = requestAgentClarification(state, {
+      key: "image_planner_agent.visual_strategy",
+      agent: "image_planner_agent",
+      question: "还没有明确版式，你希望图片规划更偏向哪种策略？",
+      options: [
+        { id: "story_based", label: "按段落叙事", description: "每段对应一张图，图文映射最强" },
+        { id: "highlight_based", label: "按重点提炼", description: "围绕核心卖点设计少量高价值图" },
+        { id: "continue_default", label: "按默认策略", description: "系统自动平衡图文信息" },
+      ],
+      selectionType: "single",
+      allowCustomInput: true,
+    });
+
+    if (clarificationResult) {
+      return {
+        ...clarificationResult,
+        currentAgent: "image_planner_agent" as AgentType,
+        imagePlans: [],
+        paragraphImageBindings: [],
+        textOverlayPlan: [],
+        bodyBlocks: [],
+      };
+    }
+  }
+
+  const compressed = await compressContext(state, model);
 
   const layoutSpec = state.layoutSpec.length > 0 ? state.layoutSpec : defaultLayoutSpec(3);
   const reviewSuggestions = state.reviewFeedback?.suggestions?.join("\n") || "";
@@ -232,7 +258,7 @@ export async function imagePlannerNode(state: typeof AgentState.State, model: Ch
 3) prompt 要包含可展示的文字，文字内容请加引号。
 4) 只输出 JSON，不要多余解释。`;
 
-  const response = await modelWithTools.invoke([
+  const response = await model.invoke([
     new HumanMessage(promptFromStore || fallbackSystemPrompt),
     new HumanMessage(
       `标题：${title}\n\n完整正文：\n${body}\n\nlayoutSpec：${JSON.stringify(layoutSpec)}\n\nreferenceAnalyses：${JSON.stringify(state.referenceAnalyses)}\n\nreviewSuggestions：${reviewSuggestions || "无"}`

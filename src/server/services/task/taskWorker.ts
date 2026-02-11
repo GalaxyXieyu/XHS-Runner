@@ -8,6 +8,7 @@ import type { TaskEventEnvelope, TaskEventPayload } from './types';
 import { appendTaskEvent, getNextEventIndex } from './taskEventStore';
 import { publishTaskEvent } from './taskPubSub';
 import { addDatasetItem, createTrace, flushLangfuse } from '@/server/services/langfuseService';
+import { v4 as uuidv4 } from 'uuid';
 
 type TaskMetadata = {
   referenceImages?: string[];
@@ -253,6 +254,7 @@ export async function executeTask(taskId: number) {
   const metadata = normalizeMetadata(task.metadata);
   const referenceImages = resolveReferenceImages(metadata, task.referenceImageUrl);
   const enableHITL = Boolean(metadata.enableHITL || task.threadId);
+  const streamThreadId = task.threadId ?? uuidv4();
 
   await updateTask(taskId, {
     status: 'running',
@@ -262,7 +264,7 @@ export async function executeTask(taskId: number) {
 
   const app = await createMultiAgentSystem({
     enableHITL,
-    threadId: task.threadId ?? undefined,
+    threadId: streamThreadId,
   });
 
   const initialState: any = {
@@ -272,10 +274,10 @@ export async function executeTask(taskId: number) {
     referenceImages,
     referenceImageUrl: referenceImages[0] || null,
     imageGenProvider: metadata.imageGenProvider,
-    threadId: task.threadId ?? undefined,
+    threadId: streamThreadId,
   };
 
-  const streamConfig: any = { recursionLimit: 100 };
+  const streamConfig: any = { recursionLimit: 100, streamMode: ['updates', 'tasks'] };
   if (task.threadId) {
     streamConfig.configurable = { thread_id: task.threadId };
   }
@@ -297,7 +299,7 @@ export async function executeTask(taskId: number) {
       themeId: task.themeId,
       creativeId: task.creativeId,
       enableHITL,
-      threadId: task.threadId,
+      threadId: streamThreadId,
       traceId,
     });
   } catch (error: any) {
