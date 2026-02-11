@@ -3,7 +3,7 @@ import type { AgentEvent } from "@/server/agents/state/agentState";
 import type { AskUserInterrupt } from "@/server/agents/tools/askUserTool";
 import { logSpan, logGeneration } from "@/server/services/langfuseService";
 import { createCreative, updateCreative } from "@/server/services/xhs/data/creativeService";
-import { logAgent } from "@/server/agents/utils";
+import { logAgent, parseSupervisorDecision } from "@/server/agents/utils";
 import type { AgentType } from "@/server/agents/state/agentState";
 import { parseWriterContent } from "./contentParser";
 import { db, schema } from "@/server/db";
@@ -227,23 +227,20 @@ export async function* processAgentStream(
             console.log(`[processAgentStream] ${nodeName} 消息内容 (前100字符):`, msg.content.slice(0, 100));
 
             if (nodeName === "supervisor") {
-              const nextMatch = msg.content.match(/NEXT:\s*(\S+)/);
-              const reasonMatch = msg.content.match(/REASON:\s*(.+?)(?:\n|$)/);
-              if (nextMatch) {
+              const decision = parseSupervisorDecision(msg.content);
+              if (decision) {
+                const reason = decision.guidance || decision.contextFromPrevious || "继续流程";
                 yield {
                   type: "supervisor_decision",
                   agent: "supervisor",
-                  content: `NEXT: ${nextMatch[1]}`,
-                  decision: nextMatch[1],
-                  reason: reasonMatch?.[1] || "继续流程",
+                  content: `NEXT: ${decision.nextAgent}`,
+                  decision: decision.nextAgent,
+                  reason,
                   timestamp: Date.now(),
                 } as any;
               }
               continue;
             }
-
-            // 跳过包含内部路由信息的消息
-            if (msg.content.includes("NEXT:") || msg.content.includes("REASON:")) continue;
 
             // 检查是否是进度消息
             const progressMatch = msg.content.match(/^\[PROGRESS\]\s*(.+)$/);

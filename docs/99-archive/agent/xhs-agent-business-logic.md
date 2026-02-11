@@ -229,4 +229,4 @@
 - `docs/99-archive/reference/agent-state.md`
 - `docs/99-archive/reference/sse-events.md`
 - `docs/99-archive/reference/tools-catalog.md`
-- `docs/reference.md`
+- `docs/README.md`

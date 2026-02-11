@@ -167,11 +167,16 @@ export async function imageAgentNode(state: typeof AgentState.State, _model: Cha
   }
 
   const successCount = results.filter(r => r.success).length;
+  const processedCount = results.length; // 已处理数量（包括成功和失败）
   const message = `批量生成完成: ${successCount}/${plans.length} 成功`;
   console.log(`[imageAgentNode] ${message}`);
 
   // 添加最终完成消息
   messages.push(new AIMessage(message));
+
+  // imagesComplete 应该在所有图片都处理完成时（无论成功或失败）为 true
+  // 这样才能确保流程正确继续
+  const allImagesProcessed = processedCount === plans.length;
 
   return {
     messages,
@@ -180,6 +185,6 @@ export async function imageAgentNode(state: typeof AgentState.State, _model: Cha
     generatedImagePaths: generatedPaths,
     generatedImageAssetIds: generatedAssetIds,
     generatedImageCount: (state.generatedImageCount || 0) + successCount,
-    imagesComplete: successCount === plans.length,
+    imagesComplete: allImagesProcessed,
   };
 }

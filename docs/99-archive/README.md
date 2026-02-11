@@ -12,4 +12,4 @@
 - `docs/99-archive/reference/agent-state.md`
 - `docs/99-archive/reference/tools-catalog.md`
 
-新增或修改文档请优先写入合并后的主文档（`docs/README.md` / `docs/architecture.md` / `docs/agent-flow.md` / `docs/reference.md` / `docs/ops.md`）。
+新增或修改文档请优先写入合并后的主文档（`docs/README.md` / `docs/agent-flow.md` / `docs/ui-streaming.md` / `docs/ops.md`）。

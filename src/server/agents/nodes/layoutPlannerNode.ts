@@ -1,7 +1,7 @@
 import { HumanMessage, AIMessage } from "@langchain/core/messages";
 import { ChatOpenAI } from "@langchain/openai";
 import { AgentState, type AgentType, type LayoutSpec } from "../state/agentState";
-import { compressContext, safeSliceMessages } from "../utils";
+import { compressContext, safeSliceMessages, formatSupervisorGuidance } from "../utils";
 import { getAgentPrompt } from "../../services/promptManager";
 import { requestAgentClarification } from "../utils/agentClarification";
 
@@ -57,6 +57,8 @@ function parseLayoutSpec(content: string): LayoutSpec[] {
 
 export async function layoutPlannerNode(state: typeof AgentState.State, model: ChatOpenAI) {
   const compressed = await compressContext(state, model);
+
+  const supervisorGuidance = formatSupervisorGuidance(state, "layout_planner_agent");
 
   const generated = state.generatedContent;
   const body = generated?.body || "";
@@ -125,6 +127,7 @@ export async function layoutPlannerNode(state: typeof AgentState.State, model: C
 
   const response = await model.invoke([
     new HumanMessage(systemPrompt),
+    ...(supervisorGuidance ? [new HumanMessage(supervisorGuidance)] : []),
     new HumanMessage(`标题：${title}\n\n正文：${body}\n\n${styleHint}\n\nlayoutPreference: ${state.layoutPreference}`),
     ...safeSliceMessages(compressed.messages, 6),
   ]);

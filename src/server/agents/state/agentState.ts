@@ -85,12 +85,6 @@ export interface LayoutSpec {
   blocks: LayoutBlockSpec[];
 }
 
-export interface ParagraphImageBinding {
-  imageSeq: number;
-  paragraphIds: string[];
-  rationale: string;
-}
-
 export interface TextOverlayPlan {
   imageSeq: number;
   titleText?: string;
@@ -110,6 +104,13 @@ export interface QualityScores {
   scores: QualityDimensionScores;
   overall: number;
   failReasons: string[];
+}
+
+export interface SupervisorDecision {
+  nextAgent: AgentType | "END";
+  guidance: string;
+  contextFromPrevious: string;
+  focusAreas: string[];
 }
 
 // 风格分析结果类型
@@ -157,7 +158,6 @@ export interface PendingConfirmation {
       }
     | {
         layoutSpec: LayoutSpec[];
-        paragraphImageBindings: ParagraphImageBinding[];
       };
   timestamp: number;
 }
@@ -171,6 +171,10 @@ export const AgentState = Annotation.Root({
   currentAgent: Annotation<AgentType>({
     value: (_, y) => y,
     default: () => "supervisor" as AgentType,
+  }),
+  supervisorDecision: Annotation<SupervisorDecision | null>({
+    value: (_, y) => y,
+    default: () => null,
   }),
 
   // 任务阶段完成标记
@@ -235,10 +239,6 @@ export const AgentState = Annotation.Root({
     default: () => [],
   }),
   layoutSpec: Annotation<LayoutSpec[]>({
-    value: (_, y) => y,
-    default: () => [],
-  }),
-  paragraphImageBindings: Annotation<ParagraphImageBinding[]>({
     value: (_, y) => y,
     default: () => [],
   }),

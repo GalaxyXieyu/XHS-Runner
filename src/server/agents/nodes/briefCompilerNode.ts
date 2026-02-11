@@ -1,7 +1,7 @@
 import { HumanMessage, AIMessage } from "@langchain/core/messages";
 import { ChatOpenAI } from "@langchain/openai";
 import { AgentState, type AgentType, type CreativeBrief } from "../state/agentState";
-import { compressContext, safeSliceMessages } from "../utils";
+import { compressContext, safeSliceMessages, formatSupervisorGuidance } from "../utils";
 import { getAgentPrompt } from "../../services/promptManager";
 import { analyzeRequirementClarity, extractLatestUserRequirement } from "../utils/requirementClarity";
 import { requestAgentClarification } from "../utils/agentClarification";
@@ -77,6 +77,8 @@ export async function briefCompilerNode(state: typeof AgentState.State, model: C
 
   const compressed = await compressContext(state, model);
 
+  const supervisorGuidance = formatSupervisorGuidance(state, "brief_compiler_agent");
+
   const promptFromStore = await getAgentPrompt("brief_compiler_agent");
   const systemPrompt = promptFromStore || `你是创作任务梳理专家。\n
 请根据用户需求提炼创作 brief，并仅输出 JSON：
@@ -91,6 +93,7 @@ export async function briefCompilerNode(state: typeof AgentState.State, model: C
 
   const response = await model.invoke([
     new HumanMessage(systemPrompt),
+    ...(supervisorGuidance ? [new HumanMessage(supervisorGuidance)] : []),
     ...safeSliceMessages(compressed.messages, 6),
   ]);
 

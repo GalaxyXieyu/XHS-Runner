@@ -1,6 +1,7 @@
 import { END } from "@langchain/langgraph";
 import { AIMessage } from "@langchain/core/messages";
 import { AgentState, type AgentType, type QualityScores } from "../state/agentState";
+import { parseSupervisorDecision } from "../utils";
 import { REVIEW_THRESHOLDS } from "../utils/reviewThresholds";
 
 const MODERATE_THRESHOLDS = REVIEW_THRESHOLDS;
@@ -125,25 +126,10 @@ function isQualityApproved(qualityScores: QualityScores | null): boolean {
 }
 
 function extractNextFromSupervisor(content: string): RouteDecision | null {
-  const nextMatch = content.match(/NEXT:\s*(\S+)/);
-  const next = nextMatch?.[1];
-  if (!next) return null;
-
-  if (next === "END") return END;
-
-  const allowed: AgentType[] = [
-    "brief_compiler_agent",
-    "research_evidence_agent",
-    "reference_intelligence_agent",
-    "layout_planner_agent",
-    "writer_agent",
-    "image_planner_agent",
-    "image_agent",
-    "review_agent",
-    "supervisor",
-  ];
-
-  return allowed.includes(next as AgentType) ? (next as AgentType) : null;
+  const decision = parseSupervisorDecision(content);
+  if (!decision) return null;
+  if (decision.nextAgent === "END") return END;
+  return decision.nextAgent;
 }
 
 function getDeterministicRoute(state: typeof AgentState.State): RouteDecision {
@@ -173,7 +159,7 @@ function getDeterministicRoute(state: typeof AgentState.State): RouteDecision {
     return "layout_planner_agent";
   }
 
-  if (state.imagePlans.length === 0 || state.paragraphImageBindings.length === 0) {
+  if (state.imagePlans.length === 0) {
     return "image_planner_agent";
   }
 
@@ -209,7 +195,10 @@ export function routeFromSupervisor(state: typeof AgentState.State): string {
   const lastMessage = state.messages[state.messages.length - 1];
   const content = lastMessage && typeof lastMessage.content === "string" ? lastMessage.content : "";
 
-  const llmRoute = extractNextFromSupervisor(content);
+  const decision = state.supervisorDecision;
+  const llmRoute = decision
+    ? (decision.nextAgent === "END" ? END : decision.nextAgent)
+    : extractNextFromSupervisor(content);
   const deterministicRoute = getDeterministicRoute(state);
 
   if (canUseLlmBacktrackRoute(llmRoute, deterministicRoute, state)) {

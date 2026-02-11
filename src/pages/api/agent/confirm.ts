@@ -158,7 +158,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const { threadId, action, modifiedData, userFeedback, saveAsTemplate, userResponse } = req.body as ConfirmRequest;
 
-    console.log("[/api/agent/confirm] 收到请求:", { threadId, action, hasUserResponse: !!userResponse });
+    console.log("[/api/agent/confirm] 收到请求:", {
+      threadId,
+      type: userResponse ? 'askUser响应' : `action:${action}`,
+    });
 
     if (!threadId) {
       return res.status(400).json({ error: "threadId is required" });

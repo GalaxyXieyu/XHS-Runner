@@ -1,7 +1,7 @@
 import { HumanMessage } from "@langchain/core/messages";
 import { ChatOpenAI } from "@langchain/openai";
 import { AgentState, type AgentType } from "../state/agentState";
-import { compressContext, safeSliceMessages } from "../utils";
+import { compressContext, safeSliceMessages, formatSupervisorGuidance } from "../utils";
 import { getAgentPrompt } from "../../services/promptManager";
 import { parseWriterContent } from "../utils/contentParser";
 import { requestAgentClarification } from "../utils/agentClarification";
@@ -32,6 +32,8 @@ export async function writerAgentNode(state: typeof AgentState.State, model: Cha
 
   const compressed = await compressContext(state, model);
 
+  const supervisorGuidance = formatSupervisorGuidance(state, "writer_agent");
+
   const systemPrompt = await getAgentPrompt("writer_agent");
   if (!systemPrompt) {
     throw new Error("Prompt 'writer_agent' not found. Please create it in Langfuse: xhs-agent-writer_agent");
@@ -47,6 +49,7 @@ export async function writerAgentNode(state: typeof AgentState.State, model: Cha
 
   const response = await model.invoke([
     new HumanMessage(systemPrompt),
+    ...(supervisorGuidance ? [new HumanMessage(supervisorGuidance)] : []),
     new HumanMessage(`${briefHint}\n\n${evidenceHint}`),
     ...safeSliceMessages(compressed.messages, 15),
   ]);

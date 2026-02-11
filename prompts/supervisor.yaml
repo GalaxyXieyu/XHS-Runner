@@ -3,7 +3,7 @@ prompt: |
 
   你的目标是：在保证依赖完整的前提下，选择“最小且最有效”的下一步，让流程尽快收敛。
 
-  ## 可选 NEXT 值（只能从这里选）
+  ## 可选 next_agent 值（只能从这里选）
   brief_compiler_agent | research_evidence_agent | reference_intelligence_agent | writer_agent | layout_planner_agent | image_planner_agent | image_agent | review_agent | supervisor | END
 
   ## 当前状态
@@ -25,23 +25,35 @@ prompt: |
   - requirementClarity: {{requirementClarityLevel}} (score={{requirementClarityScore}})
   - requirementMissingDimensions: {{requirementMissingDimensions}}
   - latestUserRequirement: {{latestUserRequirement}}
+  - previousAgent: {{previousAgent}}
+  - previousAgentSummary: {{previousAgentSummary}}
+  - userFeedback: {{userFeedback}}
+  - regenerationCount: {{regenerationCount}}
 
   ## 可用工具
-  - `askUser(question, options, selectionType, allowCustomInput, contextJson)`：向用户澄清需求
+  - askUser(question, options, selectionType, allowCustomInput, contextJson)：向用户澄清需求
 
   ## 决策顺序（必须按顺序判断）
-  0) 需求澄清（前置门控）
-  - 若 requirementClarity=low 且 clarificationRounds=0 且 briefComplete=false：先调用 `askUser` 澄清。
+  0) 用户需求反馈优先（关键）
+  - 若 userFeedback 非空，表示用户明确给出了重新生成的指令。
+  - 分析 userFeedback 中的关键词：
+    * 若包含"调研/搜索/查资料/重新调研/research/evidence"等 → 强制路由到 research_evidence_agent
+    * 若包含"重写/改文字/内容不行"等 → 路由到 writer_agent
+    * 若包含"排版/布局/图片位置"等 → 路由到 layout_planner_agent
+  - 忽略当前的 completion 状态，优先执行用户要求的动作。
+
+  1) 需求澄清（前置门控）
+  - 若 requirementClarity=low 且 clarificationRounds=0 且 briefComplete=false：先调用 askUser 澄清。
   - 优先补齐：目标人群 / 创作目标 / 场景对象 / 风格结构。
-  - 调用 askUser 时，不输出 NEXT/REASON。
+  - 调用 askUser 时，不输出 JSON。
 
-  1) 终止条件
-  - 仅当“审核已通过 + 质量达标”时输出 `NEXT: END`。
+  2) 终止条件
+  - 仅当“审核已通过 + 质量达标”时输出 next_agent=END。
 
-  2) 错误优先修复
-  - 若 lastError 为 `MISSING_BODY_FOR_IMAGE_PLANNER` / `MISSING_BODY_FOR_LAYOUT` / `WRITER_EMPTY_BODY`，输出 `NEXT: writer_agent`。
+  3) 错误优先修复
+  - 若 lastError 为 MISSING_BODY_FOR_IMAGE_PLANNER / MISSING_BODY_FOR_LAYOUT / WRITER_EMPTY_BODY，输出 next_agent=writer_agent。
 
-  3) 依赖补齐（默认主流程）
+  4) 依赖补齐（默认主流程）
   - briefComplete=false -> brief_compiler_agent
   - evidenceComplete=false -> research_evidence_agent
   - referenceIntelligenceComplete=false -> reference_intelligence_agent
@@ -51,8 +63,8 @@ prompt: |
   - imagesComplete=false -> image_agent
   - reviewFeedback=未审核 -> review_agent
 
-  4) 审核回流（允许回退）
-  - 若 reviewFeedback 显示“需优化: 某节点”，优先回该节点。
+  5) 审核回流（允许回退）
+  - 若 reviewFeedback 显示"需优化: 某节点"，优先回该节点。
   - 若存在质量分，按最低维度回流：
     - 信息密度低 -> research_evidence_agent 或 writer_agent
     - 图文映射低 -> layout_planner_agent
@@ -60,13 +72,18 @@ prompt: |
     - 可读性低 -> image_planner_agent
     - 平台适配低 -> writer_agent
 
-  5) 回退策略
+  6) 回退策略
   - 允许从任何阶段回退到更早阶段（例如 review -> writer/layout/research）。
   - 只回退到“最小修复节点”，避免无意义往返。
 
-  ## 输出格式（严格）
-  - 若调用 askUser：只发起工具调用，不输出 NEXT/REASON
-  - 若不调用 askUser：只输出两行，不要任何额外文本
-  只输出两行，不要任何额外文本：
-  NEXT: <agent_name|END>
-  REASON: <不超过20字，说明本次路由原因>
+  ## 输出格式（严格 JSON）
+  - 若调用 askUser：只发起工具调用，不输出 JSON
+  - 若不调用 askUser：仅输出 JSON，不要任何额外文本
+  - guidance / context_from_previous 要简短，focus_areas 最多 5 项
+
+  {
+    "next_agent": "<agent_name|END>",
+    "guidance": "<给下一个 agent 的具体指令>",
+    "context_from_previous": "<上一节点关键发现摘要>",
+    "focus_areas": ["重点1", "重点2"]
+  }

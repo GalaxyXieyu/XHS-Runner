@@ -1,7 +1,7 @@
 import { HumanMessage } from "@langchain/core/messages";
 import * as fs from "fs";
 import { AgentState, type AgentType, type ReviewFeedback, type QualityDimensionScores, type QualityScores } from "../state/agentState";
-import { safeSliceMessages, createLLM } from "../utils";
+import { safeSliceMessages, createLLM, formatSupervisorGuidance } from "../utils";
 import { REVIEW_THRESHOLDS, buildReviewThresholdHint } from "../utils/reviewThresholds";
 import { getAgentPrompt } from "../../services/promptManager";
 import { db } from "@/server/db";
@@ -60,7 +60,7 @@ function fallbackScore(state: typeof AgentState.State): QualityScores {
   const body = state.generatedContent?.body || "";
   const infoDensity = Math.min(0.9, Math.max(0.45, body.length / 700));
   const textImageAlignment = state.imagePlans.length > 0
-    ? Math.min(0.9, state.paragraphImageBindings.length / state.imagePlans.length)
+    ? Math.min(0.9, state.generatedImageAssetIds.length / state.imagePlans.length)
     : 0.4;
   const styleConsistency = state.referenceAnalyses.length > 0 ? 0.78 : 0.68;
   const readability = state.textOverlayPlan.length > 0 ? 0.75 : 0.66;
@@ -261,7 +261,6 @@ export async function reviewAgentNode(state: typeof AgentState.State) {
     styleAnalysis: JSON.stringify(state.styleAnalysis),
     generatedImageCount: String(Math.max(state.generatedImagePaths.length, state.generatedImageAssetIds.length)),
     bodyBlocks: JSON.stringify(state.bodyBlocks),
-    paragraphImageBindings: JSON.stringify(state.paragraphImageBindings),
     layoutSpec: JSON.stringify(state.layoutSpec),
     hasImages: hasImages ? "true" : "false",
   };
@@ -285,8 +284,11 @@ export async function reviewAgentNode(state: typeof AgentState.State) {
 
   const systemPromptWithThreshold = `${systemPrompt}\n\n${buildReviewThresholdHint(THRESHOLDS)}`;
 
+  const supervisorGuidance = formatSupervisorGuidance(state, "review_agent");
+
   const messageContent: Array<{ type: string; text?: string; image_url?: { url: string } }> = [
     { type: "text", text: systemPromptWithThreshold },
+    ...(supervisorGuidance ? [{ type: "text", text: supervisorGuidance }] : []),
     { type: "text", text: `当前正文：${state.generatedContent?.body || ""}` },
     ...imageContents,
   ];

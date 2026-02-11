@@ -1,119 +1,256 @@
-# Agent Flow
+# Agent 流程（单链路 V2）
 
-## 运行生命周期
+本文件描述 **端到端 Agent 流程**、路由策略、事件协议与关键状态字段，是实现与排障的主入口。
 
-### 1. 请求进入
+## 1. 端到端流程概览
 
-- 前端调用 `POST /api/agent/stream`
-- 后端在 `src/pages/api/agent/stream.ts`：
-  - 初始化 SSE 响应
-  - 识别意图与内容类型
-  - 初始化 `AgentState`
-  - 启动 LangGraph 流
-  - 进入单链路 V2 节点序列（详见 `docs/architecture.md`）
+```
+/api/agent/stream
+  → supervisor 决策
+  → brief_compiler → research_evidence → reference_intelligence
+  → writer → layout_planner → image_planner → image → review
+  → workflow_complete + [DONE]
+```
 
-### 2. 流式执行
+## 2. 节点职责（按顺序）
 
-- `processAgentStream`（`src/server/agents/utils/streamProcessor.ts`）把图执行输出转为统一事件：
-  - `agent_start` / `agent_end`
-  - `message`
-  - `tool_call` / `tool_result`
-  - `supervisor_decision`
-  - `ask_user` / `workflow_paused`
-  - `content_update` / `image_progress` 等业务事件
+- **supervisor**：路由决策、澄清判定、回流控制
+- **brief_compiler_agent**：结构化 brief（受众/目标/约束/语气）
+- **research_evidence_agent**：趋势/标题/标签证据补充
+- **reference_intelligence_agent**：参考图语义/风格解析
+- **writer_agent**：文案生成（title/body/tags）
+- **layout_planner_agent**：版式结构规划
+- **image_planner_agent**：图片规划 + 段落绑定
+- **image_agent**：图片生成与资产落库
+- **review_agent**：质量审核 + 评分维度回流
 
-### 3. 统一澄清与 HITL 中断
+## 3. API 入口与生命周期
 
-- `supervisor`/各关键节点基于 `requirementClarity` + `requestAgentClarification` 判断是否需要追问
-- 已问过的问题记录在 `agentClarificationKeys`，避免重复追问
-- 触发 `askUser` 后，LangGraph 发 `INTERRUPT`，并通过 SSE 推送：
-  - `ask_user`
-  - `workflow_paused`
+### 3.1 `/api/agent/stream`
+- 建立 SSE 通道（`text/event-stream`）
+- 初始化 `AgentState` + LangGraph
+- 过程中持续推送事件（见第 6 节）
 
-- 中断：agent 内调用 `askUser` 工具触发 LangGraph `INTERRUPT`
-- 恢复：前端提交 `/api/agent/confirm`
-- 线程标识：`threadId`
+### 3.2 `/api/agent/confirm`
+- HITL 中断恢复
+- 支持 `approve / reject / modify`
 
-### 4. Review 质量门禁与回流
+### 3.3 流程结束
+- `workflow_complete` 事件后输出 `[DONE]`
+- 发生中断时尝试标记 creative 为 `aborted`
 
-- `review_agent` 输出 `reviewFeedback` 与 `qualityScores`
-- 若“口头通过”但评分未达标，则按低分维度回流到指定节点重试
-- `review_agent` 作为最终门禁，路由不允许跳过 review 回退到更早阶段
+## 4. 路由与回流规则（router.ts 口径）
 
-### 5. 结束与落库
+**确定性路由优先级最高**：
+- 依赖 `AgentState` 的完成标记逐步推进
+- `review_agent` 为最终质量门禁，不允许跳过
 
-- 流程完成后输出 `[DONE]`
-- 内容/图片/事件落库并写入 Langfuse trace
-- 如客户端中断，流程会尝试把当前 creative 标记为 `aborted`
+**LLM 回退路由（有限制）**：
+- 仅允许回退或同阶段重跑
+- 当状态机目标是 `review_agent` 时，LLM 只能选择 `review_agent`
+- 达到 `maxIterations` 或出现严重错误时强制走确定性路径
 
+**质量回流**：
+- review “口头通过”但评分未达标时，按低分维度回流
 
-## 澄清机制与 HITL
+## 5. 统一澄清与 HITL
 
-### 1. 为什么要做统一澄清
+### 5.1 需求澄清（requirementClarity）
+- supervisor 与关键节点使用 `requirementClarity` 判定
+- 低清晰度触发 `ask_user`
+- 去重字段：`agentClarificationKeys`
 
-当用户输入过于宽泛时，直接生成会导致：
-- 前期规划不足
-- 内容命中率低
-- 迭代次数增加
+### 5.2 HITL 触发点
+- **writer_agent** 完成后：确认文案继续/重生成
+- **image_planner_agent** 完成后：确认图片规划继续/重规划
 
-因此 V2 中将“是否追问”提升为统一能力，而不是 supervisor 单点能力。
+`ask_user` 事件会携带：
+- `question` / `options` / `selectionType` / `allowCustomInput`
+- `context.__hitl` + `kind`（`content` 或 `image_plans`）
+- `threadId`
 
-### 2. 当前实现
+## 6. SSE 事件协议（关键字段）
 
-#### supervisor 级澄清
-- 基于 `requirementClarity` 判断需求是否缺失关键维度
-- 满足条件时优先发起 `ask_user`
+**生命周期**：
+- `agent_start` / `agent_end`
+- `workflow_complete`
 
-#### agent 级澄清
-下列节点在关键输入不足时都会主动提问：
-- `brief_compiler_agent`
-- `research_evidence_agent`
-- `reference_intelligence_agent`
-- `writer_agent`
-- `layout_planner_agent`
-- `image_planner_agent`
-- `image_agent`
-- `review_agent`
+**文本与工具**：
+- `message`：`content`
+- `progress`：`content`
+- `tool_call` / `tool_result`
+- `supervisor_decision`：`decision` / `reason`
 
-### 3. 去重策略
+**业务产物**：
+- `content_update`：`title` / `body` / `tags`
+- `image_progress`：`taskId` / `status` / `progress` / `url` / `errorMessage`
+- `workflow_progress`：`phase` / `progress` / `currentAgent`
+- `brief_ready` / `layout_spec_ready` / `alignment_map_ready`
+- `quality_score`
 
-- 每次澄清携带 `key`
-- 已提过的问题记录在 `agentClarificationKeys`
-- 同一 key 只问一次，避免循环追问
+**交互**：
+- `ask_user`
+- `workflow_paused`
 
-### 4. 验证脚本
+**诊断/状态**：
+- `state_update` / `intent_detected` / `content_type_detected`
 
-- `npm run eval:clarification -- --baseUrl=http://localhost:3000`
-- `npm run eval:agent-clarification`
-- `npm run lint:supervisor-prompt`
+### 6.1 事件字段示例 JSON
 
+> SSE 发送格式为：`data: {JSON}\n\n`
 
-## 调试手册
+**agent_start**
+```json
+{
+  "type": "agent_start",
+  "agent": "writer_agent",
+  "content": "创作专家 开始工作...",
+  "timestamp": 1710000000000
+}
+```
 
-### 1. 最小验证顺序
+**message**
+```json
+{
+  "type": "message",
+  "agent": "writer_agent",
+  "content": "标题：...\n\n正文：...",
+  "timestamp": 1710000000123
+}
+```
 
-1. `npm run build:server`
-2. `npm run lint:supervisor-prompt`
-3. `npm run eval:agent-clarification`
-4. `npm run eval:clarification -- --baseUrl=http://localhost:3000`
+**tool_call / tool_result**
+```json
+{
+  "type": "tool_call",
+  "agent": "research_evidence_agent",
+  "tool": "searchNotes",
+  "toolCallId": "searchNotes_1710000001",
+  "toolInput": {"keyword": "春游"},
+  "timestamp": 1710000000200
+}
+```
+```json
+{
+  "type": "tool_result",
+  "agent": "research_evidence_agent",
+  "tool": "searchNotes",
+  "toolCallId": "searchNotes_1710000001",
+  "toolOutput": {"items": []},
+  "timestamp": 1710000000800
+}
+```
 
-### 2. 常见问题定位
+**content_update**
+```json
+{
+  "type": "content_update",
+  "title": "春游小红书攻略",
+  "body": "...",
+  "tags": ["春游", "出游"],
+  "timestamp": 1710000001000
+}
+```
 
-#### 问题 A：supervisor 不提问直接执行
-- 检查 `prompts/supervisor.yaml` 是否包含“低清晰度先澄清”规则
-- 跑 `eval:clarification` 看澄清命中率
+**image_progress**
+```json
+{
+  "type": "image_progress",
+  "taskId": 1,
+  "status": "generating",
+  "progress": 0.6,
+  "url": null,
+  "errorMessage": null,
+  "timestamp": 1710000002000
+}
+```
 
-#### 问题 B：某个 agent 不提问
-- 检查对应节点是否调用 `requestAgentClarification`
-- 跑 `eval:agent-clarification` 看该节点是否 PASS
+**ask_user + workflow_paused**
+```json
+{
+  "type": "ask_user",
+  "question": "文案已生成，是否继续？",
+  "options": [{"id": "approve", "label": "继续"}, {"id": "reject", "label": "重生成"}],
+  "selectionType": "single",
+  "allowCustomInput": true,
+  "context": {"__hitl": true, "kind": "content"},
+  "threadId": "<thread-id>",
+  "timestamp": 1710000003000
+}
+```
+```json
+{
+  "type": "workflow_paused",
+  "threadId": "<thread-id>",
+  "content": "工作流已暂停，等待用户确认",
+  "timestamp": 1710000003001
+}
+```
 
-#### 问题 C：review 被错误跳过
-- 检查 `router.ts` 的 `canUseLlmBacktrackRoute`
-- 确认 deterministic route 为 `review_agent` 时未被 supervisor 回退
+**workflow_complete**
+```json
+{
+  "type": "workflow_complete",
+  "title": "春游小红书攻略",
+  "body": "...",
+  "tags": ["春游", "出游"],
+  "imageAssetIds": [101, 102, 103],
+  "creativeId": 999,
+  "timestamp": 1710000004000
+}
+```
 
-### 3. 调试输出建议
+### 6.2 时序图（SSE / HITL）
 
-- 关注 `routeFromSupervisor` 日志：
-  - 是否出现“忽略不安全 LLM 路由”
-  - 是否出现“采用 supervisor 回退路由”
-- 对问题 case 固化为脚本场景，防止回归。
+```
+用户/前端         API(Next)              LangGraph/Agents           外部服务
+  | POST /stream     |                            |                      |
+  |----------------->| init SSE + AgentState      |                      |
+  |<-- agent_start --|--------------------------->| supervisor           |
+  |<-- message ------|<---------------------------| writer_agent         |
+  |<-- content_update|<---------------------------| writer_agent         |
+  |<-- ask_user -----|<---------------------------| writer_agent         |
+  |<-- workflow_paused (暂停)                     |                      |
+  | POST /confirm    |                            |                      |
+  |----------------->| resume thread              |                      |
+  |<-- image_progress|<---------------------------| image_agent          | image provider
+  |<-- quality_score |<---------------------------| review_agent         |
+  |<-- workflow_complete + [DONE]                 |                      |
+```
+
+## 7. AgentState 关键字段
+
+**流程控制**：
+- `currentAgent` / `iterationCount` / `maxIterations`
+- `briefComplete` / `evidenceComplete` / `referenceIntelligenceComplete`
+- `contentComplete` / `layoutComplete` / `imagesComplete`
+
+**输入与上下文**：
+- `messages` / `threadId`
+- `referenceImageUrl` / `referenceImages` / `referenceInputs`
+- `layoutPreference` / `contentType`
+
+**中间产物**：
+- `creativeBrief` / `evidencePack` / `referenceAnalyses`
+- `layoutSpec` / `paragraphImageBindings` / `textOverlayPlan` / `imagePlans`
+
+**结果与质量**：
+- `generatedContent` / `generatedImagePaths` / `generatedImageAssetIds`
+- `reviewFeedback` / `qualityScores`
+
+**交互与异常**：
+- `pendingConfirmation` / `agentClarificationKeys` / `lastError`
+
+## 8. 工具调用清单（高频）
+
+- **supervisor**：`managePrompt` / `recommendTemplates` / `askUser`
+- **research_evidence_agent**：`searchNotes` / `analyzeTopTags` / `getTopTitles` / `getTrendReport` / `webSearch` / `askUser`
+- **image_agent**：`generateImage` / `generate_with_reference` / `generate_images_batch`
+
+> 以 `src/server/agents/tools/index.ts` 为准
+
+## 9. 失败处理与收尾
+
+- `lastError` 命中严重错误时进入兜底重跑路径
+- `iterationCount >= maxIterations` 时终止流程
+- 客户端中断时尝试把 creative 标记为 `aborted`

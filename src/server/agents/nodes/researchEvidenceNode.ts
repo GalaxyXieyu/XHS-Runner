@@ -1,7 +1,7 @@
 import { HumanMessage } from "@langchain/core/messages";
 import { ChatOpenAI } from "@langchain/openai";
 import { AgentState, type AgentType, type EvidencePack } from "../state/agentState";
-import { compressContext, safeSliceMessages } from "../utils";
+import { compressContext, safeSliceMessages, formatSupervisorGuidance } from "../utils";
 import { getAgentPrompt } from "../../services/promptManager";
 import { researchTools } from "../tools";
 import { requestAgentClarification } from "../utils/agentClarification";
@@ -82,6 +82,8 @@ export async function researchEvidenceNode(state: typeof AgentState.State, model
   const modelWithTools = model.bindTools(researchTools);
   const compressed = await compressContext(state, model);
 
+  const supervisorGuidance = formatSupervisorGuidance(state, "research_evidence_agent");
+
   const promptFromStore = await getAgentPrompt("research_evidence_agent");
   const systemPrompt =
     promptFromStore ||
@@ -122,6 +124,7 @@ export async function researchEvidenceNode(state: typeof AgentState.State, model
 
   const response = await modelWithTools.invoke([
     new HumanMessage(systemPrompt),
+    ...(supervisorGuidance ? [new HumanMessage(supervisorGuidance)] : []),
     ...(briefHint ? [new HumanMessage(briefHint)] : []),
     ...safeSliceMessages(compressed.messages, 10),
   ]);

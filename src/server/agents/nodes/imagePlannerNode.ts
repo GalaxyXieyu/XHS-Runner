@@ -6,17 +6,15 @@ import {
   type BodyBlock,
   type ImagePlan,
   type LayoutSpec,
-  type ParagraphImageBinding,
   type TextOverlayPlan,
 } from "../state/agentState";
-import { compressContext, safeSliceMessages } from "../utils";
+import { compressContext, safeSliceMessages, formatSupervisorGuidance } from "../utils";
 import { getAgentPrompt } from "../../services/promptManager";
 import { requestAgentClarification } from "../utils/agentClarification";
 
 interface PlannerOutput {
   bodyBlocks: BodyBlock[];
   imagePlans: ImagePlan[];
-  paragraphImageBindings: ParagraphImageBinding[];
   textOverlayPlan: TextOverlayPlan[];
 }
 
@@ -105,15 +103,6 @@ function parsePlannerOutput(content: string): PlannerOutput | null {
           .slice(0, 4)
       : [];
 
-    const bindings: ParagraphImageBinding[] = Array.isArray(parsed.paragraphImageBindings)
-      ? parsed.paragraphImageBindings
-          .map((item: any, idx: number) => ({
-            imageSeq: Number.isFinite(item.imageSeq) ? item.imageSeq : idx,
-            paragraphIds: Array.isArray(item.paragraphIds) ? item.paragraphIds.map((v: unknown) => String(v)) : [],
-            rationale: item.rationale || "按语义映射",
-          }))
-      : [];
-
     const textOverlayPlan: TextOverlayPlan[] = Array.isArray(parsed.textOverlayPlan)
       ? parsed.textOverlayPlan.map((item: any, idx: number) => ({
           imageSeq: Number.isFinite(item.imageSeq) ? item.imageSeq : idx,
@@ -130,7 +119,6 @@ function parsePlannerOutput(content: string): PlannerOutput | null {
     return {
       bodyBlocks,
       imagePlans,
-      paragraphImageBindings: bindings,
       textOverlayPlan,
     };
   } catch {
@@ -162,12 +150,6 @@ function buildFallbackOutput(
     };
   });
 
-  const bindings: ParagraphImageBinding[] = plans.map((plan, idx) => ({
-    imageSeq: plan.sequence,
-    paragraphIds: [bodyBlocks[Math.min(idx, bodyBlocks.length - 1)].id],
-    rationale: "按正文段落语义顺序映射",
-  }));
-
   const overlay: TextOverlayPlan[] = plans.map((plan, idx) => {
     const block = bodyBlocks[Math.min(idx, bodyBlocks.length - 1)];
     return {
@@ -181,7 +163,6 @@ function buildFallbackOutput(
   return {
     bodyBlocks,
     imagePlans: plans,
-    paragraphImageBindings: bindings,
     textOverlayPlan: overlay,
   };
 }
@@ -200,7 +181,6 @@ export async function imagePlannerNode(state: typeof AgentState.State, model: Ch
       messages: [errorMessage],
       currentAgent: "image_planner_agent" as AgentType,
       imagePlans: [],
-      paragraphImageBindings: [],
       textOverlayPlan: [],
       bodyBlocks: [],
       layoutComplete: false,
@@ -228,7 +208,6 @@ export async function imagePlannerNode(state: typeof AgentState.State, model: Ch
         ...clarificationResult,
         currentAgent: "image_planner_agent" as AgentType,
         imagePlans: [],
-        paragraphImageBindings: [],
         textOverlayPlan: [],
         bodyBlocks: [],
       };
@@ -236,6 +215,8 @@ export async function imagePlannerNode(state: typeof AgentState.State, model: Ch
   }
 
   const compressed = await compressContext(state, model);
+
+  const supervisorGuidance = formatSupervisorGuidance(state, "image_planner_agent");
 
   const layoutSpec = state.layoutSpec.length > 0 ? state.layoutSpec : defaultLayoutSpec(3);
   const reviewSuggestions = state.reviewFeedback?.suggestions?.join("\n") || "";
@@ -249,17 +230,16 @@ export async function imagePlannerNode(state: typeof AgentState.State, model: Ch
 {
   "bodyBlocks": [{"id":"p1","text":"...","intent":"...","keywords":["..."]}],
   "imagePlans": [{"sequence":0,"role":"cover","description":"...","prompt":"..."}],
-  "paragraphImageBindings": [{"imageSeq":0,"paragraphIds":["p1"],"rationale":"..."}],
   "textOverlayPlan": [{"imageSeq":0,"titleText":"...","bodyText":"...","placement":"top"}]
 }
 规则：
 1) 正文不长，直接基于完整正文拆分，不要只看标题。
-2) 每张图必须绑定至少一个 paragraphIds。
-3) prompt 要包含可展示的文字，文字内容请加引号。
-4) 只输出 JSON，不要多余解释。`;
+2) prompt 要包含可展示的文字，文字内容请加引号。
+3) 只输出 JSON，不要多余解释。`;
 
   const response = await model.invoke([
     new HumanMessage(promptFromStore || fallbackSystemPrompt),
+    ...(supervisorGuidance ? [new HumanMessage(supervisorGuidance)] : []),
     new HumanMessage(
       `标题：${title}\n\n完整正文：\n${body}\n\nlayoutSpec：${JSON.stringify(layoutSpec)}\n\nreferenceAnalyses：${JSON.stringify(state.referenceAnalyses)}\n\nreviewSuggestions：${reviewSuggestions || "无"}`
     ),
@@ -270,39 +250,20 @@ export async function imagePlannerNode(state: typeof AgentState.State, model: Ch
   const parsed = parsePlannerOutput(content);
   const output = parsed || buildFallbackOutput(title, body, layoutSpec, reviewSuggestions);
 
-  // 补齐绑定（防止模型遗漏）
-  if (output.paragraphImageBindings.length < output.imagePlans.length) {
-    const existingSeq = new Set(output.paragraphImageBindings.map((b) => b.imageSeq));
-    output.imagePlans.forEach((plan, idx) => {
-      if (!existingSeq.has(plan.sequence)) {
-        const block = output.bodyBlocks[Math.min(idx, output.bodyBlocks.length - 1)];
-        if (block) {
-          output.paragraphImageBindings.push({
-            imageSeq: plan.sequence,
-            paragraphIds: [block.id],
-            rationale: "自动补全段落映射",
-          });
-        }
-      }
-    });
-  }
-
   const summaryPayload = {
     imagePlans: output.imagePlans,
-    paragraphImageBindings: output.paragraphImageBindings,
     textOverlayPlan: output.textOverlayPlan,
     bodyBlocks: output.bodyBlocks,
   };
 
   const summaryMessage = new AIMessage(
-    `图片规划完成\n\n共规划 ${output.imagePlans.length} 张图片，并完成段落映射 ${output.paragraphImageBindings.length} 条。\n\n\`\`\`json\n${JSON.stringify(summaryPayload, null, 2)}\n\`\`\``
+    `图片规划完成\n\n共规划 ${output.imagePlans.length} 张图片。\n\n\`\`\`json\n${JSON.stringify(summaryPayload, null, 2)}\n\`\`\``
   );
 
   return {
     messages: [summaryMessage],
     currentAgent: "image_planner_agent" as AgentType,
     imagePlans: output.imagePlans,
-    paragraphImageBindings: output.paragraphImageBindings,
     textOverlayPlan: output.textOverlayPlan,
     bodyBlocks: output.bodyBlocks,
     reviewFeedback: null,
