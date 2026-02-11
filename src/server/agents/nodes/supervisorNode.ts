@@ -89,6 +89,8 @@ export async function supervisorNode(state: typeof AgentState.State, model: Chat
     requirementClarityScore: clarityReport.score.toFixed(2),
     requirementMissingDimensions: clarityReport.missingDimensions.length > 0 ? clarityReport.missingDimensions.join("、") : "无",
     latestUserRequirement: clarityReport.normalizedRequirement || "无",
+    userFeedback: state.userFeedback || "无",
+    regenerationCount: String(state.regenerationCount || 0),
     needsOptimization:
       state.reviewFeedback && !state.reviewFeedback.approved && state.reviewFeedback.suggestions.length > 0
         ? "是"
