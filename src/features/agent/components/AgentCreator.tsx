@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import type { Theme } from "@/App";
-import { ArrowLeft, Send, X } from "lucide-react";
+import { Send, X } from "lucide-react";
 import type { AgentEvent, ChatMessage } from "../types";
 import type { ContentPackage } from "@/features/material-library/types";
 import { NoteDetailModal, type NoteDetailData } from "@/components/NoteDetailModal";
@@ -13,9 +13,9 @@ import type { ImageGenProvider } from "./AgentCreatorConfig";
 
 // 子组件
 import { InteractiveHITLBubble } from "./HITLMessage";
-import { ConversationHistory } from "./ConversationHistory";
 import { MessageTypeRenderer } from "./Messages/MessageTypeRenderer";
 import { useAgentStreamStore } from "../store/agentStreamStore";
+import { useConversationStore } from "../store/conversationStore";
 import { useShallow } from "zustand/react/shallow";
 
 interface AgentCreatorProps {
@@ -31,7 +31,7 @@ interface AgentCreatorProps {
 export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirement, onClose, backLabel }: AgentCreatorProps) {
   // 基础状态
   const [requirement, setRequirement] = useState("");
-  const [conversationId, setConversationId] = useState<number | null>(null);
+  const { conversationId, setConversationId } = useConversationStore();
 
   const {
     messages,
@@ -179,7 +179,7 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
       
       const phaseMap: Record<string, string> = {
         brief_compiler_agent: "正在梳理任务...",
-        research_evidence_agent: "正在提取研究证据...",
+        research_agent: "正在提取研究证据...",
         reference_intelligence_agent: "正在解析参考图...",
         layout_planner_agent: "正在规划版式...",
         writer_agent: "正在创作文案...",
@@ -215,39 +215,7 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
       { setEvents, setMessages, setImageTasks, setIsStreaming, setStreamPhase, setAskUserDialog },
       { updatePhase, onConversationId: setConversationId }
     );
-  }, [setAskUserDialog, setEvents, setImageTasks, setIsStreaming, setMessages, setStreamPhase, updatePhase]);
-
-  // 加载历史对话
-  const loadConversation = useCallback(async (id: number) => {
-    try {
-      const res = await fetch(`/api/conversations/${id}`);
-      if (!res.ok) throw new Error('Failed to load conversation');
-
-      const data = await res.json();
-      setConversationId(data.id);
-
-      // 转换消息格式
-      const loadedMessages: ChatMessage[] = data.messages.map((msg: any) => ({
-        role: msg.role,
-        content: msg.content,
-        agent: msg.agent,
-        events: msg.events,
-        askUser: msg.askUser,
-        askUserResponse: msg.askUserResponse,
-      }));
-
-      resetStream();
-      setMessages(loadedMessages);
-    } catch (error) {
-      console.error('Failed to load conversation:', error);
-    }
-  }, [resetStream, setMessages]);
-
-  // 开始新对话
-  const startNewConversation = useCallback(() => {
-    setConversationId(null);
-    resetStream();
-  }, [resetStream]);
+  }, [setAskUserDialog, setEvents, setImageTasks, setIsStreaming, setMessages, setStreamPhase, updatePhase, setConversationId]);
 
   const submitMessage = useCallback(async (userMessage: string, source: string) => {
     if (!userMessage.trim() || isStreaming) return;
@@ -318,18 +286,16 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
 
   // 提交 askUser 响应
   const handleAskUserSubmit = async () => {
-    if (!askUserDialog.threadId) return;
+    // 使用 getState() 获取最新状态，避免 setTimeout 闭包问题
+    const currentDialog = useAgentStreamStore.getState().askUserDialog;
+    if (!currentDialog.threadId) return;
 
-    const isHITLConfirm = !!(askUserDialog.context as any)?.__hitl;
-    const selectedLabels = askUserDialog.options
-      .filter(opt => askUserDialog.selectedIds.includes(opt.id))
-      .map(opt => opt.label)
-      .join(", ");
+    const isHITLConfirm = !!(currentDialog.context as any)?.__hitl;
 
     let requestBody: any;
     if (isHITLConfirm) {
-      const selectedId = askUserDialog.selectedIds[0];
-      const feedback = (askUserDialog.customInput || "").trim();
+      const selectedId = currentDialog.selectedIds[0];
+      const feedback = (currentDialog.customInput || "").trim();
 
       if (selectedId === "reject" && !feedback) {
         window.alert("要重生成的话，写一句建议会更好哦");
@@ -337,39 +303,39 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
       }
 
       requestBody = {
-        threadId: askUserDialog.threadId,
+        threadId: currentDialog.threadId,
         action: selectedId === "reject" ? "reject" : "approve",
         ...(selectedId === "reject" ? { userFeedback: feedback } : {}),
       };
     } else {
       requestBody = {
-        threadId: askUserDialog.threadId,
+        threadId: currentDialog.threadId,
         userResponse: {
-          selectedIds: askUserDialog.selectedIds,
-          customInput: (askUserDialog.customInput || "").trim() || undefined,
+          selectedIds: currentDialog.selectedIds,
+          customInput: (currentDialog.customInput || "").trim() || undefined,
         },
       };
     }
 
     setAskUserDialog(prev => ({ ...prev, isOpen: false }));
 
-    const customInput = (askUserDialog.customInput || "").trim();
-    const selectedLabelsList = askUserDialog.options
-      .filter(opt => askUserDialog.selectedIds.includes(opt.id))
+    const customInput = (currentDialog.customInput || "").trim();
+    const selectedLabelsList = currentDialog.options
+      .filter(opt => currentDialog.selectedIds.includes(opt.id))
       .map(opt => opt.label);
 
     // 添加紧凑的用户选择记录，同时保存 HITL context（文案/图片规划）以便历史回溯
-    const isHITLWithContent = !!(askUserDialog.context as any)?.__hitl && (askUserDialog.context as any)?.data;
+    const isHITLWithContent = !!(currentDialog.context as any)?.__hitl && (currentDialog.context as any)?.data;
     setMessages(prev => [
       ...prev,
       {
         role: "user" as const,
         content: customInput || selectedLabelsList.join(", ") || "继续",
         askUserResponse: {
-          selectedIds: askUserDialog.selectedIds,
+          selectedIds: currentDialog.selectedIds,
           selectedLabels: selectedLabelsList,
           customInput: customInput || undefined,
-          ...(isHITLWithContent ? { context: askUserDialog.context } : {}),
+          ...(isHITLWithContent ? { context: currentDialog.context } : {}),
         },
       },
     ]);
@@ -437,12 +403,7 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
       {/* 初始状态布局 */}
       {!hasMessages && (
         <AgentCreatorEmptyState
-          onClose={onClose}
-          backLabel={backLabel}
           themeId={theme.id}
-          conversationId={conversationId}
-          loadConversation={loadConversation}
-          startNewConversation={startNewConversation}
           requirement={requirement}
           setRequirement={setRequirement}
           handleSubmit={handleSubmit}
@@ -469,39 +430,6 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
               />
             </div>
           )}
-
-          {/* 右上角悬浮按钮组 - 默认低调，hover 显现 */}
-          <div className="absolute top-4 right-4 z-20 flex items-center gap-1.5 opacity-70 hover:opacity-100 transition-opacity duration-200 bg-white/70 backdrop-blur-sm rounded-xl px-1.5 py-1 shadow-sm">
-            {onClose && backLabel ? (
-              <button
-                onClick={onClose}
-                className="h-9 px-3 rounded-xl bg-white/90 backdrop-blur text-gray-700 hover:bg-gray-100 shadow-md shadow-gray-200/50 ring-1 ring-gray-100 text-xs flex items-center"
-                title={backLabel}
-              >
-                <ArrowLeft className="w-4 h-4 mr-1" />
-                {backLabel}
-              </button>
-            ) : onClose ? (
-              <button
-                onClick={onClose}
-                className="p-2 rounded-xl bg-white/90 backdrop-blur text-gray-500 hover:text-gray-700 hover:bg-gray-100 shadow-md shadow-gray-200/50 ring-1 ring-gray-100"
-                title="返回"
-                aria-label="返回"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            ) : null}
-
-            {/* 历史对话按钮 */}
-            <ConversationHistory
-              themeId={theme.id}
-              currentConversationId={conversationId}
-              onSelect={loadConversation}
-              onNewConversation={startNewConversation}
-              compact
-            />
-
-          </div>
 
           {/* 消息区域 */}
           <div className="flex-1 overflow-y-auto px-4 py-3 pb-24 space-y-4">
@@ -534,6 +462,18 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
                   onStateChange={setAskUserDialog}
                   onSubmit={handleAskUserSubmit}
                 />
+              )}
+
+              {/* 思考中状态（用户确认后、等待后端响应时显示） */}
+              {isStreaming && !askUserDialog.isOpen && messages.length > 0 && messages[messages.length - 1]?.role === 'user' && (
+                <div className="flex items-center gap-2.5 py-2">
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-pulse" style={{ animationDelay: '0ms' }} />
+                    <div className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-pulse" style={{ animationDelay: '150ms' }} />
+                    <div className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-pulse" style={{ animationDelay: '300ms' }} />
+                  </div>
+                  <span className="text-xs text-gray-400">{streamPhase || '思考中...'}</span>
+                </div>
               )}
               <div ref={messagesEndRef} />
             </div>

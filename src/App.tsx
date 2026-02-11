@@ -7,6 +7,9 @@ import { SettingsTab } from '@/features/workspace/components/SettingsTab';
 import { TaskCenterPage } from '@/features/task-center/TaskCenterPage';
 import { useAuthStatus } from '@/hooks/useAuthStatus';
 import { LoginRequiredDialog } from '@/components/LoginRequiredDialog';
+import { ConversationHistory } from '@/features/agent/components/ConversationHistory';
+import { useConversationStore } from '@/features/agent/store/conversationStore';
+import { useAgentStreamStore } from '@/features/agent/store/agentStreamStore';
 
 export interface Keyword {
   id: number;
@@ -132,6 +135,42 @@ export default function App() {
   const auth = useAuthStatus();
   const showLoginDialog = !auth.isChecking && !auth.isLoggedIn;
   const canLoadTaskOverview = !auth.isChecking && auth.isLoggedIn;
+
+  // 对话历史相关
+  const { conversationId, setConversationId } = useConversationStore();
+  const { setMessages, resetStream } = useAgentStreamStore();
+
+  // 加载历史对话
+  const loadConversation = useCallback(async (id: number) => {
+    try {
+      const res = await fetch(`/api/conversations/${id}`);
+      if (!res.ok) throw new Error('Failed to load conversation');
+
+      const data = await res.json();
+      setConversationId(data.id);
+
+      // 转换消息格式
+      const loadedMessages = data.messages.map((msg: any) => ({
+        role: msg.role,
+        content: msg.content,
+        agent: msg.agent,
+        events: msg.events,
+        askUser: msg.askUser,
+        askUserResponse: msg.askUserResponse,
+      }));
+
+      resetStream();
+      setMessages(loadedMessages);
+    } catch (error) {
+      console.error('Failed to load conversation:', error);
+    }
+  }, [resetStream, setMessages, setConversationId]);
+
+  // 开始新对话
+  const startNewConversation = useCallback(() => {
+    setConversationId(null);
+    resetStream();
+  }, [resetStream, setConversationId]);
 
   const themeNameMap = useMemo(() => {
     const map = new Map<number, string>();
@@ -434,6 +473,15 @@ export default function App() {
           {/* 右侧按钮 - 仅在 creative 视图显示 */}
           {currentView === 'creative' && selectedTheme && (
             <div className="flex items-center gap-1.5">
+              {/* 历史记录按钮 */}
+              {creativeMainTab === 'generate' && (
+                <ConversationHistory
+                  themeId={selectedTheme.id}
+                  currentConversationId={conversationId}
+                  onSelect={loadConversation}
+                  onNewConversation={startNewConversation}
+                />
+              )}
               {creativeMainTab !== 'generate' && (
                 <button
                   onClick={() => setCreativeMainTab('generate')}
@@ -544,7 +592,7 @@ export default function App() {
         </div>
       </main>
 
-      <div className="fixed bottom-6 right-6 z-40">
+      <div className="fixed bottom-20 right-6 z-40">
         {taskQuickOpen && (
           <div className="absolute bottom-16 right-0 w-80 rounded-lg border border-gray-200 bg-white shadow-xl p-4">
             <div className="flex items-center justify-between mb-3">
@@ -657,12 +705,12 @@ export default function App() {
 
         <button
           onClick={handleToggleTaskQuick}
-          className="flex items-center gap-2 px-4 py-3 rounded-full shadow-lg transition bg-red-500 text-white hover:bg-red-600"
+          className="flex items-center gap-1.5 px-3 py-2 rounded-full shadow-lg transition bg-red-500 text-white hover:bg-red-600"
         >
-          <ListChecks className="w-5 h-5" />
-          <span className="text-sm font-semibold">任务</span>
+          <ListChecks className="w-4 h-4" />
+          <span className="text-xs font-semibold">任务</span>
           {runningTaskCount > 0 && (
-            <span className="ml-1 px-1.5 py-0.5 text-xs bg-white text-red-600 rounded-full">
+            <span className="ml-0.5 px-1.5 py-0.5 text-[10px] bg-white text-red-600 rounded-full">
               {runningTaskCount}
             </span>
           )}

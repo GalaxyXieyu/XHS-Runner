@@ -141,7 +141,7 @@ function parseReviewResult(content: string): {
 }
 
 function decideRerouteTarget(scores: QualityDimensionScores): AgentType {
-  if (scores.infoDensity < THRESHOLDS.infoDensity) return "research_evidence_agent";
+  if (scores.infoDensity < THRESHOLDS.infoDensity) return "research_agent";
   if (scores.textImageAlignment < THRESHOLDS.textImageAlignment) return "layout_planner_agent";
   if (scores.styleConsistency < THRESHOLDS.styleConsistency) return "reference_intelligence_agent";
   if (scores.readability < THRESHOLDS.readability) return "image_planner_agent";
@@ -157,7 +157,10 @@ function guessImageMimeType(path: string): string {
 }
 
 export async function reviewAgentNode(state: typeof AgentState.State) {
-  const visionModel = await createLLM(true);
+  const visionModel = await createLLM(true, {
+    sessionId: state.threadId || undefined,
+    tags: ['agent-flow', 'review_agent'],
+  });
 
   const imageContents: Array<{ type: "image_url"; image_url: { url: string } }> = [];
   const imageAssetIds: number[] = [];
@@ -279,7 +282,7 @@ export async function reviewAgentNode(state: typeof AgentState.State) {
   "approved": true/false,
   "suggestions": ["优化建议"],
   "failReasons": ["不通过原因"],
-  "rerouteTarget": "research_evidence_agent|layout_planner_agent|reference_intelligence_agent|writer_agent|image_planner_agent"
+  "rerouteTarget": "research_agent|layout_planner_agent|reference_intelligence_agent|writer_agent|image_planner_agent"
 }`;
 
   const systemPromptWithThreshold = `${systemPrompt}\n\n${buildReviewThresholdHint(THRESHOLDS)}`;

@@ -17,7 +17,7 @@ type RouteDecision = AgentType | typeof END | "supervisor";
 const ROUTE_STAGE_ORDER: Record<AgentType, number> = {
   supervisor: 0,
   brief_compiler_agent: 10,
-  research_evidence_agent: 20,
+  research_agent: 20,
   reference_intelligence_agent: 30,
   writer_agent: 40,
   layout_planner_agent: 50,
@@ -94,7 +94,7 @@ function getRerouteTargetByScores(qualityScores: QualityScores | null): AgentTyp
   const scores = qualityScores.scores;
 
   if (scores.infoDensity < MODERATE_THRESHOLDS.infoDensity) {
-    return "research_evidence_agent";
+    return "research_agent";
   }
   if (scores.textImageAlignment < MODERATE_THRESHOLDS.textImageAlignment) {
     return "layout_planner_agent";
@@ -138,13 +138,13 @@ function getDeterministicRoute(state: typeof AgentState.State): RouteDecision {
   }
 
   // briefComplete 为 true 时表示 brief 已完成，不应再返回 brief_compiler_agent
-  // 让后续逻辑检查是否需要继续到 research_evidence_agent
+  // 让后续逻辑检查是否需要继续到 research_agent
   if (!state.briefComplete && !state.creativeBrief) {
     return "brief_compiler_agent";
   }
 
   if (!state.evidenceComplete) {
-    return "research_evidence_agent";
+    return "research_agent";
   }
 
   if (!state.referenceIntelligenceComplete) {
@@ -218,21 +218,52 @@ export function routeFromSupervisor(state: typeof AgentState.State): string {
   return deterministicRoute;
 }
 
-export function shouldContinueResearch(state: typeof AgentState.State): string {
-  const lastMessage = state.messages[state.messages.length - 1];
-  if (lastMessage && "tool_calls" in lastMessage && (lastMessage as AIMessage).tool_calls?.length) {
-    return "research_evidence_tools";
-  }
-  return "supervisor";
-}
-
-// 按 thread 隔离 image_agent 工具调用次数，避免并发串扰
+// 按 thread 隔离工具调用次数，避免并发串扰
+const researchToolCallCounterByThread = new Map<string, number>();
 const imageToolCallCounterByThread = new Map<string, number>();
+const MAX_RESEARCH_TOOL_CALLS = 3;
 const MAX_IMAGE_TOOL_CALLS = 10;
+
+export function resetResearchToolCallCount(threadId: string) {
+  if (!threadId) return;
+  researchToolCallCounterByThread.delete(threadId);
+}
 
 export function resetImageToolCallCount(threadId: string) {
   if (!threadId) return;
   imageToolCallCounterByThread.delete(threadId);
+}
+
+export function shouldContinueResearch(state: typeof AgentState.State): string {
+  const lastMessage = state.messages[state.messages.length - 1];
+  const threadId = state.threadId;
+
+  if (!threadId) {
+    console.warn("[shouldContinueResearch] missing threadId, fallback to supervisor");
+    return "supervisor";
+  }
+
+  if (lastMessage && "tool_calls" in lastMessage && (lastMessage as AIMessage).tool_calls?.length) {
+    const toolCallCount = (lastMessage as AIMessage).tool_calls!.length;
+    const currentCount = researchToolCallCounterByThread.get(threadId) || 0;
+
+    console.log(`[shouldContinueResearch] 工具调用次数: ${currentCount}, 本次请求: ${toolCallCount}`);
+
+    // 如果已经达到上限，不再执行新的工具调用
+    if (currentCount >= MAX_RESEARCH_TOOL_CALLS) {
+      console.log(`[shouldContinueResearch] 已达到工具调用上限 ${MAX_RESEARCH_TOOL_CALLS}，结束研究`);
+      return "supervisor";
+    }
+
+    // 先执行工具调用，然后更新计数
+    // 这样即使本次调用后超过上限，至少这批工具调用会被执行
+    const nextCount = currentCount + toolCallCount;
+    researchToolCallCounterByThread.set(threadId, nextCount);
+
+    console.log(`[shouldContinueResearch] 执行工具调用，累计: ${nextCount}`);
+    return "research_tools";
+  }
+  return "supervisor";
 }
 
 export function shouldContinueImage(state: typeof AgentState.State): string {

@@ -1,6 +1,6 @@
 export { supervisorNode } from "./supervisorNode";
 export { briefCompilerNode } from "./briefCompilerNode";
-export { researchEvidenceNode } from "./researchEvidenceNode";
+export { researchNode } from "./researchNode";
 export { referenceIntelligenceNode } from "./referenceIntelligenceNode";
 export { layoutPlannerNode } from "./layoutPlannerNode";
 export { writerAgentNode } from "./writerNode";

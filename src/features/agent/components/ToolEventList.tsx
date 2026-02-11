@@ -50,7 +50,7 @@ const NAME_MAP: Record<string, string> = {
 
   // Agent 节点
   brief_compiler_agent: '任务梳理专家',
-  research_evidence_agent: '证据研究专家',
+  research_agent: '内容调研专家',
   reference_intelligence_agent: '参考图智能专家',
   layout_planner_agent: '版式规划专家',
   writer_agent: '创作专家',
@@ -61,7 +61,7 @@ const NAME_MAP: Record<string, string> = {
   supervisor_route: '任务路由',
 
   // ToolNode / 组合节点
-  research_evidence_tools: '证据研究工具',
+  research_tools: '内容调研工具',
   reference_intelligence_tools: '参考图分析工具',
   image_planner_tools: '图片规划工具',
   image_tools: '图片生成工具',

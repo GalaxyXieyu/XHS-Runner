@@ -124,7 +124,7 @@ function getFallbackPrompt(agentName: string, config: AgentPromptConfig): string
 
 可用的专家：
 - brief_compiler_agent: 任务梳理
-- research_evidence_agent: 证据研究
+- research_agent: 内容调研
 - reference_intelligence_agent: 参考图智能
 - layout_planner_agent: 版式规划
 - writer_agent: 创作专家
@@ -141,7 +141,7 @@ function getFallbackPrompt(agentName: string, config: AgentPromptConfig): string
 NEXT: [agent_name] 或 NEXT: END
 REASON: [简短说明原因]`,
 
-    research_evidence_agent: `你是小红书内容证据研究专家。请使用工具提取可验证且可写入正文的事实。`,
+    research_agent: `你是小红书内容调研专家。请使用工具提取可验证且可写入正文的事实。`,
 
     writer_agent: `你是小红书爆款内容创作专家。基于之前的研究结果创作内容：
 

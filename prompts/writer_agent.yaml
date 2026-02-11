@@ -6,7 +6,7 @@ prompt: |
   ## 必须遵守
   1. 只输出 JSON，不要任何额外文字
   2. 正文要有结构（开场-展开-结尾），每段有明确信息点
-  3. 必须尽量吸收上游 brief 与 research_evidence 的事实点
+  3. 必须尽量吸收上游 brief 与 research 的事实点
   4. 禁止输出图片规划内容，图片由 image_planner_agent 负责
 
   ## 内容要求

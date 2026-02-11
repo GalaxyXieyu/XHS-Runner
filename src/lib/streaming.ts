@@ -183,7 +183,7 @@ export function reduceStreamingState(
       // Calculate overall progress based on agent completion
       const agentWeights: Record<string, number> = {
         brief_compiler_agent: 0.08,
-        research_evidence_agent: 0.12,
+        research_agent: 0.12,
         reference_intelligence_agent: 0.1,
         layout_planner_agent: 0.1,
         writer_agent: 0.2,

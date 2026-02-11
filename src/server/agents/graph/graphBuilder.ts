@@ -6,7 +6,7 @@ import { AgentState } from "../state/agentState";
 import {
   supervisorNode,
   briefCompilerNode,
-  researchEvidenceNode,
+  researchNode,
   referenceIntelligenceNode,
   layoutPlannerNode,
   writerAgentNode,
@@ -34,6 +34,8 @@ import { getCheckpointer } from "../utils";
 export interface HITLConfig {
   enableHITL?: boolean;
   threadId?: string;
+  langfuseSessionId?: string;
+  langfuseTags?: string[];
 }
 
 // 自定义参考图工具节点
@@ -105,7 +107,7 @@ function createReferenceImageToolNode(baseToolNode: ToolNode) {
 }
 
 export async function buildGraph(model: ChatOpenAI, hitlConfig?: HITLConfig) {
-  const researchEvidenceToolNode = new ToolNode(researchTools);
+  const researchToolNode = new ToolNode(researchTools);
   const imageToolNode = new ToolNode(imageTools);
   const supervisorToolNode = new ToolNode([...promptTools, ...intentTools, askUserTool]);
   const baseReferenceImageToolNode = new ToolNode(referenceImageTools);
@@ -119,7 +121,7 @@ export async function buildGraph(model: ChatOpenAI, hitlConfig?: HITLConfig) {
 
     // Core agents
     .addNode("brief_compiler_agent", (state) => briefCompilerNode(state, model))
-    .addNode("research_evidence_agent", (state) => researchEvidenceNode(state, model))
+    .addNode("research_agent", (state) => researchNode(state, model))
     .addNode("reference_intelligence_agent", referenceIntelligenceNode)
     .addNode("layout_planner_agent", (state) => layoutPlannerNode(state, model))
     .addNode("writer_agent", (state) => writerAgentNode(state, model))
@@ -128,7 +130,7 @@ export async function buildGraph(model: ChatOpenAI, hitlConfig?: HITLConfig) {
     .addNode("review_agent", reviewAgentNode)
 
     // Tool nodes
-    .addNode("research_evidence_tools", researchEvidenceToolNode)
+    .addNode("research_tools", researchToolNode)
     .addNode("image_tools", imageToolNode)
     .addNode("reference_image_tools", referenceImageToolNode)
 
@@ -142,7 +144,7 @@ export async function buildGraph(model: ChatOpenAI, hitlConfig?: HITLConfig) {
     })
     .addConditionalEdges("supervisor_route", routeFromSupervisor, {
       brief_compiler_agent: "brief_compiler_agent",
-      research_evidence_agent: "research_evidence_agent",
+      research_agent: "research_agent",
       reference_intelligence_agent: "reference_intelligence_agent",
       layout_planner_agent: "layout_planner_agent",
       writer_agent: "writer_agent",
@@ -156,11 +158,11 @@ export async function buildGraph(model: ChatOpenAI, hitlConfig?: HITLConfig) {
 
     // New phase nodes
     .addEdge("brief_compiler_agent", "supervisor")
-    .addConditionalEdges("research_evidence_agent", shouldContinueResearch, {
-      research_evidence_tools: "research_evidence_tools",
+    .addConditionalEdges("research_agent", shouldContinueResearch, {
+      research_tools: "research_tools",
       supervisor: "supervisor",
     })
-    .addEdge("research_evidence_tools", "research_evidence_agent")
+    .addEdge("research_tools", "research_agent")
     .addEdge("reference_intelligence_agent", "supervisor")
     .addEdge("layout_planner_agent", "supervisor")
 

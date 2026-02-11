@@ -1,6 +1,5 @@
-import { ArrowLeft, Paperclip, Send, X } from 'lucide-react';
+import { Paperclip, Send } from 'lucide-react';
 import type { ContentPackage } from '@/features/material-library/types';
-import { ConversationHistory } from './ConversationHistory';
 import { MaterialGallery } from './MaterialGallery';
 import type { ImageGenProvider } from './AgentCreatorConfig';
 
@@ -8,9 +7,6 @@ interface AgentCreatorEmptyStateProps {
   onClose?: () => void;
   backLabel?: string;
   themeId: string;
-  conversationId: number | null;
-  loadConversation: (id: number) => void;
-  startNewConversation: () => void;
   requirement: string;
   setRequirement: (value: string) => void;
   handleSubmit: () => void;
@@ -25,12 +21,6 @@ interface AgentCreatorEmptyStateProps {
 }
 
 export function AgentCreatorEmptyState({
-  onClose,
-  backLabel,
-  themeId,
-  conversationId,
-  loadConversation,
-  startNewConversation,
   requirement,
   setRequirement,
   handleSubmit,
@@ -45,35 +35,6 @@ export function AgentCreatorEmptyState({
 }: AgentCreatorEmptyStateProps) {
   return (
     <div className="flex-1 overflow-y-auto relative">
-      {/* 右上角悬浮按钮组 */}
-      <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
-        {onClose && backLabel ? (
-          <button
-            onClick={onClose}
-            className="h-9 px-3 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 flex items-center justify-center transition-colors shadow-sm text-xs text-gray-700"
-            title={backLabel}
-          >
-            <ArrowLeft className="w-4 h-4 mr-1 text-gray-600" />
-            {backLabel}
-          </button>
-        ) : onClose ? (
-          <button
-            onClick={onClose}
-            className="w-9 h-9 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 flex items-center justify-center transition-colors shadow-sm"
-            title="返回"
-          >
-            <X className="w-4 h-4 text-gray-600" />
-          </button>
-        ) : null}
-        <ConversationHistory
-          themeId={themeId}
-          currentConversationId={conversationId}
-          onSelect={loadConversation}
-          onNewConversation={startNewConversation}
-          compact
-        />
-      </div>
-
       {/* 上半部分：标题 + 输入框 */}
       <div className="min-h-[60vh] flex flex-col items-center justify-center px-6">
         <div className="text-center mb-8">

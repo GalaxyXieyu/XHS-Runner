@@ -5,7 +5,7 @@ import { BaseMessage } from "@langchain/core/messages";
 export type AgentType =
   | "supervisor"
   | "brief_compiler_agent"
-  | "research_evidence_agent"
+  | "research_agent"
   | "reference_intelligence_agent"
   | "layout_planner_agent"
   | "writer_agent"

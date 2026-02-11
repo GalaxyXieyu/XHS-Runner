@@ -104,6 +104,12 @@ export async function supervisorNode(state: typeof AgentState.State, model: Chat
     throw new Error("Prompt 'supervisor' not found. Please create it in Langfuse: xhs-agent-supervisor");
   }
 
+  // 打印 supervisor 输入到日志
+  console.log("\n[supervisorNode] ========== SUPERVISOR INPUT ==========");
+  console.log("[supervisorNode] stateVariables:", JSON.stringify(stateVariables, null, 2));
+  console.log("[supervisorNode] systemPrompt:\n", systemPrompt);
+  console.log("[supervisorNode] ==========================================\n");
+
   const response = await modelWithTools.invoke([
     new HumanMessage(systemPrompt),
     ...safeSliceMessages(compressed.messages, 6),

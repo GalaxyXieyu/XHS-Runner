@@ -55,7 +55,7 @@ export function getAgentDisplayName(name: string): string {
     supervisor: "主管",
     supervisor_route: "任务路由",
     brief_compiler_agent: "任务梳理",
-    research_evidence_agent: "证据研究",
+    research_agent: "内容调研",
     reference_intelligence_agent: "参考图智能",
     layout_planner_agent: "版式规划",
     writer_agent: "创作专家",

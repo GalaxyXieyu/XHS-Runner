@@ -11,10 +11,9 @@
 ## Agent Runtime Baseline（Single-flow V2）
 
 当前统一链路：
-`supervisor -> brief_compiler_agent -> research_evidence_agent -> reference_intelligence_agent -> writer_agent -> layout_planner_agent -> image_planner_agent -> image_agent -> review_agent`
+`supervisor -> brief_compiler_agent -> research_agent -> reference_intelligence_agent -> writer_agent -> layout_planner_agent -> image_planner_agent -> image_agent -> review_agent`
 
 约束：
-- 不再以旧链路（`research_agent` / `style_analyzer_agent`）作为主流程。
 - 每个关键 agent 都应具备在输入不足时主动 `ask_user` 的能力。
 - review 是质量门禁，路由策略不能随意跳过。
 

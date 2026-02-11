@@ -13,7 +13,7 @@ export type ContentStatus = z.infer<typeof ContentStatus>;
 export const AgentType = z.enum([
   "supervisor",
   "brief_compiler_agent",
-  "research_evidence_agent",
+  "research_agent",
   "reference_intelligence_agent",
   "layout_planner_agent",
   "writer_agent",

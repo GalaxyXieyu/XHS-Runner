@@ -324,6 +324,30 @@ export function BriefResultCard({ brief, expanded = false, onToggle, inline = fa
 // 版式规划卡片
 // ============================================================================
 
+// role 翻译
+function translateRole(role: string): string {
+  const roleMap: Record<string, string> = {
+    cover: '封面',
+    detail: '详情',
+    result: '结果',
+  };
+  return roleMap[role] || role;
+}
+
+// area 翻译
+function translateArea(area: string): string {
+  const areaMap: Record<string, string> = {
+    title: '标题',
+    body: '正文',
+    visual_focus: '视觉焦点',
+    header: '头部',
+    footer: '底部',
+    image: '图片',
+    text: '文字',
+  };
+  return areaMap[area] || area;
+}
+
 interface LayoutSpecCardProps {
   layoutSpec: any;
   expanded?: boolean;
@@ -350,9 +374,9 @@ export function LayoutSpecCard({ layoutSpec, expanded = false, onToggle, inline 
           className="w-full flex items-center justify-between px-3 py-2 bg-slate-50/40 hover:bg-slate-50/70 transition-colors text-left"
         >
           <div className="flex items-center gap-2">
-            <LayoutGrid className="w-3.5 h-3.5 text-slate-400" />
+            <LayoutGrid className="w-3.5 h-3.5 text-red-400" />
             <span className="text-sm font-semibold text-slate-700">版式规划完成</span>
-            <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded-full font-normal">
+            <span className="text-[10px] px-1.5 py-0.5 bg-red-50 text-red-500 rounded-full font-normal">
               {count} 张
             </span>
           </div>
@@ -365,7 +389,7 @@ export function LayoutSpecCard({ layoutSpec, expanded = false, onToggle, inline 
           {layoutItems.map((spec: any, index: number) => (
             <span key={index} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 bg-slate-50 text-slate-600 rounded-lg">
               <span className="font-medium">图{index + 1}</span>
-              {spec.layoutType && <span className="text-slate-500">· {spec.layoutType}</span>}
+              {(spec.role || spec.layoutType) && <span className="text-red-400">· {translateRole(spec.role || spec.layoutType)}</span>}
             </span>
           ))}
           {preference && (
@@ -381,20 +405,33 @@ export function LayoutSpecCard({ layoutSpec, expanded = false, onToggle, inline 
               <div key={index} className="rounded-lg bg-slate-50/50 px-2.5 py-2">
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-xs font-semibold text-slate-700">图 {index + 1}</span>
-                  {spec.layoutType && (
-                    <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded font-normal">
-                      {spec.layoutType}
+                  {(spec.role || spec.layoutType) && (
+                    <span className="text-[10px] px-1.5 py-0.5 bg-red-50 text-red-500 rounded font-medium">
+                      {translateRole(spec.role || spec.layoutType)}
                     </span>
                   )}
                 </div>
+                {spec.visualFocus && (
+                  <div className="text-[10px] text-slate-500">焦点 {spec.visualFocus}</div>
+                )}
+                {spec.textDensity && (
+                  <div className="text-[10px] text-slate-500">密度 {spec.textDensity}</div>
+                )}
                 {spec.imageSize && (
-                  <div className="text-[10px] text-slate-500">尺寸：{spec.imageSize}</div>
+                  <div className="text-[10px] text-slate-500">尺寸 {spec.imageSize}</div>
                 )}
                 {spec.textZone && (
-                  <div className="text-[10px] text-slate-500">文字区：{typeof spec.textZone === 'string' ? spec.textZone : JSON.stringify(spec.textZone)}</div>
+                  <div className="text-[10px] text-slate-500">文字区 {typeof spec.textZone === 'string' ? spec.textZone : JSON.stringify(spec.textZone)}</div>
                 )}
                 {spec.description && (
                   <div className="text-[10px] text-slate-500 mt-1 line-clamp-2">{spec.description}</div>
+                )}
+                {Array.isArray(spec.blocks) && spec.blocks.length > 0 && (
+                  <div className="text-[10px] text-slate-400 mt-1 space-y-0.5">
+                    {spec.blocks.map((b: any, bi: number) => (
+                      <div key={bi} className="truncate">{translateArea(b.area)} {b.instruction}</div>
+                    ))}
+                  </div>
                 )}
                 {spec.colorScheme && (
                   <div className="flex items-center gap-1 mt-1">

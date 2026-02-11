@@ -17,7 +17,7 @@ prompt: |
   - overall >= 0.60
 
   若不通过，请给出 rerouteTarget：
-  - research_evidence_agent / layout_planner_agent / reference_intelligence_agent / writer_agent / image_planner_agent
+  - research_agent / layout_planner_agent / reference_intelligence_agent / writer_agent / image_planner_agent
 
   ## 输出格式（严格 JSON）
   {

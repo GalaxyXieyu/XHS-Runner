@@ -71,8 +71,8 @@ function buildScenarios(threadId: string): Scenario[] {
       },
     },
     {
-      id: "research_evidence",
-      targetAgent: "research_evidence_agent",
+      id: "research",
+      targetAgent: "research_agent",
       description: "研究阶段缺少方向触发澄清",
       state: {
         ...base,

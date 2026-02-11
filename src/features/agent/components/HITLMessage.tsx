@@ -6,6 +6,7 @@
 import { useState } from "react";
 import { Check, MessageSquare, Edit3, ChevronDown, ChevronUp, FileText } from "lucide-react";
 import type { ChatMessage, AskUserOption, AskUserDialogState } from "../types";
+import { ImagePlanCard, type ParsedImagePlan } from "./ImagePlanCard";
 
 interface HITLMessageProps {
   message: ChatMessage;
@@ -26,9 +27,19 @@ interface HITLContentData {
   title: string;
   body: string;
   tags: string[];
+  /** 图片规划原始数据（仅 image_plans 类型） */
+  plans?: Array<{ role: string; description: string; prompt: string }>;
 }
 
 const MAX_PREVIEW_LENGTH = 200;
+
+/** 从字符串中提取 JSON 内容（去掉 ```json 标记） */
+function extractJsonContent(content: string): string {
+  if (!content) return content;
+  // 匹配 ```json ... ``` 或 ``` ... ```
+  const match = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  return match ? match[1].trim() : content;
+}
 
 /** 从 HITL context 中提取内容数据 */
 export function extractHITLContent(context: unknown): HITLContentData | null {
@@ -47,17 +58,23 @@ export function extractHITLContent(context: unknown): HITLContentData | null {
     return {
       kind: "content",
       title: String(data.title || "未命名"),
-      body: String(data.body || ""),
+      body: extractJsonContent(String(data.body || "")),
       tags,
     };
   }
 
   if (ctx.kind === "image_plans" && Array.isArray(data.plans)) {
+    const plans = data.plans.map((p: any) => ({
+      role: p.role || 'detail',
+      description: p.description || '',
+      prompt: p.prompt || '',
+    }));
     return {
       kind: "image_plans",
-      title: "图片规划",
-      body: data.plans.map((p: any, i: number) => `${i + 1}. ${p.description || p.prompt || ""}`.trim()).join("\n"),
+      title: `图片规划（${data.plans.length}张）`,
+      body: '', // 不再使用 body，改用 plans 渲染
       tags: [],
+      plans,
     };
   }
 
@@ -74,6 +91,27 @@ function ContentPreview({
   isExpanded: boolean;
   onToggle: () => void;
 }) {
+  // 图片规划使用 ImagePlanCard 组件
+  if (data.kind === "image_plans" && data.plans && data.plans.length > 0) {
+    const parsedImagePlan: ParsedImagePlan = {
+      summary: "",
+      plans: data.plans.map((p, i) => ({
+        sequence: i,
+        role: p.role,
+        description: p.description,
+        prompt: p.prompt,
+      })),
+      paragraphImageBindings: [],
+    };
+
+    return (
+      <div className="mx-3.5 mb-2 rounded-2xl bg-gradient-to-b from-gray-50/80 to-gray-100/50 border border-black/[0.04] overflow-hidden p-3">
+        <ImagePlanCard imagePlan={parsedImagePlan} />
+      </div>
+    );
+  }
+
+  // 普通内容预览
   const shouldTruncate = data.body.length > MAX_PREVIEW_LENGTH;
   const displayBody = shouldTruncate && !isExpanded
     ? data.body.slice(0, MAX_PREVIEW_LENGTH) + "..."
@@ -142,13 +180,12 @@ export function InteractiveHITLBubble({ state, onStateChange, onSubmit }: Intera
     if (state.selectionType === "single") {
       onStateChange({ ...state, selectedIds: [optionId] });
 
-      // 如果选择了"继续"（approve），延迟提交让用户看到选中效果
-      if (optionId === "approve") {
-        setTimeout(() => onSubmit(), 300);
-      }
       // 如果选择了"重生成"（reject），显示反馈输入框
-      else if (optionId === "reject") {
+      if (optionId === "reject") {
         setShowFeedbackInput(true);
+      } else {
+        // 其他单选选项，延迟提交让用户看到选中效果
+        setTimeout(() => onSubmit(), 300);
       }
     } else {
       const newIds = state.selectedIds.includes(optionId)
@@ -181,11 +218,11 @@ export function InteractiveHITLBubble({ state, onStateChange, onSubmit }: Intera
   const bubbleMaxWidth = contentData ? "max-w-[85%]" : "max-w-[70%]";
 
   return (
-    <div className={`bg-white/95 backdrop-blur-xl border border-black/[0.06] rounded-2xl ${bubbleMaxWidth}`}
+    <div className={`bg-white/95 backdrop-blur-xl border border-black/[0.06] rounded-2xl ${bubbleMaxWidth} max-h-[70vh] flex flex-col`}
       style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.03), 0 4px 14px rgba(0,0,0,0.06), 0 16px 40px -8px rgba(0,0,0,0.08)' }}
     >
       {/* 标题栏 */}
-      <div className="flex items-center gap-2 px-4 pt-4 pb-2">
+      <div className="flex items-center gap-2 px-4 pt-4 pb-2 flex-shrink-0">
         <div className="w-5 h-5 rounded-full bg-amber-50 border border-amber-200/60 flex items-center justify-center flex-shrink-0">
           {contentData ? <FileText className="w-2.5 h-2.5 text-amber-500" /> : <MessageSquare className="w-2.5 h-2.5 text-amber-500" />}
         </div>
@@ -194,14 +231,16 @@ export function InteractiveHITLBubble({ state, onStateChange, onSubmit }: Intera
         </span>
       </div>
 
-      {/* 内容预览区域（从 context 中提取的文案/图片规划） */}
-      {contentData && (
-        <ContentPreview
-          data={contentData}
-          isExpanded={isContentExpanded}
-          onToggle={() => setIsContentExpanded(!isContentExpanded)}
-        />
-      )}
+      {/* 可滚动的内容区域 */}
+      <div className="flex-1 overflow-y-auto min-h-0">
+        {/* 内容预览区域（从 context 中提取的文案/图片规划） */}
+        {contentData && (
+          <ContentPreview
+            data={contentData}
+            isExpanded={isContentExpanded}
+            onToggle={() => setIsContentExpanded(!isContentExpanded)}
+          />
+        )}
 
       {/* 操作区域 */}
       <div className="px-4 pb-4 pt-2">
@@ -240,7 +279,13 @@ export function InteractiveHITLBubble({ state, onStateChange, onSubmit }: Intera
           <textarea
             value={customInput}
             onChange={(e) => handleCustomInputChange(e.target.value)}
-            placeholder="请告诉我需要改进的地方..."
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey && customInput.trim()) {
+                e.preventDefault();
+                handleSubmit();
+              }
+            }}
+            placeholder="请告诉我需要改进的地方...（回车提交）"
             className="w-full px-3.5 py-2.5 text-[13px] border border-black/[0.08] rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 resize-none bg-gray-50/50 transition-all placeholder:text-gray-400"
             rows={2}
             autoFocus
@@ -269,8 +314,8 @@ export function InteractiveHITLBubble({ state, onStateChange, onSubmit }: Intera
         </div>
       )}
 
-      {/* 普通选项的确认按钮（非 approve/reject 时显示） */}
-      {selectedId && selectedId !== "approve" && selectedId !== "reject" && !needsFeedback && (
+      {/* 多选模式的确认按钮 */}
+      {state.selectionType === "multiple" && state.selectedIds.length > 0 && (
         <div className="mt-3 flex justify-end">
           <button
             onClick={onSubmit}
@@ -283,6 +328,7 @@ export function InteractiveHITLBubble({ state, onStateChange, onSubmit }: Intera
         </div>
       )}
       </div>{/* end 操作区域 */}
+      </div>{/* end 可滚动区域 */}
     </div>
   );
 }
@@ -505,6 +551,29 @@ export function CollapsedContentCard({ data }: { data: HITLContentData }) {
   const displayBody = shouldTruncate && !isBodyExpanded
     ? data.body.slice(0, MAX_PREVIEW_LENGTH) + "..."
     : data.body;
+
+  // 图片规划使用 ImagePlanCard 组件
+  if (data.kind === "image_plans" && data.plans && data.plans.length > 0) {
+    const parsedImagePlan: ParsedImagePlan = {
+      summary: "",
+      plans: data.plans.map((p, i) => ({
+        sequence: i,
+        role: p.role,
+        description: p.description,
+        prompt: p.prompt,
+      })),
+      paragraphImageBindings: [],
+    };
+
+    return (
+      <div
+        className="rounded-2xl border border-black/[0.06] bg-white/95 backdrop-blur-xl overflow-hidden p-3"
+        style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.03), 0 4px 14px rgba(0,0,0,0.06), 0 16px 40px -8px rgba(0,0,0,0.08)' }}
+      >
+        <ImagePlanCard imagePlan={parsedImagePlan} />
+      </div>
+    );
+  }
 
   return (
     <div

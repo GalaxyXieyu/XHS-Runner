@@ -74,7 +74,7 @@ function isInternalNode(agentKey: string): boolean {
   return false;
 }
 
-/** 将 _tools 节点归一化到父 agent（例如 research_evidence_agent_tools → research_evidence_agent） */
+/** 将 _tools 节点归一化到父 agent（例如 research_agent_tools → research_agent） */
 function normalizeAgentKey(agentKey: string): string {
   if (agentKey.endsWith('_tools')) {
     return agentKey.slice(0, -6); // 移除 "_tools"
@@ -115,7 +115,7 @@ export function buildAgentTimeline({
 
   const researchEvents = events.filter(
     (event) =>
-      event.agent === 'research_evidence_agent' &&
+      event.agent === 'research_agent' &&
       event.type === 'message'
   );
   const writerEvents = events.filter((event) => event.agent === 'writer_agent' && event.type === 'message');
@@ -149,7 +149,7 @@ export function buildAgentTimeline({
   const imagePlannerState = agentStates.get('image_planner_agent') || agentStates.get('reference_intelligence_agent');
   const reviewState = agentStates.get('review_agent');
   const writerState = agentStates.get('writer_agent');
-  const researchState = agentStates.get('research_evidence_agent');
+  const researchState = agentStates.get('research_agent');
 
   const briefTimestamp = findLastEvent(events, (event) => event.type === 'brief_ready')?.timestamp
     || briefState?.endTime
@@ -227,13 +227,13 @@ export function buildAgentTimeline({
   }
 
   if (shouldIncludeResearch) {
-    handledAgents.add(researchState?.agent || 'research_evidence_agent');
+    handledAgents.add(researchState?.agent || 'research_agent');
     pushItem({
       id: createItemId('research', itemCounter),
       kind: 'tool',
       title: '研究过程',
-      agentKey: researchState?.agent || 'research_evidence_agent',
-      agentLabel: getAgentDisplayName(researchState?.agent || 'research_evidence_agent'),
+      agentKey: researchState?.agent || 'research_agent',
+      agentLabel: getAgentDisplayName(researchState?.agent || 'research_agent'),
       timestamp: researchTimestamp,
       payload: {
         events,

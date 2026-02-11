@@ -3,7 +3,7 @@
 ## 1) 当前系统基线
 
 ### Agent 流程（单链路 V2）
-`supervisor -> brief_compiler_agent -> research_evidence_agent -> reference_intelligence_agent -> writer_agent -> layout_planner_agent -> image_planner_agent -> image_agent -> review_agent`
+`supervisor -> brief_compiler_agent -> research_agent -> reference_intelligence_agent -> writer_agent -> layout_planner_agent -> image_planner_agent -> image_agent -> review_agent`
 
 ### 关键原则
 - 每个 agent 可在输入不足时主动 `ask_user`

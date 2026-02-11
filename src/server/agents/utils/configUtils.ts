@@ -28,6 +28,14 @@ export interface LLMConfig {
   supportsVision: boolean;
 }
 
+export interface LangfuseTraceContext {
+  sessionId?: string;
+  userId?: string;
+  tags?: string[];
+  metadata?: Record<string, unknown>;
+  version?: string;
+}
+
 export async function getLLMConfig(requireVision = false): Promise<LLMConfig> {
   const db = getDatabase();
   let query = db
@@ -63,12 +71,24 @@ export async function getLLMConfig(requireVision = false): Promise<LLMConfig> {
 }
 
 // 创建 LLM 实例
-export async function createLLM(requireVision = false): Promise<ChatOpenAI> {
+export async function createLLM(
+  requireVision = false,
+  traceContext?: LangfuseTraceContext
+): Promise<ChatOpenAI> {
   const config = await getLLMConfig(requireVision);
 
   // 配置 Langfuse callbacks（如果启用）
   const langfuseConfig = await getLangfuseCallbackConfig();
-  const callbacks = langfuseConfig ? [new CallbackHandler(langfuseConfig)] : [];
+  const callbacks = langfuseConfig
+    ? [new CallbackHandler({
+        ...langfuseConfig,
+        sessionId: traceContext?.sessionId,
+        userId: traceContext?.userId,
+        tags: traceContext?.tags,
+        metadata: traceContext?.metadata,
+        version: traceContext?.version,
+      })]
+    : [];
 
   return new ChatOpenAI({
     configuration: { baseURL: config.baseUrl },

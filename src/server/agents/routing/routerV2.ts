@@ -68,7 +68,7 @@ function getRerouteTargetByScores(qualityScores: QualityScores | null): AgentTyp
   const thresholds = REVIEW_THRESHOLDS;
 
   if (scores.infoDensity < thresholds.infoDensity) {
-    return "research_evidence_agent";
+    return "research_agent";
   }
   if (scores.textImageAlignment < thresholds.textImageAlignment) {
     return "layout_planner_agent";
@@ -191,11 +191,11 @@ export function shouldContinueSupervisor(state: typeof AgentState.State): string
   return "route";
 }
 
-// research_evidence_agent 继续判断
+// research_agent 继续判断
 export function shouldContinueResearch(state: typeof AgentState.State): string {
   const lastMessage = state.messages[state.messages.length - 1];
   if (lastMessage && "tool_calls" in lastMessage && (lastMessage as AIMessage).tool_calls?.length) {
-    return "research_evidence_tools";
+    return "research_tools";
   }
   return "supervisor";
 }

@@ -39,7 +39,7 @@ export async function resumeWorkflow(
     ("selectedIds" in modifiedStateOrUserResponse || "customInput" in modifiedStateOrUserResponse);
 
   if (isUserResponse) {
-    return app.stream(new Command({ resume: modifiedStateOrUserResponse }), { ...config, streamMode: ["updates", "tasks"] as any });
+    return app.stream(new Command({ resume: modifiedStateOrUserResponse }), { ...config, recursionLimit: 100, streamMode: ["updates", "tasks"] as any });
   }
 
   // 组装需要写回的状态
@@ -48,26 +48,36 @@ export async function resumeWorkflow(
   };
 
   if (userFeedback) {
+    // 用户 reject，带反馈重新生成
     updateState.userFeedback = userFeedback;
     const currentCount = (checkpoint.channel_values?.regenerationCount as number) || 0;
     updateState.regenerationCount = currentCount + 1;
+  } else {
+    // 用户 approve/modify 时，写入确认信息，告诉 supervisor 用户已确认当前阶段
+    const previousAgent = checkpoint.channel_values?.currentAgent as string || "当前阶段";
+    updateState.userFeedback = `用户已确认 ${previousAgent} 的输出，请继续下一步，不要回退`;
   }
 
   if (modifiedStateOrUserResponse && !isUserResponse) {
     Object.assign(updateState, modifiedStateOrUserResponse);
   }
 
-  // 在恢复前显式更新状态，修复“修改后继续”丢失的问题
+  // 在恢复前显式更新状态，修复"修改后继续"丢失的问题
+  // 使用当前暂停的节点作为 as_node，这样恢复时会重新执行 supervisor
+  const currentAgent = checkpoint.channel_values?.currentAgent as string || "writer_agent";
   if (Object.keys(updateState).length > 0) {
-    await app.updateState(config, updateState, "supervisor");
+    await app.updateState(config, updateState, currentAgent);
   }
 
   console.log("[resumeWorkflow] 恢复工作流, updateState:", updateState);
-  return app.stream(null, { ...config, streamMode: ["updates", "tasks"] as any });
+  return app.stream(null, { ...config, recursionLimit: 100, streamMode: ["updates", "tasks"] as any });
 }
 
 // 创建多 Agent 系统
 export async function createMultiAgentSystem(hitlConfig?: HITLConfig) {
-  const model = await createLLM();
+  const model = await createLLM(false, {
+    sessionId: hitlConfig?.langfuseSessionId || hitlConfig?.threadId,
+    tags: hitlConfig?.langfuseTags,
+  });
   return buildGraph(model, hitlConfig);
 }

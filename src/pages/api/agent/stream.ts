@@ -54,6 +54,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const provider = imageGenProvider || 'jimeng'; // 默认使用即梦
   const streamThreadId = uuidv4();
   const threadId = enableHITL ? streamThreadId : undefined;
+  const langfuseSessionId = threadId || streamThreadId;
+  const langfuseTags = [
+    'agent-flow',
+    'agent-stream',
+    enableHITL ? 'hitl' : 'no-hitl',
+    provider ? `img:${provider}` : null,
+    hasReferenceImage ? 'has-ref-image' : 'no-ref-image',
+    themeId ? `theme:${themeId}` : null,
+  ].filter(Boolean) as string[];
 
   // 设置 SSE 响应头
   res.setHeader("Content-Type", "text/event-stream");
@@ -167,13 +176,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   };
 
   // 创建 Langfuse trace
-  const trace = await createTrace('agent-stream', {
-    message,
-    themeId,
-    hasReferenceImage,
-    referenceImageCount: refImages.length,
-    referenceInputCount: normalizedReferenceInputs.length,
-  });
+  const trace = await createTrace(
+    'agent-stream',
+    {
+      message,
+      themeId,
+      threadId: langfuseSessionId,
+      hasReferenceImage,
+      referenceImageCount: refImages.length,
+      referenceInputCount: normalizedReferenceInputs.length,
+    },
+    {
+      sessionId: langfuseSessionId,
+      tags: langfuseTags,
+    }
+  );
   const traceId = trace?.id;
 
   // 用于保存 creativeId
@@ -292,9 +309,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
-    const app = await createMultiAgentSystem(
-      enableHITL ? { enableHITL: true, threadId } : undefined
-    );
+    const app = await createMultiAgentSystem({
+      enableHITL: !!enableHITL,
+      threadId,
+      langfuseSessionId,
+      langfuseTags,
+    });
 
     const contextMessage = themeId
       ? `[当前主题ID: ${themeId}] ${message}`

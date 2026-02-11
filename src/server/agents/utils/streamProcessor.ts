@@ -19,7 +19,7 @@ function getAgentDisplayName(name: string): string {
     supervisor: "主管",
     supervisor_route: "任务路由",
     brief_compiler_agent: "任务梳理",
-    research_evidence_agent: "证据研究",
+    research_agent: "内容调研",
     reference_intelligence_agent: "参考图智能",
     layout_planner_agent: "版式规划",
     writer_agent: "创作专家",
@@ -85,6 +85,9 @@ export async function* processAgentStream(
   let generatedAssetIds: number[] = [];
   let finalCreativeId = creativeId; // 可能在流程中创建
 
+  // 跟踪已发送 agent_start 的 agent，确保 start 在 end 之前
+  const startedAgents = new Set<string>();
+
   console.log("[processAgentStream] 开始处理流, enableHITL:", enableHITL);
 
   for await (const [mode, rawChunk] of stream as AsyncIterable<[string, any]>) {
@@ -99,6 +102,7 @@ export async function* processAgentStream(
 
       if (!("result" in taskEvent)) {
         // 节点开始（LangGraph 在执行前发出）
+        startedAgents.add(nodeName);
         yield {
           type: "agent_start",
           agent: nodeName,
@@ -302,6 +306,51 @@ export async function* processAgentStream(
         console.log("[processAgentStream] 从 writer_agent 节点输出获取 generatedContent:", generatedContent?.title?.slice(0, 50));
       }
 
+      // 发送 brief_ready 事件（brief_compiler_agent 完成时）
+      if (nodeName === "brief_compiler_agent" && output.creativeBrief) {
+        yield {
+          type: "brief_ready",
+          agent: "brief_compiler_agent",
+          brief: output.creativeBrief,
+          content: "Brief 已生成",
+          timestamp: Date.now(),
+        } as any;
+      }
+
+      // 发送 layout_spec_ready 事件（layout_planner_agent 完成时）
+      if (nodeName === "layout_planner_agent" && output.layoutSpec) {
+        yield {
+          type: "layout_spec_ready",
+          agent: "layout_planner_agent",
+          layoutSpec: output.layoutSpec,
+          content: "版式规划已生成",
+          timestamp: Date.now(),
+        } as any;
+      }
+
+      // 发送 alignment_map_ready 事件（image_planner_agent 完成时）
+      if (nodeName === "image_planner_agent" && (output.paragraphImageBindings || output.bodyBlocks)) {
+        yield {
+          type: "alignment_map_ready",
+          agent: "image_planner_agent",
+          paragraphImageBindings: output.paragraphImageBindings || [],
+          bodyBlocks: output.bodyBlocks || [],
+          content: "图文段落绑定已生成",
+          timestamp: Date.now(),
+        } as any;
+      }
+
+      // 发送 quality_score 事件（review_agent 完成时）
+      if (nodeName === "review_agent" && output.qualityScores) {
+        yield {
+          type: "quality_score",
+          agent: "review_agent",
+          qualityScores: output.qualityScores,
+          content: "质量评分已生成",
+          timestamp: Date.now(),
+        } as any;
+      }
+
       // 捕获 image_agent 的输出
       if (nodeName === "image_agent") {
         if (output.generatedImageAssetIds?.length > 0) {
@@ -312,6 +361,16 @@ export async function* processAgentStream(
 
       // _tools 节点不发独立 agent_end（归属于父 agent）
       if (!isToolsNode) {
+        // 如果 updates 先于 tasks 到达，补发 agent_start
+        if (!startedAgents.has(effectiveAgent)) {
+          startedAgents.add(effectiveAgent);
+          yield {
+            type: "agent_start",
+            agent: effectiveAgent,
+            content: `${getAgentDisplayName(effectiveAgent)} 开始工作...`,
+            timestamp: Date.now(),
+          };
+        }
         yield {
           type: "agent_end",
           agent: effectiveAgent,
@@ -370,7 +429,7 @@ export async function* processAgentStream(
         }
 
         if (nodeName === "image_planner_agent" && imagePlans.length > 0) {
-          console.log("[processAgentStream] image_planner_agent 完成，发送确认请求, imagePlans:", imagePlans.length);
+          console.log("[processAgentStream] image_planner_agent 完成，发送确认请求, imagePlans:", JSON.stringify(imagePlans, null, 2));
           yield {
             type: "ask_user",
             question: "图片规划已生成，是否继续生成图片？",

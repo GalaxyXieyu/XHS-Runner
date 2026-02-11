@@ -15,7 +15,7 @@ export type ImageGenProvider = "jimeng" | "jimeng-45" | "gemini";
 
 const agentIconMap: Record<string, LucideIcon> = {
   brief_compiler_agent: FileText,
-  research_evidence_agent: Search,
+  research_agent: Search,
   reference_intelligence_agent: Eye,
   writer_agent: Pen,
   layout_planner_agent: LayoutGrid,
@@ -32,7 +32,7 @@ export function getAgentIcon(name: string | undefined): LucideIcon {
 export const agentProgressMap: Record<string, number> = {
   supervisor: 5,
   brief_compiler_agent: 10,
-  research_evidence_agent: 20,
+  research_agent: 20,
   reference_intelligence_agent: 30,
   writer_agent: 42,
   layout_planner_agent: 52,
@@ -45,7 +45,7 @@ const agentDisplayNames: Record<string, string> = {
   supervisor: "主管",
   supervisor_route: "任务路由",
   brief_compiler_agent: "任务梳理",
-  research_evidence_agent: "证据研究",
+  research_agent: "内容调研",
   reference_intelligence_agent: "参考图智能",
   layout_planner_agent: "版式规划",
   writer_agent: "创作专家",
@@ -53,7 +53,7 @@ const agentDisplayNames: Record<string, string> = {
   image_agent: "图片生成",
   review_agent: "审核专家",
   tools: "工具调用",
-  research_evidence_tools: "证据研究",
+  research_tools: "内容调研",
   reference_intelligence_tools: "参考图分析",
   image_planner_tools: "图片规划工具",
   image_tools: "图片生成",

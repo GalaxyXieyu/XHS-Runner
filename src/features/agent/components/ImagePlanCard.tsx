@@ -177,15 +177,6 @@ export function ImagePlanCard({ imagePlan }: ImagePlanCardProps) {
         })}
       </div>
 
-      {/* 段落绑定摘要 */}
-      {imagePlan.paragraphImageBindings.length > 0 && (
-        <div className="flex items-center gap-1.5 text-[11px] text-slate-400 pt-1">
-          <Link2 className="w-3 h-3" />
-          <span>
-            已完成 {imagePlan.paragraphImageBindings.length} 条段落-图片映射
-          </span>
-        </div>
-      )}
     </div>
   );
 }
@@ -225,7 +216,7 @@ function PlanMiniCard({ index, plan, role, binding }: PlanMiniCardProps) {
       )}
 
       {/* 提示词摘要 */}
-      <div className="text-[10px] font-normal text-slate-500 leading-relaxed line-clamp-3 bg-slate-50/50 rounded-lg px-1.5 py-1">
+      <div className="text-[10px] font-normal text-slate-500 leading-relaxed bg-slate-50/50 rounded-lg px-1.5 py-1">
         {plan.prompt}
       </div>
 

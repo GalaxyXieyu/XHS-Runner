@@ -2,7 +2,7 @@ import { AgentState, type AgentType, type SupervisorDecision } from "../state/ag
 
 const ALLOWED_AGENTS: AgentType[] = [
   "brief_compiler_agent",
-  "research_evidence_agent",
+  "research_agent",
   "reference_intelligence_agent",
   "layout_planner_agent",
   "writer_agent",
@@ -116,7 +116,7 @@ export function buildPreviousAgentSummary(state: typeof AgentState.State): strin
       const summary = `受众:${brief.audience || "-"} 目标:${brief.goal || "-"} 关键点:${keyPointsCount}项`;
       return truncateText(summary, 140);
     }
-    case "research_evidence_agent": {
+    case "research_agent": {
       const summary = state.evidencePack?.summary || "研究证据未产出";
       const count = state.evidencePack?.items?.length || 0;
       return truncateText(`证据:${count}条 | 摘要:${summary}`, 160);

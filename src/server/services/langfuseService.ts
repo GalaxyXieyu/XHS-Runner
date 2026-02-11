@@ -85,13 +85,34 @@ export async function getLangfuse(): Promise<Langfuse | null> {
 /**
  * 创建一个新的 trace
  */
-export async function createTrace(name: string, metadata?: Record<string, any>) {
+type LangfuseTraceOptions = {
+  sessionId?: string;
+  userId?: string;
+  tags?: string[];
+  release?: string;
+  version?: string;
+  input?: any;
+  output?: any;
+};
+
+export async function createTrace(
+  name: string,
+  metadata?: Record<string, any>,
+  options?: LangfuseTraceOptions
+) {
   const langfuse = await getLangfuse();
   if (!langfuse) return null;
 
   return langfuse.trace({
     name,
     metadata,
+    sessionId: options?.sessionId,
+    userId: options?.userId,
+    tags: options?.tags,
+    release: options?.release,
+    version: options?.version,
+    input: options?.input,
+    output: options?.output,
   });
 }
 

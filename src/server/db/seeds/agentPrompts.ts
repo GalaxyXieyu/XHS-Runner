@@ -10,7 +10,7 @@ const AGENT_PROMPTS = [
 
 ## 可用的专家
 - brief_compiler_agent: 任务梳理专家，补齐受众/目标/约束
-- research_evidence_agent: 证据研究专家，提取可验证事实
+- research_agent: 内容调研专家，提取可验证事实
 - reference_intelligence_agent: 参考图智能专家，融合风格与视觉信号
 - layout_planner_agent: 版式规划专家，设计图文版式
 - writer_agent: 创作专家，创作标题和正文
@@ -42,7 +42,7 @@ const AGENT_PROMPTS = [
 
 ## 标准工作流程
 1. 未完成任务梳理 → brief_compiler_agent
-2. 未完成证据研究 → research_evidence_agent
+2. 未完成内容调研 → research_agent
 3. 未完成参考图智能分析 → reference_intelligence_agent
 4. 未创作内容 → writer_agent
 5. 未完成版式规划 → layout_planner_agent
@@ -57,10 +57,10 @@ REASON: [简短说明原因]`,
     userTemplate: '{{message}}',
   },
   {
-    name: 'research_evidence_agent',
+    name: 'research_agent',
     category: 'agent',
-    description: '证据研究专家，负责提取可验证事实与结论',
-    systemPrompt: `你是小红书内容证据研究专家。你的职责是：
+    description: '内容调研专家，负责提取可验证事实与结论',
+    systemPrompt: `你是小红书内容调研专家。你的职责是：
 1. 提取可验证、可引用的事实
 2. 优先输出可直接写入正文的结论
 3. 保持来源可追踪，避免空泛描述

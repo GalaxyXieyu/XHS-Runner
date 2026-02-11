@@ -3,22 +3,13 @@
  * 显示当前主题下的历史对话，支持加载和删除
  */
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import { History, Trash2, Plus, ChevronDown, Check } from "lucide-react";
-
-interface Conversation {
-  id: number;
-  threadId: string;
-  title: string | null;
-  status: string;
-  creativeId: number | null;
-  createdAt: string;
-  updatedAt: string;
-}
+import { useConversationStore, type Conversation } from "../store/conversationStore";
 
 interface ConversationHistoryProps {
   themeId: number | string;
-  currentConversationId: number | null;
+  currentConversationId?: number | null;
   onSelect: (id: number) => void;
   onNewConversation: () => void;
   /** 紧凑模式 - 只显示图标 */
@@ -27,14 +18,23 @@ interface ConversationHistoryProps {
 
 export function ConversationHistory({
   themeId,
-  currentConversationId,
+  currentConversationId: propConversationId,
   onSelect,
   onNewConversation,
   compact = false,
 }: ConversationHistoryProps) {
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isOpen, setIsOpen] = useState(false);
+  const {
+    conversationId: storeConversationId,
+    conversations,
+    isLoading,
+    isOpen,
+    setConversations,
+    setIsLoading,
+    setIsOpen,
+  } = useConversationStore();
+
+  // 优先使用 prop，否则使用 store
+  const currentConversationId = propConversationId ?? storeConversationId;
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // 加载对话列表
@@ -84,7 +84,7 @@ export function ConversationHistory({
     try {
       const res = await fetch(`/api/conversations/${id}`, { method: "DELETE" });
       if (res.ok) {
-        setConversations((prev) => prev.filter((c) => c.id !== id));
+        setConversations(conversations.filter((c) => c.id !== id));
         if (id === currentConversationId) {
           onNewConversation();
         }

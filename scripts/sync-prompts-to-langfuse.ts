@@ -13,7 +13,7 @@ const PROMPTS_DIR = path.join(process.cwd(), "prompts");
 const CORE_PROMPTS = new Set([
   "supervisor",
   "brief_compiler_agent",
-  "research_evidence_agent",
+  "research_agent",
   "reference_intelligence_agent",
   "layout_planner_agent",
   "writer_agent",
