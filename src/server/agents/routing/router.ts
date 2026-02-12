@@ -167,6 +167,11 @@ function getDeterministicRoute(state: typeof AgentState.State): RouteDecision {
     return "image_agent";
   }
 
+  // 快速模式：跳过 review，直接结束
+  if (state.fastMode) {
+    return END;
+  }
+
   if (!state.reviewFeedback) {
     return "review_agent";
   }

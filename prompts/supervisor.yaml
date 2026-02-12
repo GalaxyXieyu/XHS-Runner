@@ -29,6 +29,7 @@ prompt: |
   - previousAgentSummary: {{previousAgentSummary}}
   - userFeedback: {{userFeedback}}
   - regenerationCount: {{regenerationCount}}
+  - fastMode: {{fastMode}}
 
   ## 可用工具
   - askUser(question, options, selectionType, allowCustomInput, contextJson)：向用户澄清需求
@@ -42,6 +43,7 @@ prompt: |
   - requirementClarity=low 且 clarificationRounds=0 且 briefComplete=false → askUser
 
   2) 终止
+  - fastMode=true + imagesComplete=true → END（跳过审核）
   - 审核通过 + 质量达标 → END
 
   3) 错误修复

@@ -133,8 +133,8 @@ function extractEvidenceFromToolResults(messages: any[]): EvidencePack {
 }
 
 export async function researchNode(state: typeof AgentState.State, model: ChatOpenAI) {
-  const briefKeyPoints = state.creativeBrief?.keyPoints || [];
-  const needEvidenceDirection = briefKeyPoints.length < 2 && !state.evidenceComplete;
+  const briefKeywords = state.creativeBrief?.keywords || [];
+  const needEvidenceDirection = briefKeywords.length < 2 && !state.evidenceComplete;
   if (needEvidenceDirection) {
     const clarificationResult = requestAgentClarification(state, {
       key: "research_agent.focus",
@@ -149,7 +149,7 @@ export async function researchNode(state: typeof AgentState.State, model: ChatOp
       selectionType: "single",
       allowCustomInput: true,
       context: {
-        briefKeyPoints,
+        briefKeywords,
       },
     });
 
@@ -177,10 +177,11 @@ export async function researchNode(state: typeof AgentState.State, model: ChatOp
   const brief = state.creativeBrief;
   const briefParts: string[] = [];
   if (brief) {
-    if (brief.keyPoints?.length) briefParts.push(`核心关键词：${brief.keyPoints.join("、")}`);
+    if (brief.topic) briefParts.push(`主题：${brief.topic}`);
+    if (brief.keywords?.length) briefParts.push(`关键词：${brief.keywords.join("、")}`);
+    if (brief.constraints?.length) briefParts.push(`约束：${brief.constraints.join("；")}`);
     if (brief.audience) briefParts.push(`目标受众：${brief.audience}`);
     if (brief.goal) briefParts.push(`创作目标：${brief.goal}`);
-    if (brief.tone) briefParts.push(`风格基调：${brief.tone}`);
   }
 
   // 从对话消息中提取用户的原始需求（第一条 human 消息）

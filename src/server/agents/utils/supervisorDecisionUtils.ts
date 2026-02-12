@@ -112,8 +112,8 @@ export function buildPreviousAgentSummary(state: typeof AgentState.State): strin
     case "brief_compiler_agent": {
       if (!state.creativeBrief) return "brief 未生成";
       const brief = state.creativeBrief;
-      const keyPointsCount = brief.keyPoints?.length || 0;
-      const summary = `受众:${brief.audience || "-"} 目标:${brief.goal || "-"} 关键点:${keyPointsCount}项`;
+      const keywordsCount = brief.keywords?.length || 0;
+      const summary = `主题:${brief.topic || "-"} 受众:${brief.audience || "-"} 目标:${brief.goal || "-"} 关键词:${keywordsCount}项`;
       return truncateText(summary, 140);
     }
     case "research_agent": {

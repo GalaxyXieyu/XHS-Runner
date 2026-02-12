@@ -8,29 +8,50 @@ import { requestAgentClarification } from "../utils/agentClarification";
 
 function parseBrief(content: string): CreativeBrief {
   const fallback: CreativeBrief = {
+    topic: "未指定",
     audience: "小红书用户",
-    goal: "提升互动并传达核心信息",
-    keyPoints: ["核心价值", "使用场景", "行动建议"],
-    callToAction: "欢迎评论区交流",
-    bannedExpressions: [],
-    tone: "真实、清晰、有温度",
+    goal: "提升互动",
+    constraints: [],
+    keywords: [],
+  };
+
+  const toStringArray = (value: unknown, max: number): string[] => {
+    if (Array.isArray(value)) {
+      return value.map((v) => String(v).trim()).filter(Boolean).slice(0, max);
+    }
+    if (typeof value === "string") {
+      return value
+        .split(/[\n,，、;；]+/)
+        .map((v) => v.trim())
+        .filter(Boolean)
+        .slice(0, max);
+    }
+    return [];
   };
 
   try {
     const match = content.match(/\{[\s\S]*\}/);
     if (!match) return fallback;
     const parsed = JSON.parse(match[0]);
+
+    const topic = typeof parsed.topic === "string" ? parsed.topic.trim() : "";
+    const audience = typeof parsed.audience === "string" ? parsed.audience.trim() : "";
+    const goal = typeof parsed.goal === "string" ? parsed.goal.trim() : "";
+    const constraints = toStringArray(parsed.constraints, 3);
+    const keywords = toStringArray(parsed.keywords, 5);
+
     return {
-      audience: parsed.audience || fallback.audience,
-      goal: parsed.goal || fallback.goal,
-      keyPoints: Array.isArray(parsed.keyPoints) && parsed.keyPoints.length > 0
-        ? parsed.keyPoints.map((v: unknown) => String(v))
-        : fallback.keyPoints,
-      callToAction: parsed.callToAction || fallback.callToAction,
-      bannedExpressions: Array.isArray(parsed.bannedExpressions)
-        ? parsed.bannedExpressions.map((v: unknown) => String(v))
-        : fallback.bannedExpressions,
-      tone: parsed.tone || fallback.tone,
+      topic: topic || fallback.topic,
+      audience: audience || fallback.audience,
+      goal: goal || fallback.goal,
+      constraints,
+      keywords,
+
+      // legacy passthrough (optional)
+      keyPoints: toStringArray(parsed.keyPoints, 5),
+      callToAction: typeof parsed.callToAction === "string" ? parsed.callToAction : undefined,
+      bannedExpressions: toStringArray(parsed.bannedExpressions, 10),
+      tone: typeof parsed.tone === "string" ? parsed.tone : undefined,
     };
   } catch {
     return fallback;
@@ -80,16 +101,20 @@ export async function briefCompilerNode(state: typeof AgentState.State, model: C
   const supervisorGuidance = formatSupervisorGuidance(state, "brief_compiler_agent");
 
   const promptFromStore = await getAgentPrompt("brief_compiler_agent");
-  const systemPrompt = promptFromStore || `你是创作任务梳理专家。\n
-请根据用户需求提炼创作 brief，并仅输出 JSON：
+  const systemPrompt = promptFromStore || `你是需求梳理专家。将用户需求转化为结构化 brief，只输出必要字段。
+
+只输出 JSON：
 {
-  "audience": "目标受众",
-  "goal": "创作目标",
-  "keyPoints": ["核心点1", "核心点2", "核心点3"],
-  "callToAction": "行动引导",
-  "bannedExpressions": ["不要使用的表达"],
-  "tone": "语气风格"
-}`;
+  "topic": "主题（≤10字）",
+  "audience": "受众（≤8字）",
+  "goal": "目标（≤15字）",
+  "constraints": ["约束1"],
+  "keywords": ["关键词1", "关键词2"]
+}
+
+规则：
+1) 只输出 JSON，禁止任何解释
+2) constraints 最多3条，keywords 最多5个`;
 
   const response = await model.invoke([
     new HumanMessage(systemPrompt),
@@ -101,7 +126,7 @@ export async function briefCompilerNode(state: typeof AgentState.State, model: C
   const creativeBrief = parseBrief(raw);
 
   const summaryMessage = new AIMessage(
-    `Brief 已生成：受众=${creativeBrief.audience}，目标=${creativeBrief.goal}，核心点=${creativeBrief.keyPoints.join(" / ")}`
+    `Brief 已生成：主题=${creativeBrief.topic}，受众=${creativeBrief.audience}，目标=${creativeBrief.goal}，关键词=${creativeBrief.keywords.join(" / ") || "-"}`
   );
 
   return {

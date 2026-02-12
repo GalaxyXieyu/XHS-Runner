@@ -15,6 +15,8 @@ interface AgentCreatorEmptyStateProps {
   setImageGenProvider: (provider: ImageGenProvider) => void;
   autoConfirm: boolean;
   setAutoConfirm: (next: boolean) => void;
+  fastMode: boolean;
+  setFastMode: (next: boolean) => void;
   packages: ContentPackage[];
   packagesLoading: boolean;
   setSelectedPackage: (pkg: ContentPackage | null) => void;
@@ -29,6 +31,8 @@ export function AgentCreatorEmptyState({
   setImageGenProvider,
   autoConfirm,
   setAutoConfirm,
+  fastMode,
+  setFastMode,
   packages,
   packagesLoading,
   setSelectedPackage,
@@ -123,6 +127,34 @@ export function AgentCreatorEmptyState({
                 autoConfirm ? 'text-gray-700' : 'text-gray-500'
               }`}>
                 自动继续
+              </span>
+            </button>
+
+            {/* 分隔线 */}
+            <div className="w-px h-6 bg-gray-200/60" />
+
+            {/* 快速模式 - iOS Toggle 风格 */}
+            <button
+              onClick={() => setFastMode(!fastMode)}
+              className="group flex items-center gap-2.5 px-4 py-2.5 rounded-[0.75rem] hover:bg-gray-50/80 transition-all duration-200"
+            >
+              <div
+                className={`relative w-9 h-5 rounded-full transition-all duration-300 ${
+                  fastMode
+                    ? 'bg-gradient-to-r from-green-500 to-green-600 shadow-inner'
+                    : 'bg-gray-200'
+                }`}
+              >
+                <div
+                  className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow-sm transition-all duration-300 ${
+                    fastMode ? 'left-[1.125rem]' : 'left-0.5'
+                  }`}
+                />
+              </div>
+              <span className={`text-[13px] font-medium transition-colors ${
+                fastMode ? 'text-gray-700' : 'text-gray-500'
+              }`}>
+                快速模式
               </span>
             </button>
           </div>

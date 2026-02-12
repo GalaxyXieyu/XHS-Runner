@@ -67,7 +67,7 @@ function defaultLayoutSpec(count: number): LayoutSpec[] {
   return specs;
 }
 
-function parsePlannerOutput(content: string): PlannerOutput | null {
+function parsePlannerOutput(content: string, fallbackBody?: string): PlannerOutput | null {
   const extractJson = () => {
     const code = content.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (code) return code[1];
@@ -81,30 +81,71 @@ function parsePlannerOutput(content: string): PlannerOutput | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
 
-    const bodyBlocks: BodyBlock[] = Array.isArray(parsed.bodyBlocks)
-      ? parsed.bodyBlocks
+    const toStringArray = (value: unknown, max: number): string[] => {
+      if (Array.isArray(value)) {
+        return value.map((v) => String(v).trim()).filter(Boolean).slice(0, max);
+      }
+      return [];
+    };
+
+    // New schema (2026-02-12): { images: [{slot,type,desc,prompt}] }
+    if (parsed && typeof parsed === "object" && Array.isArray((parsed as any).images)) {
+      const images = (parsed as any).images as any[];
+      const roleFromType = (t: unknown, idx: number) => {
+        const type = String(t || "").toLowerCase();
+        if (type === "cover") return "cover";
+        if (type === "detail") return "detail";
+        if (type === "content") return idx === 0 ? "cover" : "detail";
+        return idx === 0 ? "cover" : "detail";
+      };
+
+      const imagePlans: ImagePlan[] = images
+        .map((item: any, idx: number) => {
+          const slot = Number.isFinite(item.slot) ? Number(item.slot) : idx + 1;
+          return {
+            sequence: Math.max(0, slot - 1),
+            role: roleFromType(item.type, idx),
+            description: typeof item.desc === "string" && item.desc.trim() ? item.desc.trim() : `图 ${idx + 1}`,
+            prompt: typeof item.prompt === "string" ? item.prompt : "",
+          };
+        })
+        .slice(0, 5);
+
+      const bodyBlocks = fallbackBody ? fallbackSplitBody(fallbackBody) : [];
+
+      if (imagePlans.length === 0) return null;
+      return {
+        bodyBlocks,
+        imagePlans,
+        textOverlayPlan: [],
+      };
+    }
+
+    // Legacy schema: { bodyBlocks, imagePlans, textOverlayPlan }
+    const bodyBlocks: BodyBlock[] = Array.isArray((parsed as any).bodyBlocks)
+      ? (parsed as any).bodyBlocks
           .map((item: any, idx: number) => ({
             id: item.id || `p${idx + 1}`,
             text: String(item.text || "").trim(),
             intent: item.intent || "展开",
-            keywords: Array.isArray(item.keywords) ? item.keywords.map((v: unknown) => String(v)) : [],
+            keywords: toStringArray(item.keywords, 8),
           }))
           .filter((item: BodyBlock) => item.text)
       : [];
 
-    const imagePlans: ImagePlan[] = Array.isArray(parsed.imagePlans)
-      ? parsed.imagePlans
+    const imagePlans: ImagePlan[] = Array.isArray((parsed as any).imagePlans)
+      ? (parsed as any).imagePlans
           .map((item: any, idx: number) => ({
             sequence: Number.isFinite(item.sequence) ? item.sequence : idx,
             role: item.role || (idx === 0 ? "cover" : "detail"),
             description: item.description || `图 ${idx + 1}`,
             prompt: item.prompt || "",
           }))
-          .slice(0, 4)
+          .slice(0, 5)
       : [];
 
-    const textOverlayPlan: TextOverlayPlan[] = Array.isArray(parsed.textOverlayPlan)
-      ? parsed.textOverlayPlan.map((item: any, idx: number) => ({
+    const textOverlayPlan: TextOverlayPlan[] = Array.isArray((parsed as any).textOverlayPlan)
+      ? (parsed as any).textOverlayPlan.map((item: any, idx: number) => ({
           imageSeq: Number.isFinite(item.imageSeq) ? item.imageSeq : idx,
           titleText: item.titleText ? String(item.titleText) : undefined,
           bodyText: item.bodyText ? String(item.bodyText) : undefined,
@@ -247,7 +288,7 @@ export async function imagePlannerNode(state: typeof AgentState.State, model: Ch
   ]);
 
   const content = typeof response.content === "string" ? response.content : "";
-  const parsed = parsePlannerOutput(content);
+  const parsed = parsePlannerOutput(content, body);
   const output = parsed || buildFallbackOutput(title, body, layoutSpec, reviewSuggestions);
 
   const summaryPayload = {

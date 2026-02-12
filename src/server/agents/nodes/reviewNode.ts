@@ -85,11 +85,84 @@ function parseReviewResult(content: string): {
   feedback: ReviewFeedback;
   qualityScores: QualityScores;
 } | null {
+  const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
+
+  const levelToScore = (v: unknown): number => {
+    const s = String(v || "").trim();
+    if (s === "良") return 0.8;
+    if (s === "中") return 0.65;
+    if (s === "差") return 0.5;
+    return 0.65;
+  };
+
+  const guessRerouteTargetFromText = (issues: string[], suggestions: string[]): AgentType | undefined => {
+    const text = `${issues.join(" ")} ${suggestions.join(" ")}`;
+    if (/图文|对齐|映射|版式|排版/.test(text)) return "layout_planner_agent";
+    if (/风格|一致|色彩|视觉/.test(text)) return "reference_intelligence_agent";
+    if (/可读|字太小|文字|太多字/.test(text)) return "image_planner_agent";
+    if (/信息|干货|空泛|内容|数据|证据|事实/.test(text)) return "research_agent";
+    if (/标题|结构|标签|平台|小红书/.test(text)) return "writer_agent";
+    return "writer_agent";
+  };
+
   try {
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return null;
 
     const parsed = JSON.parse(jsonMatch[0]);
+
+    // New schema (2026-02-12): { passed, score, breakdown, issues, suggestions }
+    if (parsed && typeof parsed === "object" && ("passed" in parsed || "score" in parsed)) {
+      const issues = Array.isArray(parsed.issues)
+        ? parsed.issues.map((v: unknown) => String(v)).filter(Boolean).slice(0, 8)
+        : [];
+      const suggestions = Array.isArray(parsed.suggestions)
+        ? parsed.suggestions.map((v: unknown) => String(v)).filter(Boolean).slice(0, 8)
+        : [];
+
+      const breakdown = parsed.breakdown && typeof parsed.breakdown === "object" ? parsed.breakdown : {};
+
+      const infoDensity = levelToScore((breakdown as any).content);
+      const layoutScore = levelToScore((breakdown as any).layout);
+      const appealScore = levelToScore((breakdown as any).appeal);
+
+      const scores: QualityDimensionScores = {
+        infoDensity,
+        textImageAlignment: layoutScore,
+        styleConsistency: clamp01((appealScore + layoutScore) / 2),
+        readability: layoutScore,
+        platformFit: appealScore,
+      };
+
+      const scoreNum = typeof parsed.score === "number" ? parsed.score : NaN;
+      const overallFromScore = Number.isFinite(scoreNum) ? clamp01(scoreNum / 100) : 0;
+      const overall = overallFromScore > 0 ? overallFromScore : average(scores);
+
+      const approved = typeof parsed.passed === "boolean"
+        ? parsed.passed
+        : meetsThresholds(scores, overall);
+
+      const rerouteTarget = approved ? undefined : guessRerouteTargetFromText(issues, suggestions);
+
+      const feedback: ReviewFeedback = {
+        approved,
+        suggestions,
+        targetAgent: rerouteTarget,
+        scores,
+        overall,
+        rerouteTarget,
+      };
+
+      const qualityScores: QualityScores = {
+        scores,
+        overall,
+        failReasons: issues.length ? issues : buildFailReasons(scores, overall),
+      };
+
+      return { feedback, qualityScores };
+    }
+
+    // Legacy schema: { scores, overall, approved, failReasons, suggestions, rerouteTarget }
     const scores: QualityDimensionScores = {
       infoDensity: normalizeUnitScore(parsed?.scores?.infoDensity),
       textImageAlignment: normalizeUnitScore(parsed?.scores?.textImageAlignment),
@@ -131,10 +204,7 @@ function parseReviewResult(content: string): {
       failReasons,
     };
 
-    return {
-      feedback,
-      qualityScores,
-    };
+    return { feedback, qualityScores };
   } catch {
     return null;
   }
@@ -197,8 +267,9 @@ export async function reviewAgentNode(state: typeof AgentState.State) {
 
       const assetPathMap = new Map(assets.map((asset) => [asset.id, asset.path]));
       for (const assetId of recentAssetIds) {
-        const assetPath = assetPathMap.get(assetId);
-        if (!assetPath) continue;
+        const assetPathRaw = assetPathMap.get(assetId);
+        if (typeof assetPathRaw !== "string" || !assetPathRaw) continue;
+        const assetPath = assetPathRaw;
         try {
           const imageBuffer = await storageService.retrieve(assetPath);
           const base64 = imageBuffer.toString("base64");

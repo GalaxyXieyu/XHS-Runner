@@ -26,30 +26,73 @@ function defaultLayoutSpec(total: number): LayoutSpec[] {
 }
 
 function parseLayoutSpec(content: string): LayoutSpec[] {
+  const extractJson = () => {
+    const code = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (code) return code[1];
+    const arr = content.match(/\[[\s\S]*\]/);
+    if (arr) return arr[0];
+    const obj = content.match(/\{[\s\S]*\}/);
+    if (obj) return obj[0];
+    return null;
+  };
+
   try {
-    const match = content.match(/\[[\s\S]*\]/);
-    if (!match) return [];
-    const parsed = JSON.parse(match[0]);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map((item: any, idx: number) => ({
-        imageSeq: Number.isFinite(item.imageSeq) ? item.imageSeq : idx,
-        role: item.role || (idx === 0 ? "cover" : "detail"),
-        visualFocus: item.visualFocus || "正文重点",
-        textDensity: item.textDensity || "中",
-        blocks: Array.isArray(item.blocks)
-          ? item.blocks
-              .map((b: any) => ({
-                area: b.area || "body",
-                instruction: b.instruction || "信息清晰可读",
-              }))
-              .slice(0, 6)
-          : [
-              { area: "title", instruction: "标题简洁" },
-              { area: "body", instruction: "正文重点清晰" },
-            ],
-      }))
-      .slice(0, 4);
+    const raw = extractJson();
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+
+    // Legacy schema: array of layoutSpec objects.
+    if (Array.isArray(parsed)) {
+      return parsed
+        .map((item: any, idx: number) => ({
+          imageSeq: Number.isFinite(item.imageSeq) ? item.imageSeq : idx,
+          role: item.role || (idx === 0 ? "cover" : "detail"),
+          visualFocus: item.visualFocus || "正文重点",
+          textDensity: item.textDensity || "中",
+          blocks: Array.isArray(item.blocks)
+            ? item.blocks
+                .map((b: any) => ({
+                  area: b.area || "body",
+                  instruction: b.instruction || "信息清晰可读",
+                }))
+                .slice(0, 6)
+            : [
+                { area: "title", instruction: "标题简洁" },
+                { area: "body", instruction: "正文重点清晰" },
+              ],
+        }))
+        .slice(0, 4);
+    }
+
+    // New schema (2026-02-12): { blocks: [{type, desc}], totalImages }
+    if (parsed && typeof parsed === "object") {
+      const totalImages = Number.isFinite(parsed.totalImages) ? Number(parsed.totalImages) : 0;
+      const count = Math.max(1, Math.min(4, totalImages || 3));
+
+      const blocksRaw = Array.isArray(parsed.blocks) ? parsed.blocks : [];
+      const coverDesc = blocksRaw.find((b: any) => b && b.type === "cover" && typeof b.desc === "string")?.desc;
+
+      const baseBlocks = [
+        { area: "title" as const, instruction: coverDesc ? `封面重点：${String(coverDesc).slice(0, 40)}` : "主标题突出" },
+        { area: "body" as const, instruction: "正文分层清晰，避免堆字" },
+        { area: "visual_focus" as const, instruction: "图像与正文主题一致，背景简洁" },
+      ];
+
+      const specs: LayoutSpec[] = [];
+      for (let i = 0; i < count; i++) {
+        const role = i === 0 ? "cover" : i === count - 1 ? "result" : "detail";
+        specs.push({
+          imageSeq: i,
+          role,
+          visualFocus: i === 0 ? (coverDesc || "主题封面") : `正文重点 ${i}`,
+          textDensity: i === 0 ? "低" : "中",
+          blocks: baseBlocks,
+        });
+      }
+      return specs;
+    }
+
+    return [];
   } catch {
     return [];
   }

@@ -13,8 +13,8 @@ const REQUIRED_SNIPPETS = [
   "requirementClarity",
   "clarificationRounds",
   "需求澄清",
-  "NEXT:",
-  "REASON:",
+  // Ensure the output contract remains JSON-based.
+  "next_agent",
 ];
 
 function parsePromptBlock(content: string): string {

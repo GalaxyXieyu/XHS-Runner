@@ -40,7 +40,14 @@ export async function writerAgentNode(state: typeof AgentState.State, model: Cha
   }
 
   const briefHint = state.creativeBrief
-    ? `【创作 Brief】\n受众：${state.creativeBrief.audience}\n目标：${state.creativeBrief.goal}\n核心点：${state.creativeBrief.keyPoints.join("；")}\nCTA：${state.creativeBrief.callToAction}\n禁用表达：${state.creativeBrief.bannedExpressions.join("、") || "无"}\n语气：${state.creativeBrief.tone}`
+    ? [
+        "【创作 Brief】",
+        `主题：${state.creativeBrief.topic}`,
+        `受众：${state.creativeBrief.audience}`,
+        `目标：${state.creativeBrief.goal}`,
+        state.creativeBrief.constraints?.length ? `约束：${state.creativeBrief.constraints.join("；")}` : "",
+        state.creativeBrief.keywords?.length ? `关键词：${state.creativeBrief.keywords.join("、")}` : "",
+      ].filter(Boolean).join("\n")
     : "";
 
   const evidenceHint = state.evidencePack?.items?.length

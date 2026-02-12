@@ -6,6 +6,8 @@
  * npx tsx scripts/eval-supervisor-clarification.ts --baseUrl=http://localhost:3000 --themeId=1
  */
 
+export {};
+
 type Expectation = "clarify" | "no_clarify";
 
 interface EvalCase {

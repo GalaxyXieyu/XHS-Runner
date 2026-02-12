@@ -18,12 +18,18 @@ export type ReferenceAnalysisType = "style_ref" | "layout_ref" | "content_ref" |
 export type LayoutPreference = "dense" | "balanced" | "visual-first";
 
 export interface CreativeBrief {
+  // New prompt schema (2026-02-12): keep these as the stable contract.
+  topic: string;
   audience: string;
   goal: string;
-  keyPoints: string[];
-  callToAction: string;
-  bannedExpressions: string[];
-  tone: string;
+  constraints: string[];
+  keywords: string[];
+
+  // Legacy fields: kept optional for backward compatibility with older prompts/data.
+  keyPoints?: string[];
+  callToAction?: string;
+  bannedExpressions?: string[];
+  tone?: string;
 }
 
 export interface EvidenceItem {
@@ -92,6 +98,12 @@ export interface TextOverlayPlan {
   placement: "top" | "center" | "bottom";
 }
 
+export interface ParagraphImageBinding {
+  imageSeq: number;
+  paragraphIds: string[];
+  rationale?: string;
+}
+
 export interface QualityDimensionScores {
   infoDensity: number;
   textImageAlignment: number;
@@ -158,6 +170,9 @@ export interface PendingConfirmation {
       }
     | {
         layoutSpec: LayoutSpec[];
+      }
+    | {
+        paragraphImageBindings: ParagraphImageBinding[];
       };
   timestamp: number;
 }
@@ -243,6 +258,10 @@ export const AgentState = Annotation.Root({
     default: () => [],
   }),
   textOverlayPlan: Annotation<TextOverlayPlan[]>({
+    value: (_, y) => y,
+    default: () => [],
+  }),
+  paragraphImageBindings: Annotation<ParagraphImageBinding[]>({
     value: (_, y) => y,
     default: () => [],
   }),
@@ -342,6 +361,12 @@ export const AgentState = Annotation.Root({
   contentType: Annotation<string>({
     value: (_, y) => y,
     default: () => "product",
+  }),
+
+  // 快速模式：跳过 review_agent
+  fastMode: Annotation<boolean>({
+    value: (_, y) => y,
+    default: () => false,
   }),
 
   // 生成的内容（统一在流程结束时入库）

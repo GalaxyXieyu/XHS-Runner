@@ -19,6 +19,7 @@ export function useAgentStreaming(options: UseAgentStreamingOptions = {}) {
       referenceImages?: string[];
       imageGenProvider?: string;
       enableHITL?: boolean;
+      fastMode?: boolean;
     }
   ) => {
     setIsStreaming(true);
@@ -35,6 +36,7 @@ export function useAgentStreaming(options: UseAgentStreamingOptions = {}) {
           referenceImages: streamOptions?.referenceImages,
           imageGenProvider: streamOptions?.imageGenProvider,
           enableHITL: streamOptions?.enableHITL,
+          fastMode: streamOptions?.fastMode,
         }),
       });
 

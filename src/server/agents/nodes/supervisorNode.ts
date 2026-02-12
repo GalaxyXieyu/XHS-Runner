@@ -78,6 +78,7 @@ export async function supervisorNode(state: typeof AgentState.State, model: Chat
     layoutComplete: String(state.layoutComplete),
     bodyBlocks: state.bodyBlocks.length > 0 ? `已拆分${state.bodyBlocks.length}段` : "未拆分",
     imagePlans: state.imagePlans.length > 0 ? `已规划${state.imagePlans.length}张` : "未规划",
+    bindings: state.paragraphImageBindings?.length ? `已绑定${state.paragraphImageBindings.length}项` : "未绑定",
     imagesComplete: state.imagesComplete ? "已完成" : "未完成",
     reviewFeedback: reviewFeedbackInfo,
     qualityScores: state.qualityScores ? JSON.stringify(state.qualityScores) : "无",
@@ -91,6 +92,7 @@ export async function supervisorNode(state: typeof AgentState.State, model: Chat
     latestUserRequirement: clarityReport.normalizedRequirement || "无",
     userFeedback: state.userFeedback || "无",
     regenerationCount: String(state.regenerationCount || 0),
+    fastMode: String(state.fastMode || false),
     needsOptimization:
       state.reviewFeedback && !state.reviewFeedback.approved && state.reviewFeedback.suggestions.length > 0
         ? "是"

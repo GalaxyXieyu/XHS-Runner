@@ -15,6 +15,7 @@ import { db } from "@/server/db";
 import { conversations, conversationMessages } from "@/server/db/schema";
 import { eq } from "drizzle-orm";
 import { parseWriterContent } from "./streamUtils";
+import { writeRunArtifacts } from "@/server/agents/utils/runArtifacts";
 
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -31,6 +32,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     layoutPreference,
     imageGenProvider,
     enableHITL,
+    fastMode,
   } = req.body;
   if (!message) {
     return res.status(400).json({ error: "Message is required" });
@@ -59,6 +61,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     'agent-flow',
     'agent-stream',
     enableHITL ? 'hitl' : 'no-hitl',
+    fastMode ? 'fast-mode' : 'normal-mode',
     provider ? `img:${provider}` : null,
     hasReferenceImage ? 'has-ref-image' : 'no-ref-image',
     themeId ? `theme:${themeId}` : null,
@@ -197,10 +200,34 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   let creativeId: number | undefined;
   let workflowCompleted = false;
   let workflowPaused = false;
-  
+
   // 对话持久化：创建 conversation 记录
   let conversationId: number | undefined;
   const collectedEvents: any[] = [];
+
+  // Collect agent I/O for local run artifacts and offline indexing.
+  const agentInputs = new Map<string, any>();
+  const agentOutputs = new Map<string, any>();
+
+  // Best-effort local artifacts for debugging and indexing.
+  const flushRunArtifacts = async (status: "completed" | "paused" | "aborted" | "failed", errorMessage?: string) => {
+    try {
+      await writeRunArtifacts({
+        runId: streamThreadId,
+        conversationId,
+        message,
+        themeId: themeId ? Number(themeId) : undefined,
+        tags: langfuseTags,
+        status,
+        collectedEvents,
+        agentInputs,
+        agentOutputs,
+        errorMessage,
+      });
+    } catch (e) {
+      console.warn("[stream] Failed to write run artifacts", e);
+    }
+  };
   
   if (threadId) {
     try {
@@ -259,6 +286,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   res.on('close', () => {
     if (res.writableEnded) return;
     void markCreativeAborted('client_closed');
+    void flushRunArtifacts("aborted", "client_closed");
   });
 
   // 开始轨迹记录
@@ -327,6 +355,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       threadId: streamThreadId,
       contentType: contentTypeDetection.type,
       creativeId: creativeId ?? null,
+      fastMode: fastMode || false,
     };
     if (refImages.length > 0) {
       initialState.referenceImages = refImages;
@@ -346,8 +375,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     let writerContent: { title: string; body: string; tags: string[] } | null = null;
     let imagePlans: any[] = [];
     let generatedAssetIds: number[] = [];
-    const agentInputs = new Map<string, any>();
-    const agentOutputs = new Map<string, any>(); // 收集 agent 输出，延迟记录
+    agentInputs.clear();
+    agentOutputs.clear();
 
     const buildAgentInput = (agent: string, output: any) => ({
       agent,
@@ -590,6 +619,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (lastAskUser) {
       await saveAssistantMessages(lastAskUser);
+      await flushRunArtifacts("paused");
       await flushLangfuse();
       res.end();
       return;
@@ -636,6 +666,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
     
     res.write(`data: [DONE]\n\n`);
+    await flushRunArtifacts("completed");
     // 结束轨迹记录
     endTraj(trajId, true, { creative: creativeId, images: imagePlans.length });
     await flushLangfuse();
@@ -669,6 +700,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         console.error('[stream] Failed to mark creative failed:', err);
       }
     }
+    await flushRunArtifacts("failed", errorMessage);
     res.end();
   }
 }

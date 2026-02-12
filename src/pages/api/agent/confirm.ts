@@ -15,6 +15,7 @@ import { processAgentStream } from "@/server/agents/utils/streamProcessor";
 import { getCheckpointer } from "@/server/agents/utils";
 import { flushLangfuse } from "@/server/services/langfuseService";
 import { registerProgressCallback, unregisterProgressCallback } from "@/server/agents/utils/progressEmitter";
+import { writeRunArtifacts } from "@/server/agents/utils/runArtifacts";
 
 interface ConfirmRequest {
   threadId: string;
@@ -155,6 +156,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     stopHeartbeat = null;
   };
 
+  let flushConfirmArtifacts: ((status: "completed" | "failed", errorMessage?: string) => Promise<void>) | null = null;
+
   try {
     const { threadId, action, modifiedData, userFeedback, saveAsTemplate, userResponse } = req.body as ConfirmRequest;
 
@@ -168,6 +171,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const collectedEvents: any[] = [];
+
+    flushConfirmArtifacts = async (status: "completed" | "failed", errorMessage?: string) => {
+      try {
+        await writeRunArtifacts({
+          runId: `${threadId}__confirm__${Date.now()}`,
+          conversationId,
+          message: `confirm:${userResponse ? "ask_user" : action}`,
+          status,
+          collectedEvents,
+          errorMessage,
+        });
+      } catch (e) {
+        console.warn("[/api/agent/confirm] Failed to write run artifacts", e);
+      }
+    };
 
     const checkpointStatePromise = (async () => {
       try {
@@ -307,6 +325,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       res.write(`data: [DONE]\n\n`);
       clearHeartbeat();
+      await flushConfirmArtifacts?.("completed");
       await flushLangfuse();
       res.end();
       return;
@@ -452,6 +471,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     res.write(`data: [DONE]\n\n`);
     clearHeartbeat();
+    await flushConfirmArtifacts?.("completed");
     await flushLangfuse();
     res.end();
   } catch (error) {
@@ -461,6 +481,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (!res.headersSent) {
       clearHeartbeat();
+      await flushConfirmArtifacts?.("failed", errorMessage);
       res.status(500).json({ error: errorMessage });
       return;
     }
@@ -473,6 +494,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     } as any);
     res.write(`data: [DONE]\n\n`);
     clearHeartbeat();
+    await flushConfirmArtifacts?.("failed", errorMessage);
     await flushLangfuse();
     res.end();
   }

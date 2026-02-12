@@ -76,6 +76,7 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
   // UI 状态
   const [imageGenProvider, setImageGenProvider] = useState<ImageGenProvider>('jimeng');
   const [autoConfirm, setAutoConfirm] = useState(false);
+  const [fastMode, setFastMode] = useState(false);
 
   // 引用
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -240,6 +241,7 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
           themeId: theme.id,
           imageGenProvider,
           enableHITL: true,
+          fastMode,
         }),
       });
 
@@ -412,6 +414,8 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
           setImageGenProvider={setImageGenProvider}
           autoConfirm={autoConfirm}
           setAutoConfirm={setAutoConfirm}
+          fastMode={fastMode}
+          setFastMode={setFastMode}
           packages={packages}
           packagesLoading={packagesLoading}
           setSelectedPackage={setSelectedPackage}
