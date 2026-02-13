@@ -1,0 +1,25 @@
+{
+  "runId": "7787de18-e166-42ce-a177-2020b1087038",
+  "conversationId": null,
+  "themeId": 1,
+  "status": "failed",
+  "tags": [
+    "agent-flow",
+    "agent-stream",
+    "no-hitl",
+    "fast-mode",
+    "img:jimeng",
+    "no-ref-image",
+    "theme:1"
+  ],
+  "messagePreview": "写一篇关于春季护肤的小红书笔记",
+  "startedAt": 1770912419978,
+  "endedAt": 1770912428543,
+  "durationMs": 8565,
+  "errorMessage": "No checkpointer set",
+  "paths": {
+    "runDir": "/Volumes/DATABASE/code/mcp/xhs-generator/.xhs-data/agent-runs/7787de18-e166-42ce-a177-2020b1087038",
+    "events": "/Volumes/DATABASE/code/mcp/xhs-generator/.xhs-data/agent-runs/7787de18-e166-42ce-a177-2020b1087038/events.jsonl",
+    "agents": "/Volumes/DATABASE/code/mcp/xhs-generator/.xhs-data/agent-runs/7787de18-e166-42ce-a177-2020b1087038/agents"
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "agent": "research_agent",
+  "input": {
+    "agent": "research_agent",
+    "message": "Vibecoding 上手教程：面向新手，3步+3坑，80~120字，口语化，小红书风格，包含 #标签。",
+    "themeId": 1,
+    "contentType": "edu",
+    "referenceImages": [],
+    "imageGenProvider": "jimeng",
+    "threadId": "f3c511ac-624f-4b8e-b08e-062dbe697ebf",
+    "creativeId": 243,
+    "state": {
+      "currentAgent": "research_agent",
+      "summary": ""
+    }
+  },
+  "output": {
+    "messages": [
+      {
+        "type": "ai",
+        "content": "{\n  \"summary\": \"Vibe Coding入门素材速览\",\n  \"items\": [\n    {\"fact\": \"场景：面向新手的AI原型制作\", \"source\": \"声网\"},\n    {\"fact\": \"核心对象：自然语言提示触发AI代码\", \"source\": \"火山引擎\"},\n    {\"fact\": \"3步：需求→生成代码→运行测试\", \"source\": \"CSDN\"},\n    {\"fact\": \"常见坑：提示模糊/无测试/过度信任AI\", \"source\": \"火山引擎\"}\n  ]\n}",
+        "tool_calls": []
+      }
+    ],
+    "summary": "",
+    "evidencePack": {
+      "items": [
+        {
+          "fact": "场景：面向新手的AI原型制作",
+          "source": "声网"
+        },
+        {
+          "fact": "核心对象：自然语言提示触发AI代码",
+          "source": "火山引擎"
+        },
+        {
+          "fact": "3步：需求→生成代码→运行测试",
+          "source": "CSDN"
+        },
+        {
+          "fact": "常见坑：提示模糊/无测试/过度信任AI",
+          "source": "火山引擎"
+        }
+      ],
+      "summary": "Vibe Coding入门素材速览"
+    }
+  }
+}

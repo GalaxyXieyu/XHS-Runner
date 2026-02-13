@@ -1,4 +1,5 @@
 import { Command } from "@langchain/langgraph";
+import { HumanMessage } from "@langchain/core/messages";
 import { buildGraph, type HITLConfig } from "./graph";
 import { getCheckpointer, createLLM } from "./utils";
 import { AgentState } from "./state/agentState";
@@ -32,6 +33,9 @@ export async function resumeWorkflow(
     throw new Error(`No checkpoint found for thread: ${threadId}`);
   }
 
+  const currentAgent = checkpoint.channel_values?.currentAgent as string || "writer_agent";
+  const isFastMode = Boolean(checkpoint.channel_values?.fastMode);
+
   const app = await createMultiAgentSystem({ enableHITL: true, threadId });
 
   // 检查是否是 askUser 响应
@@ -52,6 +56,26 @@ export async function resumeWorkflow(
     updateState.userFeedback = userFeedback;
     const currentCount = (checkpoint.channel_values?.regenerationCount as number) || 0;
     updateState.regenerationCount = currentCount + 1;
+    if (isFastMode) {
+      updateState.messages = [new HumanMessage(`【用户反馈】${userFeedback}`)];
+      if (currentAgent === "writer_agent") {
+        updateState.contentComplete = false;
+        updateState.generatedContent = null;
+        updateState.layoutComplete = false;
+        updateState.layoutSpec = [];
+        updateState.imagePlans = [];
+        updateState.textOverlayPlan = [];
+        updateState.bodyBlocks = [];
+        updateState.paragraphImageBindings = [];
+        updateState.imagesComplete = false;
+      } else if (currentAgent === "image_planner_agent") {
+        updateState.imagePlans = [];
+        updateState.textOverlayPlan = [];
+        updateState.bodyBlocks = [];
+        updateState.paragraphImageBindings = [];
+        updateState.imagesComplete = false;
+      }
+    }
   } else {
     // 用户 approve/modify 时，写入确认信息，告诉 supervisor 用户已确认当前阶段
     const previousAgent = checkpoint.channel_values?.currentAgent as string || "当前阶段";
@@ -64,7 +88,6 @@ export async function resumeWorkflow(
 
   // 在恢复前显式更新状态，修复"修改后继续"丢失的问题
   // 使用当前暂停的节点作为 as_node，这样恢复时会重新执行 supervisor
-  const currentAgent = checkpoint.channel_values?.currentAgent as string || "writer_agent";
   if (Object.keys(updateState).length > 0) {
     await app.updateState(config, updateState, currentAgent);
   }

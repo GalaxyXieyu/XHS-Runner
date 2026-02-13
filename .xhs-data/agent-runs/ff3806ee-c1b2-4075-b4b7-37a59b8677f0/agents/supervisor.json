@@ -1,0 +1,26 @@
+{
+  "agent": "supervisor",
+  "input": {
+    "agent": "supervisor",
+    "message": "Vibecoding 上手教程：面向新手，3步+3坑，80~120字，口语化，小红书风格，包含 #标签。",
+    "themeId": 1,
+    "contentType": "edu",
+    "referenceImages": [],
+    "imageGenProvider": "nanobanana",
+    "threadId": "ff3806ee-c1b2-4075-b4b7-37a59b8677f0",
+    "creativeId": 241,
+    "state": {
+      "summary": ""
+    }
+  },
+  "output": {
+    "messages": [
+      {
+        "type": "ai",
+        "content": "{\"next_agent\":\"reference_intelligence_agent\",\"guidance\":\"补齐参考情报：场景、对象、标签\",\"context_from_previous\":\"Vibecoding 新手 上手\",\"focus_areas\":[\"场景细化\",\"核心对象\",\"参考来源\"]}",
+        "tool_calls": []
+      }
+    ],
+    "summary": ""
+  }
+}

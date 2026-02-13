@@ -82,7 +82,27 @@ export async function* processAgentStream(
   // 如果是恢复流程，使用之前保存的内容
   let generatedContent: { title: string; body: string; tags: string[] } | null = previousGeneratedContent || null;
   let imagePlans: any[] = [];
-  let generatedAssetIds: number[] = [];
+  const generatedAssetIds: number[] = [];
+  const generatedAssetIdSet = new Set<number>();
+  const appendAssetId = (id: unknown) => {
+    const numericId = Number(id);
+    if (!Number.isFinite(numericId)) return;
+    if (generatedAssetIdSet.has(numericId)) return;
+    generatedAssetIdSet.add(numericId);
+    generatedAssetIds.push(numericId);
+  };
+  const appendAssetIds = (ids: unknown[]) => {
+    ids.forEach(appendAssetId);
+  };
+  const appendAssetIdsFromPaths = (paths: unknown[]) => {
+    for (const raw of paths) {
+      if (typeof raw !== "string") continue;
+      const match = raw.match(/\/api\/assets\/(\d+)/);
+      if (match) {
+        appendAssetId(Number(match[1]));
+      }
+    }
+  };
   let finalCreativeId = creativeId; // 可能在流程中创建
 
   // 跟踪已发送 agent_start 的 agent，确保 start 在 end 之前
@@ -351,12 +371,13 @@ export async function* processAgentStream(
         } as any;
       }
 
-      // 捕获 image_agent 的输出
-      if (nodeName === "image_agent") {
-        if (output.generatedImageAssetIds?.length > 0) {
-          generatedAssetIds = output.generatedImageAssetIds;
-          console.log("[processAgentStream] 从 image_agent 获取 generatedAssetIds:", generatedAssetIds.length);
-        }
+      // 捕获图片产物（兼容多节点/工具输出）
+      if (Array.isArray(output.generatedImageAssetIds) && output.generatedImageAssetIds.length > 0) {
+        appendAssetIds(output.generatedImageAssetIds);
+        console.log("[processAgentStream] 捕获 generatedImageAssetIds:", output.generatedImageAssetIds.length);
+      }
+      if (Array.isArray(output.generatedImagePaths) && output.generatedImagePaths.length > 0) {
+        appendAssetIdsFromPaths(output.generatedImagePaths);
       }
 
       // _tools 节点不发独立 agent_end（归属于父 agent）

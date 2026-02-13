@@ -1,0 +1,25 @@
+{
+  "runId": "ae24442d-ae61-4359-88c0-551577a7b9e8",
+  "conversationId": null,
+  "themeId": 1,
+  "status": "failed",
+  "tags": [
+    "agent-flow",
+    "agent-stream",
+    "no-hitl",
+    "fast-mode",
+    "img:jimeng",
+    "no-ref-image",
+    "theme:1"
+  ],
+  "messagePreview": "测试 fast 模式",
+  "startedAt": 1770911473078,
+  "endedAt": 1770911474716,
+  "durationMs": 1638,
+  "errorMessage": "403 user quota is not enough (request id: 2026021223511459582385xTjsdma4)",
+  "paths": {
+    "runDir": "/Volumes/DATABASE/code/mcp/xhs-generator/.xhs-data/agent-runs/ae24442d-ae61-4359-88c0-551577a7b9e8",
+    "events": "/Volumes/DATABASE/code/mcp/xhs-generator/.xhs-data/agent-runs/ae24442d-ae61-4359-88c0-551577a7b9e8/events.jsonl",
+    "agents": "/Volumes/DATABASE/code/mcp/xhs-generator/.xhs-data/agent-runs/ae24442d-ae61-4359-88c0-551577a7b9e8/agents"
+  }
+}

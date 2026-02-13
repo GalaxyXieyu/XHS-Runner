@@ -1,0 +1,25 @@
+{
+  "runId": "4d390ddf-093f-4183-b842-bfe7298389d0",
+  "conversationId": 94,
+  "themeId": 1,
+  "status": "paused",
+  "tags": [
+    "agent-flow",
+    "agent-stream",
+    "hitl",
+    "fast-mode",
+    "img:jimeng",
+    "no-ref-image",
+    "theme:1"
+  ],
+  "messagePreview": "快速测试：写一段100字描述春天",
+  "startedAt": 1770913171897,
+  "endedAt": 1770913171911,
+  "durationMs": 14,
+  "errorMessage": null,
+  "paths": {
+    "runDir": "/Volumes/DATABASE/code/mcp/xhs-generator/.xhs-data/agent-runs/4d390ddf-093f-4183-b842-bfe7298389d0",
+    "events": "/Volumes/DATABASE/code/mcp/xhs-generator/.xhs-data/agent-runs/4d390ddf-093f-4183-b842-bfe7298389d0/events.jsonl",
+    "agents": "/Volumes/DATABASE/code/mcp/xhs-generator/.xhs-data/agent-runs/4d390ddf-093f-4183-b842-bfe7298389d0/agents"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "runId": "f3c511ac-624f-4b8e-b08e-062dbe697ebf__confirm__1770988607532",
+  "conversationId": 104,
+  "themeId": null,
+  "status": "failed",
+  "tags": [],
+  "messagePreview": "confirm:ask_user",
+  "startedAt": 1770983011388,
+  "endedAt": 1770988607476,
+  "durationMs": 5596088,
+  "errorMessage": "Recursion limit of 100 reached without hitting a stop condition. You can increase the limit by setting the \"recursionLimit\" config key.\n\nTroubleshooting URL: https://langchain-ai.github.io/langgraphjs/troubleshooting/errors/GRAPH_RECURSION_LIMIT/\n",
+  "paths": {
+    "runDir": "/Volumes/DATABASE/code/mcp/xhs-generator/.xhs-data/agent-runs/f3c511ac-624f-4b8e-b08e-062dbe697ebf__confirm__1770988607532",
+    "events": "/Volumes/DATABASE/code/mcp/xhs-generator/.xhs-data/agent-runs/f3c511ac-624f-4b8e-b08e-062dbe697ebf__confirm__1770988607532/events.jsonl",
+    "agents": null
+  }
+}

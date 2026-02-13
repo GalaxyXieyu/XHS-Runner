@@ -1,0 +1,17 @@
+{
+  "runId": "ff3806ee-c1b2-4075-b4b7-37a59b8677f0__confirm__1770979238856",
+  "conversationId": 102,
+  "themeId": null,
+  "status": "completed",
+  "tags": [],
+  "messagePreview": "confirm:ask_user",
+  "startedAt": 1770979151837,
+  "endedAt": 1770979238847,
+  "durationMs": 87010,
+  "errorMessage": null,
+  "paths": {
+    "runDir": "/Volumes/DATABASE/code/mcp/xhs-generator/.xhs-data/agent-runs/ff3806ee-c1b2-4075-b4b7-37a59b8677f0__confirm__1770979238856",
+    "events": "/Volumes/DATABASE/code/mcp/xhs-generator/.xhs-data/agent-runs/ff3806ee-c1b2-4075-b4b7-37a59b8677f0__confirm__1770979238856/events.jsonl",
+    "agents": null
+  }
+}

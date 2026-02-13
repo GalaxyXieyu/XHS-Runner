@@ -553,13 +553,23 @@ export class AuthService extends BaseService {
         await sleep(1000); // Wait for page to load
 
         const currentUrl = page.url();
+        let hasWebSessionCookie = false;
+        try {
+          const cookies = await page.cookies('https://www.xiaohongshu.com');
+          hasWebSessionCookie = cookies.some((c) => c.name === 'web_session' && Boolean(c.value));
+        } catch {
+          // ignore
+        }
+
         if (currentUrl.includes('/login') || currentUrl.includes('/signin')) {
           return {
             success: true,
             loggedIn: false,
             status: 'logged_out',
             urlChecked: this.getConfig().xhs.exploreUrl,
-          };
+            currentUrl,
+            hasWebSessionCookie,
+          } as any;
         }
 
         // First check if logged in
@@ -571,7 +581,9 @@ export class AuthService extends BaseService {
             loggedIn: false,
             status: 'logged_out',
             urlChecked: this.getConfig().xhs.exploreUrl,
-          };
+            currentUrl,
+            hasWebSessionCookie,
+          } as any;
         }
 
         // If logged in, try to get profile information

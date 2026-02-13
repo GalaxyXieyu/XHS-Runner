@@ -20,6 +20,7 @@ import {
   shouldContinueResearch,
   shouldContinueImage,
   shouldContinueReview,
+  shouldReturnToSupervisor,
 } from "../routing";
 import {
   researchTools,
@@ -135,7 +136,10 @@ export async function buildGraph(model: ChatOpenAI, hitlConfig?: HITLConfig) {
     .addNode("reference_image_tools", referenceImageToolNode)
 
     // Entry
-    .addEdge(START, "supervisor")
+    .addConditionalEdges(START, shouldReturnToSupervisor, {
+      supervisor: "supervisor",
+      supervisor_route: "supervisor_route",
+    })
 
     // Supervisor route
     .addConditionalEdges("supervisor", shouldContinueSupervisor, {
@@ -157,26 +161,43 @@ export async function buildGraph(model: ChatOpenAI, hitlConfig?: HITLConfig) {
     .addEdge("supervisor_tools", "supervisor")
 
     // New phase nodes
-    .addEdge("brief_compiler_agent", "supervisor")
+    .addConditionalEdges("brief_compiler_agent", shouldReturnToSupervisor, {
+      supervisor: "supervisor",
+      supervisor_route: "supervisor_route",
+    })
     .addConditionalEdges("research_agent", shouldContinueResearch, {
       research_tools: "research_tools",
       supervisor: "supervisor",
+      supervisor_route: "supervisor_route",
     })
     .addEdge("research_tools", "research_agent")
-    .addEdge("reference_intelligence_agent", "supervisor")
-    .addEdge("layout_planner_agent", "supervisor")
+    .addConditionalEdges("reference_intelligence_agent", shouldReturnToSupervisor, {
+      supervisor: "supervisor",
+      supervisor_route: "supervisor_route",
+    })
+    .addConditionalEdges("layout_planner_agent", shouldReturnToSupervisor, {
+      supervisor: "supervisor",
+      supervisor_route: "supervisor_route",
+    })
 
     // Writer
-    .addEdge("writer_agent", "supervisor")
+    .addConditionalEdges("writer_agent", shouldReturnToSupervisor, {
+      supervisor: "supervisor",
+      supervisor_route: "supervisor_route",
+    })
 
     // Image planner
-    .addEdge("image_planner_agent", "supervisor")
+    .addConditionalEdges("image_planner_agent", shouldReturnToSupervisor, {
+      supervisor: "supervisor",
+      supervisor_route: "supervisor_route",
+    })
 
     // Image
     .addConditionalEdges("image_agent", shouldContinueImage, {
       image_tools: "image_tools",
       reference_image_tools: "reference_image_tools",
       supervisor: "supervisor",
+      supervisor_route: "supervisor_route",
     })
     .addEdge("image_tools", "image_agent")
     .addEdge("reference_image_tools", "image_agent")
@@ -185,6 +206,7 @@ export async function buildGraph(model: ChatOpenAI, hitlConfig?: HITLConfig) {
     .addConditionalEdges("review_agent", shouldContinueReview, {
       [END]: END,
       supervisor: "supervisor",
+      supervisor_route: "supervisor_route",
     });
 
   if (hitlConfig?.enableHITL) {

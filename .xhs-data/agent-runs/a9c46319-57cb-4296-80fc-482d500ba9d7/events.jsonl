@@ -1,0 +1,5 @@
+{"type":"agent_start","agent":"supervisor","content":"开始处理请求...","timestamp":1770980319343,"conversationId":103}
+{"type":"content_type_detected","contentType":"edu","confidence":0.95,"reasoning":"检测到教程、教学、知识分享类关键词","timestamp":1770980319344}
+{"type":"agent_start","agent":"research_agent","content":"内容调研 开始工作...","timestamp":1770980319380}
+{"type":"ask_user","question":"研究阶段你更希望优先补哪类证据？","options":[{"id":"trend_data","label":"趋势数据","description":"优先找最新趋势与增量信号"},{"id":"user_pain","label":"用户痛点","description":"优先找常见问题与避坑点"},{"id":"practical_steps","label":"实操方法","description":"优先找可执行步骤与参数"},{"id":"continue_default","label":"按默认研究","description":"不指定方向，系统自行平衡"}],"selectionType":"single","allowCustomInput":true,"context":{"__agent_clarification":true,"agent":"research_agent","key":"research_agent.focus","briefKeywords":[]},"threadId":"a9c46319-57cb-4296-80fc-482d500ba9d7","timestamp":1770980319379,"content":"研究阶段你更希望优先补哪类证据？"}
+{"type":"workflow_paused","threadId":"a9c46319-57cb-4296-80fc-482d500ba9d7","timestamp":1770980319380,"content":"工作流已暂停，等待用户响应"}

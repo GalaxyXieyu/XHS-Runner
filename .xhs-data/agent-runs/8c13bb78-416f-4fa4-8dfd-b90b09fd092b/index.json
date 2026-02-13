@@ -1,0 +1,25 @@
+{
+  "runId": "8c13bb78-416f-4fa4-8dfd-b90b09fd092b",
+  "conversationId": 96,
+  "themeId": 1,
+  "status": "paused",
+  "tags": [
+    "agent-flow",
+    "agent-stream",
+    "hitl",
+    "fast-mode",
+    "img:jimeng",
+    "no-ref-image",
+    "theme:1"
+  ],
+  "messagePreview": "写一篇关于春季护肤的小红书笔记",
+  "startedAt": 1770971129047,
+  "endedAt": 1770971129090,
+  "durationMs": 43,
+  "errorMessage": null,
+  "paths": {
+    "runDir": "/Volumes/DATABASE/code/mcp/xhs-generator/.xhs-data/agent-runs/8c13bb78-416f-4fa4-8dfd-b90b09fd092b",
+    "events": "/Volumes/DATABASE/code/mcp/xhs-generator/.xhs-data/agent-runs/8c13bb78-416f-4fa4-8dfd-b90b09fd092b/events.jsonl",
+    "agents": "/Volumes/DATABASE/code/mcp/xhs-generator/.xhs-data/agent-runs/8c13bb78-416f-4fa4-8dfd-b90b09fd092b/agents"
+  }
+}

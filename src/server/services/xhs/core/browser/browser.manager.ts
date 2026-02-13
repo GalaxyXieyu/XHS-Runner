@@ -169,11 +169,15 @@ export class BrowserManager {
         return false;
       }
 
-      // Convert our cookie format to Puppeteer format
+      // Convert our cookie format to Puppeteer format.
+      // NOTE: Puppeteer may reject domain-scoped cookies on about:blank. Providing a
+      // URL makes cookie injection deterministic.
       const puppeteerCookies = cookies.map((cookie) => ({
+        url: 'https://www.xiaohongshu.com',
         name: cookie.name,
         value: cookie.value,
-        domain: cookie.domain,
+        // When `url` is provided, Puppeteer infers domain; passing both can cause
+        // cookie injection to fail silently depending on format.
         path: cookie.path,
         expires: cookie.expires,
         httpOnly: cookie.httpOnly,

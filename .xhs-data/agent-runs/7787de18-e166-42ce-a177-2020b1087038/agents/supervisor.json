@@ -1,0 +1,26 @@
+{
+  "agent": "supervisor",
+  "input": {
+    "agent": "supervisor",
+    "message": "写一篇关于春季护肤的小红书笔记",
+    "themeId": 1,
+    "contentType": "product",
+    "referenceImages": [],
+    "imageGenProvider": "jimeng",
+    "threadId": "7787de18-e166-42ce-a177-2020b1087038",
+    "creativeId": 210,
+    "state": {
+      "summary": ""
+    }
+  },
+  "output": {
+    "messages": [
+      {
+        "type": "ai",
+        "content": "{\"next_agent\":\"brief_compiler_agent\",\"guidance\":\"补全目标人群、创作目标与风格，生成精简brief\",\"context_from_previous\":\"春季护肤 小红书\",\"focus_areas\":[\"目标人群\",\"创作目标\",\"风格结构\"]}",
+        "tool_calls": []
+      }
+    ],
+    "summary": ""
+  }
+}

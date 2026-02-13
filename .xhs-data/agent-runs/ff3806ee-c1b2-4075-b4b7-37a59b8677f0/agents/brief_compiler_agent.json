@@ -1,0 +1,46 @@
+{
+  "agent": "brief_compiler_agent",
+  "input": {
+    "agent": "brief_compiler_agent",
+    "message": "Vibecoding 上手教程：面向新手，3步+3坑，80~120字，口语化，小红书风格，包含 #标签。",
+    "themeId": 1,
+    "contentType": "edu",
+    "referenceImages": [],
+    "imageGenProvider": "nanobanana",
+    "threadId": "ff3806ee-c1b2-4075-b4b7-37a59b8677f0",
+    "creativeId": 241,
+    "state": {
+      "currentAgent": "brief_compiler_agent",
+      "summary": ""
+    }
+  },
+  "output": {
+    "messages": [
+      {
+        "type": "ai",
+        "content": "Brief 已生成：主题=Vibecoding，受众=新手，目标=上手教程，关键词=Vibecoding / 新手入门 / 3步3坑 / 小红书风 / #Vibecoding",
+        "tool_calls": []
+      }
+    ],
+    "summary": "",
+    "creativeBrief": {
+      "topic": "Vibecoding",
+      "audience": "新手",
+      "goal": "上手教程",
+      "constraints": [
+        "定场景与核心对象",
+        "内容：3步+3坑",
+        "口语小红书风，80-120字含#"
+      ],
+      "keywords": [
+        "Vibecoding",
+        "新手入门",
+        "3步3坑",
+        "小红书风",
+        "#Vibecoding"
+      ],
+      "keyPoints": [],
+      "bannedExpressions": []
+    }
+  }
+}

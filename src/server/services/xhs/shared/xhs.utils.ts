@@ -10,7 +10,13 @@ export const XHS_EXPLORE_URL = `${XHS_HOME_URL}/explore`;
 export const XHS_SEARCH_URL = `${XHS_HOME_URL}/search_result`;
 export const XHS_CREATOR_PUBLISH_URL =
   'https://creator.xiaohongshu.com/publish/publish?source=official';
-export const LOGIN_OK_SELECTOR = '.main-container .user .link-wrapper .channel';
+// XHS frequently changes its header DOM. Keep multiple heuristics for login detection.
+export const LOGIN_OK_SELECTORS = [
+  '.main-container .user .link-wrapper .channel',
+  'a[href*="/user/profile/"]',
+  'a[href*="/user/profile"]',
+  'img[class*="avatar"], img[src*="avatar"], [class*="avatar"] img',
+];
 
 export function makeSearchUrl(keyword: string): string {
   const params = new URLSearchParams({
@@ -113,8 +119,29 @@ export async function extractInitialState(page: Page): Promise<Record<string, un
 
 export async function isLoggedIn(page: Page): Promise<boolean> {
   try {
-    const elements = await page.$$(LOGIN_OK_SELECTOR);
-    return elements.length > 0;
+    // 1) DOM heuristics: any of these appearing typically implies a logged-in header/menu.
+    for (const selector of LOGIN_OK_SELECTORS) {
+      try {
+        const elements = await page.$$(selector);
+        if (elements.length > 0) return true;
+      } catch {
+        // ignore selector errors and try the next heuristic
+      }
+    }
+
+    // 2) Cookie heuristic fallback: if the browser has a session cookie and we aren't
+    // on an explicit login route, treat as logged in. This avoids false negatives when
+    // the DOM changes but cookies are valid.
+    const url = page.url();
+    if (url.includes('/login') || url.includes('/signin')) return false;
+
+    try {
+      const cookies = await page.cookies('https://www.xiaohongshu.com');
+      const hasWebSession = cookies.some((c) => c.name === 'web_session' && Boolean(c.value));
+      return hasWebSession;
+    } catch {
+      return false;
+    }
   } catch {
     return false;
   }
@@ -136,11 +163,10 @@ export async function getLoginStatusWithProfile(page: Page): Promise<{
   };
 }> {
   try {
-    // First check if logged in using the existing method
-    const elements = await page.$$(LOGIN_OK_SELECTOR);
-    const isLoggedIn = elements.length > 0;
+    // First check if logged in using the shared heuristic
+    const loggedIn = await isLoggedIn(page);
 
-    if (!isLoggedIn) {
+    if (!loggedIn) {
       return { isLoggedIn: false };
     }
 
@@ -212,14 +238,13 @@ export async function getLoginStatusWithProfile(page: Page): Promise<{
     }
 
     return {
-      isLoggedIn: true,
+      isLoggedIn: loggedIn,
       profile: Object.keys(profileData).length > 0 ? profileData : undefined,
     };
   } catch {
     // If there's an error, fall back to basic login check
     try {
-      const elements = await page.$$(LOGIN_OK_SELECTOR);
-      return { isLoggedIn: elements.length > 0 };
+      return { isLoggedIn: await isLoggedIn(page) };
     } catch {
       return { isLoggedIn: false };
     }

@@ -1,0 +1,50 @@
+{
+  "agent": "supervisor",
+  "input": {
+    "agent": "supervisor",
+    "message": "快速测试：写一段100字描述春天",
+    "themeId": 1,
+    "contentType": "product",
+    "referenceImages": [],
+    "imageGenProvider": "jimeng",
+    "threadId": "4d390ddf-093f-4183-b842-bfe7298389d0",
+    "creativeId": 213,
+    "state": {
+      "summary": ""
+    }
+  },
+  "output": {
+    "messages": [
+      {
+        "type": "ai",
+        "content": "为了保证规划质量，先澄清关键需求。",
+        "tool_calls": [
+          {
+            "id": "ask_user_1770913171910",
+            "name": "askUser",
+            "args": {
+              "question": "为了提升内容质量，我建议先补充一点关键信息（建议补充：目标人群、创作目标、主题场景/核心对象）。你希望怎么做？",
+              "options": [
+                {
+                  "id": "continue_default",
+                  "label": "按默认继续",
+                  "description": "不补充细节，直接生成"
+                },
+                {
+                  "id": "refine_requirements",
+                  "label": "我来补充",
+                  "description": "输入更具体的人群、目标、场景或风格"
+                }
+              ],
+              "selectionType": "single",
+              "allowCustomInput": true,
+              "contextJson": "{\"__clarification\":true,\"missingDimensions\":[\"目标人群\",\"创作目标\",\"主题场景/核心对象\",\"风格或结构约束\"],\"requirement\":\"快速测试：写一段100字描述春天\",\"clarityScore\":0,\"clarityLevel\":\"low\"}"
+            },
+            "type": "tool_call"
+          }
+        ]
+      }
+    ],
+    "summary": ""
+  }
+}

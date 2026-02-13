@@ -4,5 +4,6 @@ export {
   shouldContinueResearch,
   shouldContinueImage,
   shouldContinueReview,
+  shouldReturnToSupervisor,
   resetImageToolCallCount,
 } from "./router";

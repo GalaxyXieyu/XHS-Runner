@@ -1,0 +1,24 @@
+{
+  "agent": "supervisor_tools",
+  "input": {
+    "agent": "supervisor_tools",
+    "message": "测试 fast 模式",
+    "themeId": 1,
+    "contentType": "product",
+    "referenceImages": [],
+    "imageGenProvider": "jimeng",
+    "threadId": "ae24442d-ae61-4359-88c0-551577a7b9e8",
+    "creativeId": 209,
+    "state": {}
+  },
+  "output": {
+    "messages": [
+      {
+        "type": "tool",
+        "name": "askUser",
+        "content": "Error: No checkpointer set\n Please fix your mistakes.",
+        "tool_call_id": "ask_user_1770911473131"
+      }
+    ]
+  }
+}

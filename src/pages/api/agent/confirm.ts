@@ -393,6 +393,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
       const data = modifiedData as any;
       const nextState: Record<string, unknown> = {};
+      const rawLayoutPreference = typeof data.layoutPreference === "string" ? data.layoutPreference : "";
+      const normalizedLayoutPreference = rawLayoutPreference === "visual_first"
+        ? "visual-first"
+        : rawLayoutPreference;
+      const hasLayoutSpec = Array.isArray(data.layoutSpec);
+      const hasImagePlans = Array.isArray(data.imagePlans);
+      const hasParagraphBindings = Array.isArray(data.paragraphImageBindings);
+      const hasTextOverlayPlan = Array.isArray(data.textOverlayPlan);
+      const isValidLayoutPreference = ["dense", "balanced", "visual-first"].includes(normalizedLayoutPreference);
       if (typeof data.title === "string" || typeof data.body === "string") {
         nextState.generatedContent = {
           title: String(data.title || ""),
@@ -402,9 +411,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         nextState.contentComplete = !!String(data.body || "").trim();
       }
       if (Array.isArray(data.imagePlans)) nextState.imagePlans = data.imagePlans;
-      if (Array.isArray(data.layoutSpec)) nextState.layoutSpec = data.layoutSpec;
-      if (Array.isArray(data.paragraphImageBindings)) nextState.paragraphImageBindings = data.paragraphImageBindings;
-      if (Array.isArray(data.textOverlayPlan)) nextState.textOverlayPlan = data.textOverlayPlan;
+      if (hasLayoutSpec) {
+        nextState.layoutSpec = data.layoutSpec;
+        nextState.layoutComplete = data.layoutSpec.length > 0;
+      }
+      if (hasParagraphBindings) nextState.paragraphImageBindings = data.paragraphImageBindings;
+      if (hasTextOverlayPlan) nextState.textOverlayPlan = data.textOverlayPlan;
+      // 处理 layoutPreference（用户选择 dense/balanced/visual-first）
+      if (isValidLayoutPreference) {
+        nextState.layoutPreference = normalizedLayoutPreference;
+        if (!hasLayoutSpec) {
+          nextState.layoutSpec = [];
+          nextState.layoutComplete = false;
+        }
+      }
+      const shouldInvalidateImagePlan = hasLayoutSpec || isValidLayoutPreference;
+      if (shouldInvalidateImagePlan) {
+        if (!hasImagePlans) nextState.imagePlans = [];
+        if (!hasParagraphBindings) nextState.paragraphImageBindings = [];
+        if (!hasTextOverlayPlan) nextState.textOverlayPlan = [];
+        nextState.bodyBlocks = [];
+        nextState.imagesComplete = false;
+      }
       return Object.keys(nextState).length > 0 ? nextState : undefined;
     };
 

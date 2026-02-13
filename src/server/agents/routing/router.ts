@@ -137,6 +137,25 @@ function getDeterministicRoute(state: typeof AgentState.State): RouteDecision {
     return "writer_agent";
   }
 
+  if (state.fastMode) {
+    if (!state.evidenceComplete) {
+      return "research_agent";
+    }
+    if (!state.referenceIntelligenceComplete) {
+      return "reference_intelligence_agent";
+    }
+    if (!state.contentComplete || !state.generatedContent?.body || !state.generatedContent.body.trim()) {
+      return "writer_agent";
+    }
+    if (state.imagePlans.length === 0) {
+      return "image_planner_agent";
+    }
+    if (!state.imagesComplete) {
+      return "image_agent";
+    }
+    return END;
+  }
+
   // briefComplete 为 true 时表示 brief 已完成，不应再返回 brief_compiler_agent
   // 让后续逻辑检查是否需要继续到 research_agent
   if (!state.briefComplete && !state.creativeBrief) {
@@ -165,11 +184,6 @@ function getDeterministicRoute(state: typeof AgentState.State): RouteDecision {
 
   if (!state.imagesComplete) {
     return "image_agent";
-  }
-
-  // 快速模式：跳过 review，直接结束
-  if (state.fastMode) {
-    return END;
   }
 
   if (!state.reviewFeedback) {
@@ -206,6 +220,10 @@ export function routeFromSupervisor(state: typeof AgentState.State): string {
     : extractNextFromSupervisor(content);
   const deterministicRoute = getDeterministicRoute(state);
 
+  if (state.fastMode) {
+    return deterministicRoute;
+  }
+
   if (canUseLlmBacktrackRoute(llmRoute, deterministicRoute, state)) {
     if (llmRoute !== deterministicRoute) {
       const deterministicLabel = typeof deterministicRoute === "string" ? deterministicRoute : "END";
@@ -221,6 +239,10 @@ export function routeFromSupervisor(state: typeof AgentState.State): string {
   }
 
   return deterministicRoute;
+}
+
+export function shouldReturnToSupervisor(state: typeof AgentState.State): string {
+  return state.fastMode ? "supervisor_route" : "supervisor";
 }
 
 // 按 thread 隔离工具调用次数，避免并发串扰
@@ -245,7 +267,7 @@ export function shouldContinueResearch(state: typeof AgentState.State): string {
 
   if (!threadId) {
     console.warn("[shouldContinueResearch] missing threadId, fallback to supervisor");
-    return "supervisor";
+    return state.fastMode ? "supervisor_route" : "supervisor";
   }
 
   if (lastMessage && "tool_calls" in lastMessage && (lastMessage as AIMessage).tool_calls?.length) {
@@ -257,7 +279,7 @@ export function shouldContinueResearch(state: typeof AgentState.State): string {
     // 如果已经达到上限，不再执行新的工具调用
     if (currentCount >= MAX_RESEARCH_TOOL_CALLS) {
       console.log(`[shouldContinueResearch] 已达到工具调用上限 ${MAX_RESEARCH_TOOL_CALLS}，结束研究`);
-      return "supervisor";
+      return state.fastMode ? "supervisor_route" : "supervisor";
     }
 
     // 先执行工具调用，然后更新计数
@@ -268,35 +290,38 @@ export function shouldContinueResearch(state: typeof AgentState.State): string {
     console.log(`[shouldContinueResearch] 执行工具调用，累计: ${nextCount}`);
     return "research_tools";
   }
-  return "supervisor";
+  return state.fastMode ? "supervisor_route" : "supervisor";
 }
 
 export function shouldContinueImage(state: typeof AgentState.State): string {
   if (state.imagesComplete) {
-    return "supervisor";
+    return state.fastMode ? "supervisor_route" : "supervisor";
   }
 
   const lastMessage = state.messages[state.messages.length - 1];
   const threadId = state.threadId;
   if (!threadId) {
     console.warn("[shouldContinueImage] missing threadId, fallback to supervisor");
-    return "supervisor";
+    return state.fastMode ? "supervisor_route" : "supervisor";
   }
 
   if (lastMessage && "tool_calls" in lastMessage && (lastMessage as AIMessage).tool_calls?.length) {
     const nextCount = (imageToolCallCounterByThread.get(threadId) || 0) + 1;
     imageToolCallCounterByThread.set(threadId, nextCount);
     if (nextCount >= MAX_IMAGE_TOOL_CALLS) {
-      return "supervisor";
+      return state.fastMode ? "supervisor_route" : "supervisor";
     }
     return "image_tools";
   }
 
-  return "supervisor";
+  return state.fastMode ? "supervisor_route" : "supervisor";
 }
 
 // review_agent 路由：质量达标直接 END，否则回 supervisor
 export function shouldContinueReview(state: typeof AgentState.State): string {
+  if (state.fastMode) {
+    return END;
+  }
   if (state.reviewFeedback?.approved && isQualityApproved(state.qualityScores)) {
     return END;
   }

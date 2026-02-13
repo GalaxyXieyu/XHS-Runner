@@ -1,0 +1,44 @@
+{
+  "agent": "research_agent",
+  "input": {
+    "agent": "research_agent",
+    "message": "Vibecoding 上手教程：面向新手，3步+3坑，80~120字，口语化，小红书风格，包含 #标签。",
+    "themeId": 1,
+    "contentType": "edu",
+    "referenceImages": [],
+    "imageGenProvider": "jimeng",
+    "threadId": "f5007a3c-737e-4c3d-975a-80a068a05351",
+    "creativeId": 237,
+    "state": {
+      "currentAgent": "research_agent",
+      "summary": ""
+    }
+  },
+  "output": {
+    "messages": [
+      {
+        "type": "ai",
+        "content": "{\n  \"summary\": \"场景、核心对象、新手要点三条\",\n  \"items\": [\n    {\"fact\": \"适合处理复杂多步推理\", \"source\": \"知乎专栏\"},\n    {\"fact\": \"以即时可执行语言为核心\", \"source\": \"vocus\"},\n    {\"fact\": \"对跨技术栈的新手友好\", \"source\": \"CSDN\"}\n  ]\n}",
+        "tool_calls": []
+      }
+    ],
+    "summary": "",
+    "evidencePack": {
+      "items": [
+        {
+          "fact": "适合处理复杂多步推理",
+          "source": "知乎专栏"
+        },
+        {
+          "fact": "以即时可执行语言为核心",
+          "source": "vocus"
+        },
+        {
+          "fact": "对跨技术栈的新手友好",
+          "source": "CSDN"
+        }
+      ],
+      "summary": "场景、核心对象、新手要点三条"
+    }
+  }
+}

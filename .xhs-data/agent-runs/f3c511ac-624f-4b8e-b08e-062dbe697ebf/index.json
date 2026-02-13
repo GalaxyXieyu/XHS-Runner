@@ -1,0 +1,25 @@
+{
+  "runId": "f3c511ac-624f-4b8e-b08e-062dbe697ebf",
+  "conversationId": 104,
+  "themeId": 1,
+  "status": "paused",
+  "tags": [
+    "agent-flow",
+    "agent-stream",
+    "hitl",
+    "normal-mode",
+    "img:jimeng",
+    "no-ref-image",
+    "theme:1"
+  ],
+  "messagePreview": "Vibecoding 上手教程：面向新手，3步+3坑，80~120字，口语化，小红书风格，包含 #标签。",
+  "startedAt": 1770980443188,
+  "endedAt": 1770981042855,
+  "durationMs": 599667,
+  "errorMessage": null,
+  "paths": {
+    "runDir": "/Volumes/DATABASE/code/mcp/xhs-generator/.xhs-data/agent-runs/f3c511ac-624f-4b8e-b08e-062dbe697ebf",
+    "events": "/Volumes/DATABASE/code/mcp/xhs-generator/.xhs-data/agent-runs/f3c511ac-624f-4b8e-b08e-062dbe697ebf/events.jsonl",
+    "agents": "/Volumes/DATABASE/code/mcp/xhs-generator/.xhs-data/agent-runs/f3c511ac-624f-4b8e-b08e-062dbe697ebf/agents"
+  }
+}

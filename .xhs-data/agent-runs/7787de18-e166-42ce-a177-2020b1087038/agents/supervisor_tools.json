@@ -1,0 +1,24 @@
+{
+  "agent": "supervisor_tools",
+  "input": {
+    "agent": "supervisor_tools",
+    "message": "写一篇关于春季护肤的小红书笔记",
+    "themeId": 1,
+    "contentType": "product",
+    "referenceImages": [],
+    "imageGenProvider": "jimeng",
+    "threadId": "7787de18-e166-42ce-a177-2020b1087038",
+    "creativeId": 210,
+    "state": {}
+  },
+  "output": {
+    "messages": [
+      {
+        "type": "tool",
+        "name": "askUser",
+        "content": "Error: No checkpointer set\n Please fix your mistakes.",
+        "tool_call_id": "ask_user_1770912420030"
+      }
+    ]
+  }
+}

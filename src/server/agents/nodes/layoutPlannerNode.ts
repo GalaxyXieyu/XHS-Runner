@@ -116,10 +116,10 @@ export async function layoutPlannerNode(state: typeof AgentState.State, model: C
     };
   }
 
+  // 检查是否需要询问 layoutPreference：还没有设置过或设置的是默认 balanced 且无参考图
   const needLayoutPreferenceClarification =
     !state.layoutComplete
-    && state.layoutPreference === "balanced"
-    && state.referenceAnalyses.length === 0;
+    && (!state.layoutPreference || (state.layoutPreference === "balanced" && state.referenceAnalyses.length === 0));
 
   if (needLayoutPreferenceClarification) {
     const clarificationResult = requestAgentClarification(state, {

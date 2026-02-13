@@ -54,3 +54,23 @@ test("fastMode does not skip image generation stage", () => {
   const route = routeFromSupervisor(state);
   assert.strictEqual(route, "image_agent");
 });
+
+test("fastMode skips brief compiler and routes to research when evidence is missing", () => {
+  const state = makeBaseState({
+    fastMode: true,
+    briefComplete: false,
+    creativeBrief: null,
+    evidenceComplete: false,
+  });
+  const route = routeFromSupervisor(state);
+  assert.strictEqual(route, "research_agent");
+});
+
+test("fastMode routes to reference intelligence when reference is missing", () => {
+  const state = makeBaseState({
+    fastMode: true,
+    referenceIntelligenceComplete: false,
+  });
+  const route = routeFromSupervisor(state);
+  assert.strictEqual(route, "reference_intelligence_agent");
+});
