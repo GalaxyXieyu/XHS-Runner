@@ -32,21 +32,21 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Stream image to Taurus (docker load)
-        run: |
-          # Stream over SSH to avoid partial/corrupt uploads for large tarballs.
-          # Use the known_hosts created in "Setup SSH" (ssh-keyscan).
-          docker save xhs-runner-web:latest | gzip | \
-            ssh -o UserKnownHostsFile=~/.ssh/known_hosts -o StrictHostKeyChecking=yes \
-              ${{ secrets.TAURUS_USER }}@${{ secrets.TAURUS_HOST }} \
-              'gunzip | docker load'
-
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.TAURUS_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H ${{ secrets.TAURUS_HOST }} >> ~/.ssh/known_hosts
+          # Populate known_hosts for strict checking. Try common key types.
+          ssh-keyscan -t ed25519,rsa,ecdsa -H ${{ secrets.TAURUS_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Stream image to Taurus (docker load)
+        run: |
+          # Stream over SSH to avoid partial/corrupt uploads for large tarballs.
+          docker save xhs-runner-web:latest | gzip | \
+            ssh -o UserKnownHostsFile=~/.ssh/known_hosts -o StrictHostKeyChecking=yes \
+              ${{ secrets.TAURUS_USER }}@${{ secrets.TAURUS_HOST }} \
+              'gunzip | docker load'
 
       - name: Upload compose file
         run: |
