@@ -25,6 +25,20 @@ async function main() {
     console.log('[migrate] done');
     await migrationClient.end();
   } catch (err) {
+    const msg = (err && (err.message || String(err))) || '';
+
+    // Some repos keep historical migrations out of git (or they were created manually on prod).
+    // If the image lacks the old SQL files but the DB schema is already present, don't crash-loop.
+    const isMissingMigrationFile = msg.includes('No file ./drizzle/');
+    const strict = process.env.MIGRATE_STRICT === '1';
+
+    if (isMissingMigrationFile && !strict) {
+      console.warn('[migrate] missing migration files in image; skipping migrations (set MIGRATE_STRICT=1 to fail)');
+      console.warn('[migrate] error:', msg);
+      await migrationClient.end();
+      return;
+    }
+
     console.error('[migrate] failed', err);
     await migrationClient.end();
     process.exit(1);
