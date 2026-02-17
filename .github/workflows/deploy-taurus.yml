@@ -35,8 +35,10 @@ jobs:
       - name: Stream image to Taurus (docker load)
         run: |
           # Stream over SSH to avoid partial/corrupt uploads for large tarballs.
+          # Use the known_hosts created in "Setup SSH" (ssh-keyscan).
           docker save xhs-runner-web:latest | gzip | \
-            ssh -o StrictHostKeyChecking=yes ${{ secrets.TAURUS_USER }}@${{ secrets.TAURUS_HOST }} \
+            ssh -o UserKnownHostsFile=~/.ssh/known_hosts -o StrictHostKeyChecking=yes \
+              ${{ secrets.TAURUS_USER }}@${{ secrets.TAURUS_HOST }} \
               'gunzip | docker load'
 
       - name: Setup SSH
