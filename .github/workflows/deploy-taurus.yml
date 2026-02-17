@@ -1,0 +1,60 @@
+name: Deploy Taurus (Build Image In CI + Upload)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-taurus
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (web)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.web
+          load: true
+          tags: xhs-runner-web:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Save image tar
+        run: |
+          docker save xhs-runner-web:latest | gzip > xhs-runner-web-latest.tar.gz
+          ls -lh xhs-runner-web-latest.tar.gz
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.TAURUS_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ secrets.TAURUS_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Upload image + compose
+        run: |
+          scp xhs-runner-web-latest.tar.gz ${{ secrets.TAURUS_USER }}@${{ secrets.TAURUS_HOST }}:/root/data/xhs-runner/
+          scp docker-compose.web.prod.yml ${{ secrets.TAURUS_USER }}@${{ secrets.TAURUS_HOST }}:/root/data/xhs-runner/docker-compose.yml
+
+      - name: Deploy (load + up)
+        run: |
+          ssh ${{ secrets.TAURUS_USER }}@${{ secrets.TAURUS_HOST }} <<'EOF'
+          set -euo pipefail
+          cd /root/data/xhs-runner
+          gunzip -c xhs-runner-web-latest.tar.gz | docker load
+          docker compose --env-file .env up -d
+          docker compose --env-file .env ps
+          EOF

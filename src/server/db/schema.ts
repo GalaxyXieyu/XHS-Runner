@@ -2,6 +2,32 @@ import { pgTable, serial, text, integer, timestamp, boolean, real, jsonb, date, 
 
 // ==================== Core Tables ====================
 
+// ==================== App Auth (Web UI) ====================
+// Minimal auth to prevent public abuse when the web UI is exposed.
+export const appUsers = pgTable('app_users', {
+  id: serial('id').primaryKey(),
+  email: text('email').notNull().unique(),
+  passwordHash: text('password_hash').notNull(),
+  passwordSalt: text('password_salt').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const appActivationCodes = pgTable('app_activation_codes', {
+  code: text('code').primaryKey(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+  usedAt: timestamp('used_at', { withTimezone: true }),
+  usedByUserId: integer('used_by_user_id').references(() => appUsers.id, { onDelete: 'set null' }),
+});
+
+export const appSessions = pgTable('app_sessions', {
+  token: text('token').primaryKey(),
+  userId: integer('user_id').notNull().references(() => appUsers.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+});
+
+
 export const themes = pgTable('themes', {
   id: serial('id').primaryKey(),
   name: text('name').notNull(),

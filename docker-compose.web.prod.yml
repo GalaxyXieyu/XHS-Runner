@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  web:
+    build:
+      context: ./app
+      dockerfile: Dockerfile.web
+    image: xhs-runner-web:latest
+    container_name: xhs-runner-web
+    restart: unless-stopped
+    ports:
+      - "34124:3000"
+    environment:
+      - NODE_ENV=production
+      # Ensure Next binds on all interfaces when container has multiple networks.
+      - HOSTNAME=0.0.0.0
+      # App DB
+      # Use container_name to avoid DNS ambiguity when attached to multiple networks (e.g. langfuse also has a postgres service).
+      - DATABASE_URL=postgresql://xhs_admin:${POSTGRES_PASSWORD}@xhs-runner-postgres:5432/xhs_runner
+      # Optional: Langfuse (reuse existing stack via external network)
+      - LANGFUSE_BASE_URL=http://langfuse-server:3000
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      # App auth
+      - APP_AUTH_SECRET=${APP_AUTH_SECRET}
+      - APP_ADMIN_EMAIL=${APP_ADMIN_EMAIL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - xhs
+      - langfuse
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: xhs-runner-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: xhs_runner
+      POSTGRES_USER: xhs_admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=en_US.UTF-8"
+    volumes:
+      - xhs_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U xhs_admin -d xhs_runner"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - xhs
+
+volumes:
+  xhs_postgres_data:
+
+networks:
+  xhs:
+    driver: bridge
+  # Join the existing Langfuse network created by /root/data/langfuse/docker-compose.yml
+  langfuse:
+    external: true
+    name: langfuse_langfuse

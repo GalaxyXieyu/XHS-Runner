@@ -1,0 +1,58 @@
+# Web-only build for XHS-Runner (Next.js standalone)
+# Includes Chromium for Puppeteer.
+
+FROM docker.m.daocloud.io/library/node:20-bookworm AS deps
+WORKDIR /app
+
+# Install dependencies first (better cache)
+COPY package.json package-lock.json* ./
+# Use a mirror registry to avoid network instability on the server/CI.
+RUN npm config set registry https://registry.npmmirror.com
+RUN npm ci
+
+FROM docker.m.daocloud.io/library/node:20-bookworm AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+
+# Next standalone build
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN npm run build
+
+FROM docker.m.daocloud.io/library/node:20-bookworm-slim AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# Chromium + minimal deps for headless.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    chromium \
+    ca-certificates \
+    fonts-noto-cjk \
+    fonts-noto-color-emoji \
+  && rm -rf /var/lib/apt/lists/*
+
+# Prevent Puppeteer from trying to download Chromium at runtime.
+ENV PUPPETEER_SKIP_DOWNLOAD=1
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+
+# Copy Next standalone output
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+# `public/` is optional in this repo; guard against missing directory.
+
+# Include full node_modules so the runtime can execute Drizzle migrations.
+# (Next standalone output may not include drizzle-orm/postgres packages.)
+COPY --from=deps /app/node_modules ./node_modules
+
+# Drizzle migration files
+COPY --from=builder /app/drizzle ./drizzle
+
+# App startup: run DB migrations then start server
+COPY scripts/migrate-db.js ./scripts/migrate-db.js
+COPY scripts/entrypoint-web.sh ./scripts/entrypoint-web.sh
+RUN chmod +x ./scripts/entrypoint-web.sh
+
+EXPOSE 3000
+CMD ["/app/scripts/entrypoint-web.sh"]

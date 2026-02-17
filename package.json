@@ -19,12 +19,14 @@
     "dist:win": "npm run build:server && electron-builder --win",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate-db.ts",
+    "auth:gen-code": "node scripts/gen-activation-code.ts --count 1",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:sync": "bash scripts/sync-schema.sh",
     "eval:clarification": "npx tsx scripts/eval-supervisor-clarification.ts",
     "eval:agent-clarification": "npx tsx scripts/eval-agent-clarification-matrix.ts",
-    "lint:supervisor-prompt": "npx tsx scripts/lint-supervisor-prompt.ts"
+    "lint:supervisor-prompt": "npx tsx scripts/lint-supervisor-prompt.ts",
+    "test:login": "npx tsx src/server/scripts/test-login-flow.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.7",
