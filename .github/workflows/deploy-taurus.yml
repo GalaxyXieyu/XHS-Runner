@@ -32,10 +32,12 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Save image tar
+      - name: Stream image to Taurus (docker load)
         run: |
-          docker save xhs-runner-web:latest | gzip > xhs-runner-web-latest.tar.gz
-          ls -lh xhs-runner-web-latest.tar.gz
+          # Stream over SSH to avoid partial/corrupt uploads for large tarballs.
+          docker save xhs-runner-web:latest | gzip | \
+            ssh -o StrictHostKeyChecking=yes ${{ secrets.TAURUS_USER }}@${{ secrets.TAURUS_HOST }} \
+              'gunzip | docker load'
 
       - name: Setup SSH
         run: |
@@ -44,17 +46,15 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H ${{ secrets.TAURUS_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Upload image + compose
+      - name: Upload compose file
         run: |
-          scp xhs-runner-web-latest.tar.gz ${{ secrets.TAURUS_USER }}@${{ secrets.TAURUS_HOST }}:/root/data/xhs-runner/
           scp docker-compose.web.prod.yml ${{ secrets.TAURUS_USER }}@${{ secrets.TAURUS_HOST }}:/root/data/xhs-runner/docker-compose.yml
 
-      - name: Deploy (load + up)
+      - name: Deploy (compose up)
         run: |
           ssh ${{ secrets.TAURUS_USER }}@${{ secrets.TAURUS_HOST }} <<'EOF'
           set -euo pipefail
           cd /root/data/xhs-runner
-          gunzip -c xhs-runner-web-latest.tar.gz | docker load
           docker compose --env-file .env up -d
           docker compose --env-file .env ps
           EOF
