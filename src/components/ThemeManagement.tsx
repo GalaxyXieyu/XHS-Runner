@@ -390,17 +390,17 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
       {/* Theme Selector - Top Collapsible Panel */}
       <div className="bg-white border-b border-gray-200">
         {/* Collapsed View */}
-        <div className="px-4 py-2 flex items-center justify-between">
-          <div className="flex items-center gap-3 flex-1">
+        <div className="px-4 py-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
             <button
               onClick={() => setIsExpanded(!isExpanded)}
-              className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded transition-colors"
+              className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded transition-colors min-w-0"
             >
               {selectedTheme ? (
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 min-w-0">
                   <div className={`w-2 h-2 rounded-full ${statusConfig[selectedTheme.status].color}`}></div>
-                  <span className="text-xs font-medium text-gray-900">{selectedTheme.name}</span>
-                  <div className="flex items-center gap-1 text-xs text-gray-500">
+                  <span className="text-xs font-medium text-gray-900 truncate max-w-[140px] sm:max-w-none">{selectedTheme.name}</span>
+                  <div className="hidden sm:flex items-center gap-1 text-xs text-gray-500">
                     <span>{selectedTheme.keywords.length} 关键词</span>
                     <span>·</span>
                     <span>{selectedTheme.competitors.length} 竞品</span>
@@ -423,7 +423,7 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
             </button>
             
             {selectedTheme && !isExpanded && (
-              <div className="flex flex-wrap gap-1">
+              <div className="hidden sm:flex flex-wrap gap-1">
                 {selectedTheme.keywords.slice(0, 5).map((keyword, idx) => (
                   <span key={idx} className="px-1.5 py-0.5 bg-gray-100 text-gray-700 rounded text-xs">
                     {keyword.value}
@@ -444,7 +444,7 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
               setFormData(createEmptyFormData());
               setShowCreateModal(true);
             }}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500 text-white rounded text-xs hover:bg-red-600 transition-colors"
+            className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-500 text-white rounded text-xs hover:bg-red-600 transition-colors"
           >
             <Plus className="w-3.5 h-3.5" />
             新建主题

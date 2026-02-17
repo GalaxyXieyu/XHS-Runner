@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { FolderKanban, Sparkles, BarChart3, Settings as SettingsIcon, PanelLeftClose, PanelLeftOpen, ListChecks, ChevronDown, Archive, Hash, Users, X } from 'lucide-react';
+import { FolderKanban, Sparkles, BarChart3, Settings as SettingsIcon, PanelLeftClose, PanelLeftOpen, ListChecks, ChevronDown, Archive, Hash, Users, X, SlidersHorizontal } from 'lucide-react';
 
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 
@@ -119,6 +119,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
   const [showThemeDropdown, setShowThemeDropdown] = useState(false);
 
   // CreativeTab 子 tab 状态提升
@@ -445,7 +446,74 @@ export default function App() {
             <h1 className="text-sm font-medium text-gray-900 truncate">
               {navItems.find(item => item.id === currentView)?.label}
             </h1>
-            {/* 主题选择器 - 仅在需要主题的视图显示 */}
+            {/* 移动端：工具抽屉（主题选择/信息摘要） */}
+            {currentView !== 'themes' && currentView !== 'settings' && currentView !== 'taskCenter' && (
+              <div className="sm:hidden">
+                <Sheet open={mobileToolsOpen} onOpenChange={setMobileToolsOpen}>
+                  <SheetTrigger asChild>
+                    <button
+                      className="p-2 rounded hover:bg-gray-100 text-gray-600"
+                      aria-label="打开工具"
+                      type="button"
+                    >
+                      <SlidersHorizontal className="w-4 h-4" />
+                    </button>
+                  </SheetTrigger>
+                  <SheetContent side="right" className="w-[320px] sm:w-[400px]">
+                    <div className="space-y-4">
+                      <div className="text-sm font-medium">工具</div>
+
+                      <div className="space-y-2">
+                        <div className="text-xs text-gray-500">主题</div>
+                        <div className="max-h-64 overflow-y-auto border border-gray-200 rounded-lg">
+                          {themes.map((theme) => (
+                            <button
+                              key={theme.id}
+                              onClick={() => {
+                                setSelectedTheme(theme);
+                                setMobileToolsOpen(false);
+                              }}
+                              className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 transition-colors ${
+                                selectedTheme?.id === theme.id ? 'bg-red-50 text-red-600' : 'text-gray-800'
+                              }`}
+                              type="button"
+                            >
+                              {theme.name}
+                            </button>
+                          ))}
+                          {themes.length === 0 && (
+                            <div className="px-3 py-2 text-sm text-gray-400">暂无主题</div>
+                          )}
+                        </div>
+                      </div>
+
+                      {selectedTheme && (
+                        <div className="space-y-2">
+                          <div className="text-xs text-gray-500">当前主题信息</div>
+                          <div className="text-sm text-gray-700 flex items-center justify-between">
+                            <span className="truncate">{selectedTheme.name}</span>
+                          </div>
+                          <div className="text-xs text-gray-600 flex items-center gap-3">
+                            <span className="flex items-center gap-1">
+                              <Hash className="w-3 h-3" />
+                              {selectedTheme.keywords.length} 关键词
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <Users className="w-3 h-3" />
+                              {selectedTheme.competitors.length} 竞品
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="text-xs text-gray-500">更多筛选/操作将逐步移动到这里（移动端不再挤在顶部）。</div>
+                    </div>
+                  </SheetContent>
+                </Sheet>
+              </div>
+            )}
+
+            {/* 桌面端：主题选择器 - 仅在需要主题的视图显示 */}
             {currentView !== 'themes' && currentView !== 'settings' && currentView !== 'taskCenter' && (
               <div className="relative hidden sm:block">
                 <button
