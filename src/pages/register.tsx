@@ -37,14 +37,16 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center px-4 py-10">
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <CardTitle>注册</CardTitle>
-          <CardDescription>需要激活码</CardDescription>
+    <div className="min-h-screen bg-white flex items-center justify-center px-4 py-10">
+      <Card className="w-full max-w-sm overflow-hidden border border-border bg-white shadow-none">
+        <div className="h-0.5 w-full bg-red-600" />
+        <CardHeader className="space-y-2">
+          <div className="text-xs font-medium tracking-wide text-muted-foreground">XHS Generator</div>
+          <CardTitle className="text-2xl font-semibold tracking-tight">注册</CardTitle>
+          <CardDescription className="text-sm">需要激活码</CardDescription>
         </CardHeader>
         <form onSubmit={onSubmit}>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-4">
             <div className="space-y-2">
               <div className="text-sm font-medium">邮箱</div>
               <Input value={email} onChange={(e) => setEmail(e.target.value)} type="email" autoComplete="email" required />
@@ -57,14 +59,16 @@ export default function RegisterPage() {
               <div className="text-sm font-medium">激活码</div>
               <Input value={activationCode} onChange={(e) => setActivationCode(e.target.value)} required />
             </div>
-            {error ? <div className="text-sm text-destructive">{error}</div> : null}
+            {error ? (
+              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
+            ) : null}
           </CardContent>
           <CardFooter className="flex flex-col gap-3">
-            <Button className="w-full" disabled={loading} type="submit">
+            <Button className="w-full bg-red-600 text-white hover:bg-red-700" disabled={loading} type="submit">
               {loading ? '注册中…' : '注册'}
             </Button>
             <div className="text-sm text-muted-foreground">
-              <Link className="text-primary hover:underline" href="/login">
+              <Link className="font-medium text-red-600 hover:underline" href="/login">
                 返回登录
               </Link>
             </div>

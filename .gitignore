@@ -22,6 +22,8 @@ src/lib/*.js
 # Backup files (may contain sensitive data)
 scripts/backups/
 *.sql
+# Keep drizzle migrations under version control.
+!drizzle/*.sql
 *.dump
 backups/
 
