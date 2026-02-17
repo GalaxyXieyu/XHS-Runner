@@ -1,5 +1,8 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { FolderKanban, Sparkles, BarChart3, Settings as SettingsIcon, PanelLeftClose, PanelLeftOpen, ListChecks, ChevronDown, Archive, Hash, Users, X } from 'lucide-react';
+
+import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
+
 import { ThemeManagement } from './components/ThemeManagement';
 import { CreativeTab } from '@/features/workspace/components/CreativeTab';
 import { OperationsTab } from '@/features/workspace/components/OperationsTab';
@@ -115,6 +118,7 @@ export default function App() {
   const [themes, setThemes] = useState<Theme[]>([]);
   const [loading, setLoading] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [showThemeDropdown, setShowThemeDropdown] = useState(false);
 
   // CreativeTab 子 tab 状态提升
@@ -327,14 +331,12 @@ export default function App() {
     });
   };
 
-  return (
-    <div className="flex h-screen bg-gray-50">
-      {/* Sidebar */}
-      <aside
-        className={`bg-white border-r border-gray-200 flex flex-col transition-all duration-300 ease-in-out ${
-          sidebarCollapsed ? 'w-12' : 'w-56'
-        }`}
-      >
+  const Sidebar = (
+    <aside
+      className={`bg-white border-r border-gray-200 flex flex-col transition-all duration-300 ease-in-out ${
+        sidebarCollapsed ? 'w-12' : 'w-56'
+      }`}
+    >
         {/* Logo */}
         <div className={`h-12 border-b border-gray-200 flex items-center ${
           sidebarCollapsed ? 'justify-center px-0' : 'px-3 gap-2'
@@ -364,7 +366,10 @@ export default function App() {
             return (
               <button
                 key={item.id}
-                onClick={() => setCurrentView(item.id)}
+                onClick={() => {
+                  setCurrentView(item.id);
+                  setMobileNavOpen(false);
+                }}
                 className={`flex items-center gap-2 px-3 py-2 rounded text-xs transition-colors ${
                   sidebarCollapsed ? 'justify-center w-8 h-8' : 'w-full'
                 } ${
@@ -404,13 +409,39 @@ export default function App() {
             )}
           </button>
         </div>
-      </aside>
+    </aside>
+  );
+
+  return (
+    <div className="flex h-screen bg-gray-50">
+      {/* Desktop Sidebar */}
+      <div className="hidden md:flex">{Sidebar}</div>
+
+      {/* Mobile Sidebar (Drawer) */}
+      <div className="md:hidden">
+        <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+          <SheetTrigger asChild>
+            <button className="hidden" aria-hidden="true" />
+          </SheetTrigger>
+          <SheetContent side="left" className="p-0">
+            {Sidebar}
+          </SheetContent>
+        </Sheet>
+      </div>
 
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto">
         {/* Header */}
         <header className="h-12 bg-white border-b border-gray-200 px-4 flex items-center justify-between sticky top-0 z-10">
           <div className="flex items-center gap-3">
+            {/* Mobile menu button */}
+            <button
+              className="md:hidden p-2 -ml-2 rounded hover:bg-gray-100 text-gray-600"
+              onClick={() => setMobileNavOpen(true)}
+              aria-label="打开菜单"
+            >
+              <PanelLeftOpen className="w-4 h-4" />
+            </button>
             <h1 className="text-sm font-medium text-gray-900">
               {navItems.find(item => item.id === currentView)?.label}
             </h1>
