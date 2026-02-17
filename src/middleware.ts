@@ -7,8 +7,10 @@ function isPublicPath(pathname: string) {
   if (pathname.startsWith('/_next')) return true;
   if (pathname.startsWith('/public')) return true;
   if (pathname === '/favicon.ico') return true;
-  // auth endpoints are public (login/register)
+  // app auth endpoints are public (login/register)
   if (pathname.startsWith('/api/app-auth')) return true;
+  // XHS login endpoints must be accessible after app login; they do their own auth checks.
+  if (pathname.startsWith('/api/auth')) return true;
   return false;
 }
 
