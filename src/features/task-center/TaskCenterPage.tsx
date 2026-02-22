@@ -34,6 +34,7 @@ interface TaskCenterPageProps {
   initialTab?: TabType;
   initialJobTypeFilter?: 'all' | 'capture' | 'daily_generate';
   initialThemeId?: string;
+  onRequireXhsLogin?: () => void;
 }
 
 export function TaskCenterPage({
@@ -42,6 +43,7 @@ export function TaskCenterPage({
   initialTab,
   initialJobTypeFilter,
   initialThemeId,
+  onRequireXhsLogin,
 }: TaskCenterPageProps) {
   const [activeTab, setActiveTab] = useState<TabType>(initialTab || 'schedule');
   const [scheduleJobs, setScheduleJobs] = useState<CaptureJob[]>([]);
@@ -168,7 +170,15 @@ export function TaskCenterPage({
 
   const runCaptureForKeyword = async (keywordId: number, limit: number) => {
     if ((window as any).capture?.run) {
-      return (window as any).capture.run({ keywordId, limit });
+      const result = await (window as any).capture.run({ keywordId, limit });
+      const needLogin = result?.code === 'NOT_LOGGED_IN'
+        || /请先登录小红书账号|not\s*logged\s*in/i.test(String(result?.error || result?.message || ''));
+      if (needLogin) {
+        const error: any = new Error('请先登录小红书账号');
+        error.code = 'NOT_LOGGED_IN';
+        throw error;
+      }
+      return result;
     }
     const res = await fetch('/api/capture/run', {
       method: 'POST',
@@ -176,7 +186,11 @@ export function TaskCenterPage({
       body: JSON.stringify({ keywordId, limit }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data?.error || '抓取失败');
+    if (!res.ok) {
+      const error: any = new Error(data?.error || '抓取失败');
+      error.code = data?.code;
+      throw error;
+    }
     return data;
   };
 
@@ -383,10 +397,14 @@ export function TaskCenterPage({
       updateCaptureRunState(jobKey, { running: false, progress: undefined, success: successText });
     } catch (error) {
       console.error('Failed to trigger job:', error);
+      const err: any = error;
+      if (err?.code === 'NOT_LOGGED_IN' || /请先登录小红书账号|not\s*logged\s*in/i.test(String(err?.message || ''))) {
+        onRequireXhsLogin?.();
+      }
       updateCaptureRunState(String(job.id), {
         running: false,
         progress: undefined,
-        error: (error as Error)?.message || '抓取失败',
+        error: (err as Error)?.message || '抓取失败',
       });
     }
   };

@@ -136,10 +136,11 @@ export default function App() {
   const [overviewJobs, setOverviewJobs] = useState<OverviewJob[]>([]);
   const [overviewLoading, setOverviewLoading] = useState(false);
   const [overviewError, setOverviewError] = useState('');
+  const [showXhsLoginDialog, setShowXhsLoginDialog] = useState(false);
 
   const auth = useAuthStatus();
-  const showLoginDialog = !auth.isChecking && !auth.isLoggedIn;
-  const canLoadTaskOverview = !auth.isChecking && auth.isLoggedIn;
+  const showLoginDialog = showXhsLoginDialog && !auth.isLoggedIn;
+  const canLoadTaskOverview = true;
 
   // 对话历史相关
   const { conversationId, setConversationId } = useConversationStore();
@@ -316,6 +317,26 @@ export default function App() {
     setCurrentView('taskCenter');
     setTaskCenterFocus(focus ?? null);
   };
+
+  const requestXhsLogin = useCallback(() => {
+    setShowXhsLoginDialog(true);
+  }, []);
+
+  const handleXhsLogin = useCallback(async () => {
+    setShowXhsLoginDialog(true);
+    return auth.login();
+  }, [auth.login]);
+
+  const handleCloseXhsLoginDialog = useCallback(() => {
+    setShowXhsLoginDialog(false);
+    void auth.cancelLogin();
+  }, [auth.cancelLogin]);
+
+  useEffect(() => {
+    if (auth.isLoggedIn) {
+      setShowXhsLoginDialog(false);
+    }
+  }, [auth.isLoggedIn]);
 
   const handleToggleTaskQuick = () => {
     setTaskQuickOpen((prev) => {
@@ -616,6 +637,7 @@ export default function App() {
                 selectedTheme={selectedTheme}
                 setSelectedTheme={setSelectedTheme}
                 onRefresh={loadThemes}
+                onRequireXhsLogin={requestXhsLogin}
               />
             </div>
           )}
@@ -638,7 +660,7 @@ export default function App() {
           {isViewMounted('operations') && selectedTheme && (
             <div className={currentView === 'operations' ? 'h-full' : 'hidden'}>
               <div className="p-4 h-full overflow-y-auto bg-gray-50">
-                <OperationsTab theme={selectedTheme} />
+                <OperationsTab theme={selectedTheme} onRequireXhsLogin={requestXhsLogin} />
               </div>
             </div>
           )}
@@ -653,7 +675,7 @@ export default function App() {
                   isLoggingIn: auth.isLoggingIn,
                   error: auth.error,
                   qrCodeUrl: auth.qrCodeUrl,
-                  login: auth.login,
+                  login: handleXhsLogin,
                   logout: auth.logout,
                   refreshQRCode: auth.refreshQRCode,
                 }}
@@ -669,6 +691,7 @@ export default function App() {
                   initialTab={taskCenterFocus?.tab}
                   initialJobTypeFilter={taskCenterFocus?.jobType}
                   initialThemeId={taskCenterFocus?.themeId}
+                  onRequireXhsLogin={requestXhsLogin}
                 />
               </div>
             </div>
@@ -822,9 +845,9 @@ export default function App() {
         error={auth.error}
         qrCodeUrl={auth.qrCodeUrl}
         verificationRound={auth.verificationRound}
-        onLogin={auth.login}
+        onLogin={handleXhsLogin}
         onRefreshQRCode={auth.refreshQRCode}
-        onCancel={auth.cancelLogin}
+        onCancel={handleCloseXhsLoginDialog}
         onImportCookies={auth.importCookies}
       />
     </div>

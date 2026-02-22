@@ -19,10 +19,11 @@ export interface PublishTask {
 interface UsePublishQueueOptions {
   themeId?: number | string;
   pollInterval?: number; // 轮询间隔（毫秒），0 表示不轮询
+  onRequireXhsLogin?: () => void;
 }
 
 export function usePublishQueue(options: UsePublishQueueOptions = {}) {
-  const { themeId, pollInterval = 3000 } = options;
+  const { themeId, pollInterval = 3000, onRequireXhsLogin } = options;
   const [queue, setQueue] = useState<PublishTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -69,14 +70,20 @@ export function usePublishQueue(options: UsePublishQueueOptions = {}) {
   const publishNow = useCallback(async (id: string) => {
     try {
       const res = await fetch(`/api/operations/queue/${id}/publish`, { method: 'POST' });
-      if (!res.ok) throw new Error('Failed to publish');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (data?.code === 'NOT_LOGGED_IN') {
+          onRequireXhsLogin?.();
+        }
+        throw new Error(data?.error || '发布失败');
+      }
       await fetchQueue(); // 刷新列表
       return true;
     } catch (err: any) {
       setError(err.message);
       return false;
     }
-  }, [fetchQueue]);
+  }, [fetchQueue, onRequireXhsLogin]);
 
   // 删除任务
   const deleteTask = useCallback(async (id: string) => {

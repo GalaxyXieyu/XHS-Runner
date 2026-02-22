@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { db, schema } from '@/server/db';
 import { eq } from 'drizzle-orm';
 import { processPublishRecordById } from '@/server/services/xhs/publish/publishQueue';
+import { checkStatus } from '@/server/services/xhs/integration/localService';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -14,6 +15,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
+    const authStatus = await checkStatus();
+    if (!authStatus.loggedIn) {
+      return res.status(401).json({
+        error: '请先登录小红书账号',
+        code: 'NOT_LOGGED_IN',
+      });
+    }
+
     // 1. 获取记录
     const [record] = await db
       .select()

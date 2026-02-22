@@ -9,11 +9,12 @@ import { formatTime } from '@/features/task-center/taskCenterUtils';
 
 interface OperationsTabProps {
   theme: Theme;
+  onRequireXhsLogin?: () => void;
 }
 
-export function OperationsTab({ theme }: OperationsTabProps) {
+export function OperationsTab({ theme, onRequireXhsLogin }: OperationsTabProps) {
   // 使用真实数据 hooks
-  const { queue: publishQueue, loading: queueLoading, publishNow, deleteTask, refresh: refreshQueue } = usePublishQueue({ themeId: theme.id });
+  const { queue: publishQueue, loading: queueLoading, publishNow, deleteTask, refresh: refreshQueue } = usePublishQueue({ themeId: theme.id, onRequireXhsLogin });
   const { comments, loading: commentsLoading, generateAIReply, sendReply, refresh: refreshComments, syncComments } = useComments();
   const { summary, trend, publishedNotes, loading: metricsLoading, refresh: refreshMetrics, syncMetrics } = useMetrics({ themeId: theme.id });
 

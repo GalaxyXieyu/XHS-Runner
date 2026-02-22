@@ -11,10 +11,11 @@ interface ThemeManagementProps {
   selectedTheme: Theme | null;
   setSelectedTheme: (theme: Theme | null) => void;
   onRefresh?: () => void;
+  onRequireXhsLogin?: () => void;
 }
 
 
-export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedTheme, onRefresh }: ThemeManagementProps) {
+export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedTheme, onRefresh, onRequireXhsLogin }: ThemeManagementProps) {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingTheme, setEditingTheme] = useState<Theme | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -259,7 +260,21 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ keywordId: kw.id, limit: 20 }),
-            }).then(r => r.json());
+            }).then(async (r) => {
+              const data = await r.json().catch(() => ({}));
+              if (!r.ok) {
+                const error: any = new Error(data?.error || '抓取失败');
+                error.code = data?.code;
+                throw error;
+              }
+              return data;
+            });
+        const needLogin = result?.code === 'NOT_LOGGED_IN'
+          || /请先登录小红书账号|not\s*logged\s*in/i.test(String(result?.error || result?.message || ''));
+        if (needLogin) {
+          onRequireXhsLogin?.();
+          throw new Error('请先登录小红书账号');
+        }
         if (result.status === 'fetched') {
           totalFetched += result.total || 0;
           totalInserted += result.inserted || 0;
@@ -268,7 +283,11 @@ export function ThemeManagement({ themes, setThemes, selectedTheme, setSelectedT
       setCaptureResult({ themeId: theme.id, total: totalFetched, inserted: totalInserted });
     } catch (err) {
       console.error('Capture failed:', err);
-      alert('抓取失败: ' + (err as Error).message);
+      const error: any = err;
+      if (error?.code === 'NOT_LOGGED_IN' || /请先登录小红书账号|not\s*logged\s*in/i.test(String(error?.message || ''))) {
+        onRequireXhsLogin?.();
+      }
+      alert('抓取失败: ' + (error?.message || '未知错误'));
     } finally {
       setCapturing(null);
       setCaptureProgress(null);
