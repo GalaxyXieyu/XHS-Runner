@@ -32,3 +32,7 @@ logs/
 temp_images/
 .gemini-clipboard/
 .claude/
+
+# Playwright artifacts
+/test-results/
+/playwright-report/

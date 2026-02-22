@@ -69,12 +69,12 @@ export default function LoginPage() {
               <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
             ) : null}
           </CardContent>
-          <CardFooter className="flex flex-col gap-3">
+          <CardFooter className="flex flex-col gap-3 pt-6">
             <Button className="w-full bg-red-600 text-white hover:bg-red-700" disabled={loading} type="submit">
               {loading ? '登录中…' : '登录'}
             </Button>
             <div className="text-sm text-muted-foreground">
-              没有账号？
+              没有账号？{' '}
               <Link className="font-medium text-red-600 hover:underline" href="/register">
                 使用激活码注册
               </Link>

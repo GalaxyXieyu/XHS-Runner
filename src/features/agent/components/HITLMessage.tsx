@@ -222,13 +222,28 @@ export function InteractiveHITLBubble({ state, onStateChange, onSubmit }: Intera
       style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.03), 0 4px 14px rgba(0,0,0,0.06), 0 16px 40px -8px rgba(0,0,0,0.08)' }}
     >
       {/* 标题栏 */}
-      <div className="flex items-center gap-2 px-4 pt-4 pb-2 flex-shrink-0">
+      <div className="flex items-center justify-between px-4 pt-4 pb-2 flex-shrink-0">
+        <div className="flex items-center gap-2">
         <div className="w-5 h-5 rounded-full bg-amber-50 border border-amber-200/60 flex items-center justify-center flex-shrink-0">
           {contentData ? <FileText className="w-2.5 h-2.5 text-amber-500" /> : <MessageSquare className="w-2.5 h-2.5 text-amber-500" />}
         </div>
         <span className="text-[13px] font-semibold text-gray-800 tracking-[-0.01em]">
           {isContentConfirm ? "内容确认" : "需要选择"}
         </span>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            setCustomInput('');
+            setShowFeedbackInput(false);
+            onStateChange({ ...state, isOpen: false, selectedIds: [], customInput: '' });
+          }}
+          className="text-xs text-gray-400 hover:text-gray-700 transition-colors"
+          aria-label="关闭"
+        >
+          关闭
+        </button>
       </div>
 
       {/* 可滚动的内容区域 */}

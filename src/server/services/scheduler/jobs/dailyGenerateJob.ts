@@ -107,8 +107,9 @@ async function runAgentForIdea(params: { themeId: number; creativeId: number; id
     throw new Error('createMultiAgentSystem not available after dynamic import');
   }
 
-  const app = await createMultiAgentSystem({ enableHITL: false });
   const streamThreadId = uuidv4();
+  // Provide threadId so langgraph can attach a checkpointer even when HITL is disabled.
+  const app = await createMultiAgentSystem({ enableHITL: false, threadId: streamThreadId });
 
   const initialState: any = {
     messages: [new HumanMessage(params.idea)],
@@ -117,7 +118,23 @@ async function runAgentForIdea(params: { themeId: number; creativeId: number; id
     threadId: streamThreadId,
   };
 
-  const stream = await app.stream(initialState, { recursionLimit: 100, streamMode: ['updates', 'tasks'] } as any);
+  const streamConfig: any = { recursionLimit: 100, streamMode: ['updates', 'tasks'] };
+
+  // If the graph was compiled with a checkpointer, langgraph expects a thread id.
+  // Some environments (or misconfig) may compile without one; fall back to non-checkpointed streaming.
+  let stream: any;
+  try {
+    streamConfig.configurable = { thread_id: streamThreadId };
+    stream = await app.stream(initialState, streamConfig as any);
+  } catch (err: any) {
+    const msg = err?.message || String(err);
+    if (/No checkpointer set/i.test(msg)) {
+      delete streamConfig.configurable;
+      stream = await app.stream(initialState, streamConfig as any);
+    } else {
+      throw err;
+    }
+  }
 
   for await (const _event of processAgentStream(stream, {
     themeId: params.themeId,

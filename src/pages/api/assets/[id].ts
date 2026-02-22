@@ -1,6 +1,13 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import fs from 'fs';
 import path from 'path';
+
+// This endpoint serves binary blobs (often >4MB). Disable Next.js API response limit.
+export const config = {
+  api: {
+    responseLimit: false,
+  },
+};
 import { eq } from 'drizzle-orm';
 import { ensureInit } from '@/server/nextApi/init';
 import { db, schema } from '@/server/db';

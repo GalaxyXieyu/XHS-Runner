@@ -89,6 +89,45 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
 
   const hasMessages = messages.length > 0 || isStreaming;
 
+  // When loading conversation history (non-streaming), open a pending ask_user prompt if
+  // the last assistant message requires user input and has not been responded to yet.
+  useEffect(() => {
+    if (isStreaming) return;
+    if (askUserDialog.isOpen) return;
+    if (messages.length === 0) return;
+
+    const last = messages[messages.length - 1];
+    if (last?.role !== 'assistant') return;
+    const ask = (last as any).askUser;
+    if (!ask || !ask.question || !Array.isArray(ask.options)) return;
+
+    // If user already responded to the latest ask_user, do not re-open.
+    // Response is stored as a user message with askUserResponse AFTER the ask_user assistant message.
+    const lastAskIdx = (() => {
+      for (let i = messages.length - 1; i >= 0; i -= 1) {
+        const m: any = messages[i];
+        if (m?.role === 'assistant' && m.askUser) return i;
+      }
+      return -1;
+    })();
+    if (lastAskIdx >= 0) {
+      const hasResponseAfter = messages.slice(lastAskIdx + 1).some((m) => (m as any).askUserResponse);
+      if (hasResponseAfter) return;
+    }
+
+    setAskUserDialog({
+      isOpen: true,
+      threadId: String(ask.threadId || conversationId || ''),
+      question: String(ask.question),
+      options: ask.options,
+      selectionType: ask.selectionType || 'single',
+      allowCustomInput: Boolean(ask.allowCustomInput),
+      context: ask.data ? { __hitl: Boolean(ask.isHITL), data: ask.data } : { __hitl: Boolean(ask.isHITL) },
+      selectedIds: [],
+      customInput: '',
+    });
+  }, [askUserDialog.isOpen, conversationId, isStreaming, messages, setAskUserDialog]);
+
   // 转换 ContentPackage 为 NoteDetailData
   const packageToNoteData = useCallback((pkg: ContentPackage): NoteDetailData => ({
     id: pkg.id,
@@ -138,12 +177,15 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
 
   const autoRunOnceRef = useRef<string | null>(null);
   const autoConfirmOnceRef = useRef<string | null>(null);
+  const autoConfirmLoopGuardRef = useRef<{ sig: string; count: number; firstAt: number } | null>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // 自动继续逻辑
+  // 自动继续逻辑（autoConfirm）
+  // - 优先选 approve；否则选第一个 option
+  // - 防止同一 ask_user 反复弹窗导致无限自动点击：加 loop guard
   useEffect(() => {
     if (!autoConfirm || !askUserDialog.isOpen) {
       autoConfirmOnceRef.current = null;
@@ -151,26 +193,49 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
     }
 
     const isHITL = !!(askUserDialog.context as any)?.__hitl;
-    if (!isHITL) return;
+    const threadId = askUserDialog.threadId || "default";
+    const optionIds = (askUserDialog.options || []).map((o) => o.id).join(",");
+    const question = String((askUserDialog as any).question || "");
 
-    const currentThreadId = askUserDialog.threadId || "default";
-    if (autoConfirmOnceRef.current === currentThreadId) return;
-    autoConfirmOnceRef.current = currentThreadId;
+    // Use a richer signature than threadId only; ask_user can reopen with different options in the same thread.
+    const sig = `${threadId}::${isHITL ? "hitl" : "ask"}::${optionIds}::${question}`;
+    if (autoConfirmOnceRef.current === sig) return;
+
+    // Auto-confirm heuristic:
+    // - Prefer explicit approve
+    // - Otherwise pick the first option (user preference; may be risky for branching questions)
+    const approveOpt = askUserDialog.options.find((opt) => opt.id === "approve");
+    const chosen = approveOpt?.id || askUserDialog.options[0]?.id;
+    if (!chosen) return;
+
+    // Loop guard: if the same ask_user keeps re-opening, stop auto-confirming.
+    const now = Date.now();
+    const guard = autoConfirmLoopGuardRef.current;
+    if (!guard || guard.sig !== sig || now - guard.firstAt > 60_000) {
+      autoConfirmLoopGuardRef.current = { sig, count: 1, firstAt: now };
+    } else {
+      guard.count += 1;
+      if (guard.count > 5) {
+        console.warn('[autoConfirm] loop guard triggered, stop auto-confirm for sig:', sig);
+        return;
+      }
+    }
+
+    autoConfirmOnceRef.current = sig;
 
     const timer = setTimeout(() => {
-      const approveOption = askUserDialog.options.find(opt => opt.id === "approve");
-      if (!approveOption) return;
-
-      setAskUserDialog(prev => (
-        prev.selectedIds.includes("approve")
+      setAskUserDialog((prev) => (
+        prev.selectedIds.length === 1 && prev.selectedIds[0] === chosen
           ? prev
-          : { ...prev, selectedIds: ["approve"] }
+          : { ...prev, selectedIds: [chosen] }
       ));
-      setTimeout(() => handleAskUserSubmit(), 100);
-    }, 500);
+
+      // Give state a moment to settle; handleAskUserSubmit reads from store.getState().
+      setTimeout(() => handleAskUserSubmit(), 150);
+    }, 350);
 
     return () => clearTimeout(timer);
-  }, [autoConfirm, askUserDialog.isOpen, askUserDialog.threadId]);
+  }, [autoConfirm, askUserDialog.isOpen, askUserDialog.threadId, askUserDialog.options, askUserDialog.question, askUserDialog.context]);
 
   // 根据事件更新阶段提示和进度
   const updatePhase = useCallback((event: AgentEvent) => {
@@ -434,6 +499,21 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
               />
             </div>
           )}
+
+          {/* 顶部工具条 */}
+          <div className="px-4 py-2 border-b border-gray-100 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setAutoConfirm(!autoConfirm)}
+              className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
+                autoConfirm
+                  ? 'bg-blue-50 border-blue-200 text-blue-700'
+                  : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              自动继续
+            </button>
+          </div>
 
           {/* 消息区域 */}
           <div className="flex-1 overflow-y-auto px-4 py-3 pb-24 space-y-4">

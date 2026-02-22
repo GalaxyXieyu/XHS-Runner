@@ -145,6 +145,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: "Method not allowed" });
   }
 
+  // Dev-only deterministic confirm: used by UI E2E to avoid depending on LangGraph state.
+  // Still requires a real app login (middleware/session) to reach the UI.
+  try {
+    const threadId = (req.body as any)?.threadId;
+    if (process.env.NODE_ENV !== 'production' && typeof threadId === 'string' && threadId.startsWith('dev_e2e_')) {
+      ensureSSEHeaders(res);
+      res.write(`data: ${JSON.stringify({
+        type: 'message',
+        agent: 'supervisor',
+        content: 'dev_e2e confirm ack',
+        timestamp: Date.now(),
+      })}\n\n`);
+      res.write('data: [DONE]\n\n');
+      res.end();
+      return;
+    }
+  } catch {
+    // fall through to normal handler
+  }
+
   let stopHeartbeat: (() => void) | null = null;
   const ensureHeartbeat = () => {
     if (stopHeartbeat) return;

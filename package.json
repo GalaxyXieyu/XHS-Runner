@@ -20,13 +20,16 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate-db.ts",
     "auth:gen-code": "node scripts/gen-activation-code.ts --count 1",
+    "auth:bootstrap": "npx tsx scripts/bootstrap-app-user.ts",
+    "e2e:bootstrap": "bash scripts/e2e-bootstrap.sh",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:sync": "bash scripts/sync-schema.sh",
     "eval:clarification": "npx tsx scripts/eval-supervisor-clarification.ts",
     "eval:agent-clarification": "npx tsx scripts/eval-agent-clarification-matrix.ts",
     "lint:supervisor-prompt": "npx tsx scripts/lint-supervisor-prompt.ts",
-    "test:login": "npx tsx src/server/scripts/test-login-flow.ts"
+    "test:login": "npx tsx src/server/scripts/test-login-flow.ts",
+    "test:e2e": "NEXT_PUBLIC_E2E=0 npx playwright test"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.7",
@@ -105,6 +108,7 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@tailwindcss/postcss": "^4.1.18",
     "@types/minio": "^7.1.0",
     "@types/node": "^20.10.0",

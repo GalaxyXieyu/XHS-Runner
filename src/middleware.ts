@@ -11,6 +11,11 @@ function isPublicPath(pathname: string) {
   if (pathname.startsWith('/api/app-auth')) return true;
   // XHS login endpoints must be accessible after app login; they do their own auth checks.
   if (pathname.startsWith('/api/auth')) return true;
+
+  // E2E harness pages should be reachable without app session.
+  // We keep these routes available in dev only, even when running "real" login E2E.
+  if (process.env.NODE_ENV !== 'production' && pathname.startsWith('/e2e')) return true;
+
   return false;
 }
 

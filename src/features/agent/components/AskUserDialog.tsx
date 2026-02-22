@@ -43,15 +43,24 @@ export function AskUserDialog({
     !state.customInput;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[80vh] flex flex-col overflow-hidden">
+    // Non-blocking: keep the ask_user prompt visible but do not block other UI operations
+    // (e.g. login expired, user still needs to click around).
+    <div className="fixed bottom-4 right-4 z-50 p-2">
+      <div className="bg-white rounded-2xl shadow-xl max-w-lg w-[420px] max-h-[70vh] flex flex-col overflow-hidden border border-gray-100">
         {/* 标题 */}
-        <div className="px-6 py-4 border-b border-gray-100 flex-shrink-0">
-          <h3 className="text-lg font-semibold text-gray-800">需要您的确认</h3>
+        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
+          <h3 className="text-sm font-semibold text-gray-800">需要您的确认</h3>
+          <button
+            onClick={onCancel}
+            className="text-xs text-gray-500 hover:text-gray-800 transition-colors"
+            aria-label="关闭"
+          >
+            关闭
+          </button>
         </div>
 
         {/* 问题内容 */}
-        <div className="px-6 py-4 flex-1 overflow-y-auto">
+        <div className="px-4 py-3 flex-1 overflow-y-auto">
           <p className="text-gray-700 whitespace-pre-wrap">{state.question}</p>
 
           {/* 上下文预览 */}
@@ -112,10 +121,10 @@ export function AskUserDialog({
         </div>
 
         {/* 操作按钮 */}
-        <div className="px-6 py-4 bg-gray-50 flex justify-end gap-3 flex-shrink-0 border-t border-gray-100">
+        <div className="px-4 py-3 bg-gray-50 flex justify-end gap-3 flex-shrink-0 border-t border-gray-100">
           <button
             onClick={onCancel}
-            className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+            className="px-3 py-2 text-gray-600 hover:text-gray-800 transition-colors"
           >
             取消
           </button>

@@ -23,15 +23,32 @@ const CHECK_INTERVAL = 5 * 60 * 1000; // 5分钟
 const POLL_INTERVAL = 2000; // 2秒轮询一次登录状态
 
 export function useAuthStatus() {
-  const [state, setState] = useState<AuthState>({
-    status: 'checking',
-    isLoggedIn: false,
-    isChecking: true,
-    isLoggingIn: false,
-    profile: null,
-    error: null,
-    qrCodeUrl: null,
-    verificationRound: 1,
+  const isE2E = process.env.NODE_ENV !== 'production' && process.env.NEXT_PUBLIC_E2E === '1';
+
+  const [state, setState] = useState<AuthState>(() => {
+    if (isE2E) {
+      return {
+        status: 'logged_in',
+        isLoggedIn: true,
+        isChecking: false,
+        isLoggingIn: false,
+        profile: { nickname: 'e2e' },
+        error: null,
+        qrCodeUrl: null,
+        verificationRound: 1,
+      };
+    }
+
+    return {
+      status: 'checking',
+      isLoggedIn: false,
+      isChecking: true,
+      isLoggingIn: false,
+      profile: null,
+      error: null,
+      qrCodeUrl: null,
+      verificationRound: 1,
+    };
   });
 
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -325,11 +342,14 @@ export function useAuthStatus() {
 
   // 应用启动时自动检测
   useEffect(() => {
+    if (isE2E) return;
     checkStatus();
-  }, [checkStatus]);
+  }, [checkStatus, isE2E]);
 
   // 5分钟定时检测
   useEffect(() => {
+    if (isE2E) return;
+
     checkTimerRef.current = setInterval(() => {
       // 只在已登录状态下静默检测
       if (state.isLoggedIn) {
@@ -342,17 +362,18 @@ export function useAuthStatus() {
         clearInterval(checkTimerRef.current);
       }
     };
-  }, [checkStatus, state.isLoggedIn]);
+  }, [checkStatus, state.isLoggedIn, isE2E]);
 
   // 清理
   useEffect(() => {
+    if (isE2E) return;
     return () => {
       stopPolling();
       if (checkTimerRef.current) {
         clearInterval(checkTimerRef.current);
       }
     };
-  }, [stopPolling]);
+  }, [stopPolling, isE2E]);
 
   return {
     ...state,

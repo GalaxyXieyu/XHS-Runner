@@ -209,12 +209,18 @@ export async function buildGraph(model: ChatOpenAI, hitlConfig?: HITLConfig) {
       supervisor_route: "supervisor_route",
     });
 
-  if (hitlConfig?.enableHITL) {
+  // Note: langgraph will throw if any node calls `interrupt()` without a checkpointer.
+  // We compile with a checkpointer whenever we have a threadId (durable run), but only
+  // enable actual pause/resume (interruptAfter) when HITL is enabled.
+  if (hitlConfig?.threadId) {
     const checkpointer = await getCheckpointer();
-    return workflow.compile({
-      checkpointer,
-      interruptAfter: ["writer_agent", "image_planner_agent"],
-    });
+    if (hitlConfig?.enableHITL) {
+      return workflow.compile({
+        checkpointer,
+        interruptAfter: ["writer_agent", "image_planner_agent"],
+      });
+    }
+    return workflow.compile({ checkpointer });
   }
 
   return workflow.compile();
