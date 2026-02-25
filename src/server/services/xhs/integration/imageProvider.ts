@@ -298,12 +298,8 @@ async function generateJimengImage(params: {
     const apiUrl = `https://${HOST}/?${query}`;
 
     let lastError: Error | null = null;
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
       try {
-        if (attempt > 0) {
-          const delay = Math.min(5000 * Math.pow(2, attempt - 1), 60000);
-          await new Promise(resolve => setTimeout(resolve, delay));
-        }
         const result: any = await postJson(apiUrl, requestBody, headers, 120000);
         if (result.code !== 10000) {
           throw new Error(`即梦API调用失败: code=${result.code}, msg=${result.message || 'Unknown'}`);
@@ -320,12 +316,19 @@ async function generateJimengImage(params: {
           metadata: { model: 'jimeng_t2i_v40', prompt, imageUrls },
         };
       } catch (error: any) {
-        const message = error.message || String(error);
+        const message = error?.message || String(error);
         lastError = error instanceof Error ? error : new Error(message);
-        const retryable = /CONCURRENT_LIMIT|429|timeout|ECONNRESET|ETIMEDOUT|500|503|504/i.test(message);
-        if (!retryable || attempt === 2) {
+
+        const retryable = /50430|Concurrent\s*Limit|CONCURRENT_LIMIT|HTTP\s*429|\b429\b|timeout|ECONNRESET|ETIMEDOUT|\b5\d\d\b/i.test(message);
+        const isLastAttempt = attempt === 3;
+        if (!retryable || isLastAttempt) {
           break;
         }
+
+        const jitter = Math.floor(Math.random() * 250);
+        const delayMs = 1000 * Math.pow(2, attempt) + jitter; // 1s, 2s, 4s (+jitter)
+        console.warn(`[Jimeng] retryable error, backoff ${delayMs}ms (attempt ${attempt + 1}/4): ${message}`);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
     }
     throw lastError || new Error('即梦API调用失败');

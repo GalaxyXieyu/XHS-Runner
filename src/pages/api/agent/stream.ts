@@ -353,6 +353,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       messages: [new HumanMessage(contextMessage)],
       imageGenProvider: provider,
       threadId: streamThreadId,
+      langfuseTraceId: traceId || "",
       contentType: contentTypeDetection.type,
       creativeId: creativeId ?? null,
       fastMode: fastMode || false,

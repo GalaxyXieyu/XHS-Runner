@@ -4,8 +4,9 @@
  */
 
 import { db, schema } from '../../../db';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 import { getAgentPrompt } from '../../../services/promptManager';
+import type { ReferenceImageInsight } from '../referenceImageInsights';
 
 // Gemini 图片生成串行队列（避免并发限流）
 class GeminiImageLock {
@@ -60,20 +61,49 @@ interface GeminiResponse {
 /**
  * 获取支持 Vision 的模型配置
  */
+function looksLikeGeminiProvider(provider: any): boolean {
+  const providerType = String(provider?.providerType || '').toLowerCase();
+  const name = String(provider?.name || '').toLowerCase();
+  const modelName = String(provider?.modelName || '').toLowerCase();
+  const baseUrl = String(provider?.baseUrl || '').toLowerCase();
+
+  return (
+    providerType === 'gemini'
+    || name.includes('gemini')
+    || modelName.includes('gemini')
+    || baseUrl.includes('generativelanguage')
+    || baseUrl.includes('v1beta')
+  );
+}
+
 async function getVisionModel() {
   const providers = await db
     .select()
     .from(schema.llmProviders)
     .where(and(
-      eq(schema.llmProviders.isEnabled, 1 as unknown as boolean),
+      eq(schema.llmProviders.isEnabled, true),
       eq(schema.llmProviders.supportsVision, true)
-    ));
+    ))
+    .orderBy(desc(schema.llmProviders.isDefault), schema.llmProviders.id);
 
   if (providers.length === 0) {
-    throw new Error('未配置支持 Vision 的模型，请在设置中添加 Gemini 或 GPT-4o 等多模态模型。');
+    throw new Error(
+      '未配置支持 Vision 的模型（llm_providers: is_enabled=true 且 supports_vision=true）。' +
+      '请在设置中启用一个支持图片输入的多模态模型，并勾选 supportsVision。'
+    );
   }
 
-  return providers[0];
+  const preferred = providers.find(looksLikeGeminiProvider);
+  if (!preferred && providers[0]) {
+    console.warn('[getVisionModel] 找到 supportsVision 模型，但未找到明显的 Gemini provider；将使用首个 provider', {
+      id: providers[0].id,
+      name: providers[0].name,
+      providerType: providers[0].providerType,
+      baseUrl: providers[0].baseUrl,
+    });
+  }
+
+  return preferred || providers[0];
 }
 
 /**
@@ -84,16 +114,35 @@ async function getImageGenModel() {
     .select()
     .from(schema.llmProviders)
     .where(and(
-      eq(schema.llmProviders.isEnabled, 1 as unknown as boolean),
+      eq(schema.llmProviders.isEnabled, true),
       eq(schema.llmProviders.supportsImageGen, true)
-    ));
+    ))
+    .orderBy(desc(schema.llmProviders.isDefault), schema.llmProviders.id);
 
   if (providers.length === 0) {
-    throw new Error('未配置支持图片生成的模型，请在设置中添加 Gemini 等支持图片生成的模型。');
+    throw new Error(
+      '未配置支持图片生成的模型（llm_providers: is_enabled=true 且 supports_image_gen=true）。' +
+      '请在设置中启用一个支持图片生成的 Gemini 模型，并勾选 supportsImageGen。'
+    );
   }
 
-  return providers[0];
+  const preferred = providers.find(looksLikeGeminiProvider);
+  if (!preferred && providers[0]) {
+    console.warn('[getImageGenModel] 找到 supportsImageGen 模型，但未找到明显的 Gemini provider；将使用首个 provider', {
+      id: providers[0].id,
+      name: providers[0].name,
+      providerType: providers[0].providerType,
+      baseUrl: providers[0].baseUrl,
+    });
+  }
+
+  return preferred || providers[0];
 }
+
+export const __testOnly = {
+  getVisionModel,
+  getImageGenModel,
+};
 
 /**
  * 将图片 URL 或 base64 转换为 Gemini inlineData 格式
@@ -123,7 +172,7 @@ async function convertToInlineData(imageInput: string): Promise<{ inlineData: { 
 /**
  * 分析参考图风格 (使用 Gemini 原生 API)
  */
-export async function analyzeReferenceImage(imageUrl: string): Promise<{
+export async function analyzeReferenceImage(imageUrl: string, opts?: { allowMissingVisionModel?: boolean }): Promise<{
   style: string;
   colorPalette: string[];
   mood: string;
@@ -135,7 +184,30 @@ export async function analyzeReferenceImage(imageUrl: string): Promise<{
   elementaryComponents?: string[];
   description: string;
 }> {
-  const model = await getVisionModel();
+  // When callers already provide explicit reference buckets (style/content/layout),
+  // avoid blocking the workflow if no Vision-capable provider is configured.
+  let model: any;
+  try {
+    model = await getVisionModel();
+  } catch (err) {
+    if (opts?.allowMissingVisionModel) {
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        style: 'unknown',
+        colorPalette: [],
+        mood: '',
+        composition: '',
+        lighting: '',
+        texture: '',
+        layout: '',
+        textDensity: '',
+        elementaryComponents: [],
+        description: `Vision analysis skipped: ${message}`,
+      };
+    }
+    throw err;
+  }
+
   // yunwu.ai 的 Gemini 原生 API 不需要 /v1 后缀
   const baseUrl = (model.baseUrl || 'https://yunwu.ai').replace(/\/v1$/, '');
   // 使用 nothinking 模型，避免输出思考过程
@@ -231,6 +303,151 @@ export async function analyzeReferenceImage(imageUrl: string): Promise<{
     console.error('[analyzeReferenceImage] JSON parse error:', e, 'jsonStr:', jsonStr.slice(0, 200));
     throw new Error('无法解析风格分析结果');
   }
+}
+
+export async function analyzeReferenceImages(referenceImageUrls: string[]): Promise<ReferenceImageInsight[]> {
+  const results: ReferenceImageInsight[] = [];
+
+  for (const url of referenceImageUrls) {
+    results.push(await analyzeSingleReferenceImageInsight(url));
+  }
+
+  return results;
+}
+
+function extractJsonObject(textContent: string, context: string): any {
+  let jsonStr: string | null = null;
+
+  const codeBlockMatch = textContent.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (codeBlockMatch) {
+    jsonStr = codeBlockMatch[1].trim();
+  }
+
+  if (!jsonStr) {
+    const jsonMatch = textContent.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      jsonStr = jsonMatch[0];
+    }
+  }
+
+  if (!jsonStr) {
+    console.error(`[${context}] Cannot extract JSON from:`, textContent);
+    throw new Error('无法解析参考图分析结果');
+  }
+
+  try {
+    return JSON.parse(jsonStr);
+  } catch (e) {
+    console.error(`[${context}] JSON parse error:`, e, 'jsonStr:', jsonStr.slice(0, 200));
+    throw new Error('无法解析参考图分析结果');
+  }
+}
+
+function normalizeReferenceImageInsight(raw: any): ReferenceImageInsight {
+  const allowedTypes = new Set(['screenshot', 'logo', 'photo', 'illustration', 'unknown']);
+  const allowedBuckets = new Set(['style', 'content', 'both']);
+
+  const type = allowedTypes.has(String(raw?.type)) ? String(raw.type) : 'unknown';
+  const bucket = allowedBuckets.has(String(raw?.bucket)) ? String(raw.bucket) : 'both';
+
+  const confidenceRaw = Number(raw?.confidence);
+  const confidence = Number.isFinite(confidenceRaw)
+    ? Math.max(0, Math.min(1, confidenceRaw))
+    : 0.6;
+
+  const styleTags = Array.isArray(raw?.style_tags) ? raw.style_tags.map((v: any) => String(v)) : [];
+  const contentTags = Array.isArray(raw?.content_tags) ? raw.content_tags.map((v: any) => String(v)) : [];
+  const layoutHints = Array.isArray(raw?.layout_hints) ? raw.layout_hints.map((v: any) => String(v)) : [];
+
+  return {
+    type: type as ReferenceImageInsight['type'],
+    bucket: bucket as ReferenceImageInsight['bucket'],
+    confidence,
+    style_tags: styleTags,
+    content_tags: contentTags,
+    layout_hints: layoutHints,
+  };
+}
+
+async function analyzeSingleReferenceImageInsight(imageUrl: string): Promise<ReferenceImageInsight> {
+  const model = await getVisionModel();
+  const baseUrl = (model.baseUrl || 'https://yunwu.ai').replace(/\/v1$/, '');
+  const modelName = 'gemini-2.5-flash-lite-nothinking';
+
+  const imageData = await convertToInlineData(imageUrl);
+
+  const requestBody = {
+    contents: [
+      {
+        role: 'user',
+        parts: [{ text: 'Classify this reference image for generative cover design. Return JSON only.' }],
+      },
+      {
+        role: 'model',
+        parts: [{
+          text: '{"type":"screenshot","style_tags":["palette: cool gray + blue","lighting: flat/neutral","composition: centered device"],"content_tags":["phone mockup","app UI screen"],"layout_hints":["leave top area for title","keep UI readable"],"confidence":0.86,"bucket":"content"}'
+        }],
+      },
+      {
+        role: 'user',
+        parts: [{ text: 'Classify this reference image for generative cover design. Return JSON only.' }],
+      },
+      {
+        role: 'model',
+        parts: [{
+          text: '{"type":"illustration","style_tags":["palette: warm beige + sage","mood: calm","lighting: soft","materials: matte","composition: large whitespace"],"content_tags":[],"layout_hints":["minimal text zone"],"confidence":0.78,"bucket":"style"}'
+        }],
+      },
+      {
+        role: 'user',
+        parts: [
+          {
+            text: [
+              'Analyze this image and return ONLY one JSON object with these exact keys:',
+              'type (screenshot|logo|photo|illustration|unknown),',
+              'style_tags (array of short actionable tags; include palette/lighting/mood/composition/materials/lens when possible),',
+              'content_tags (array; include logo/UI/product intent or elements that must appear),',
+              'layout_hints (array; placement, reserved zones, grids, safe margins),',
+              'confidence (0..1),',
+              'bucket (style|content|both).',
+              'No markdown. No explanation. JSON only.'
+            ].join(' '),
+          },
+          imageData,
+        ],
+      },
+    ],
+    generationConfig: {
+      temperature: 0,
+      maxOutputTokens: 512,
+    },
+  };
+
+  const apiUrl = `${baseUrl}/v1beta/models/${modelName}:generateContent`;
+
+  const response = await fetch(apiUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-goog-api-key': model.apiKey || '',
+    },
+    body: JSON.stringify(requestBody),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Gemini Vision API 请求失败: ${response.status} - ${errorText}`);
+  }
+
+  const data: GeminiResponse = await response.json();
+  const textContent = data.candidates?.[0]?.content?.parts?.find(p => p.text)?.text;
+
+  if (!textContent) {
+    throw new Error('Gemini Vision API 未返回分析结果');
+  }
+
+  const raw = extractJsonObject(textContent, 'analyzeReferenceImages');
+  return normalizeReferenceImageInsight(raw);
 }
 
 /**

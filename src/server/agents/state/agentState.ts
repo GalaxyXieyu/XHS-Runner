@@ -338,6 +338,10 @@ export const AgentState = Annotation.Root({
     value: (_, y) => y,
     default: () => "",
   }),
+  langfuseTraceId: Annotation<string>({
+    value: (_, y) => y,
+    default: () => "",
+  }),
   userFeedback: Annotation<string | null>({
     value: (_, y) => y,
     default: () => null,
