@@ -330,6 +330,10 @@ export const AgentState = Annotation.Root({
   }),
 
   // HITL 相关状态
+  enableHITL: Annotation<boolean>({
+    value: (_, y) => y,
+    default: () => true,
+  }),
   pendingConfirmation: Annotation<PendingConfirmation | null>({
     value: (_, y) => y,
     default: () => null,

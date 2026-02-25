@@ -123,8 +123,8 @@ Tasks
      - `--layout dense|balanced|visual-first` (optional)
 
 2) Ensure outputs are saved to disk for review
-   - Use `--render` to download generated images into:
-     - `.xhs-data/test-outputs/<timestamp>-<mode>/`
+   - `scripts/test-agent-api.ts` always downloads generated images into:
+     - `.xhs-data/test-outputs/<timestamp>-run/<mode>/` (override with `--out`)
 
 3) Define success rubric (below) and a pass/fail checklist.
 
@@ -137,7 +137,9 @@ Deliverable
 
 ## Test Assets (OpenClaw refs)
 
-Use these stable raw GitHub URLs:
+Prefer direct-downloadable URLs (no redirects). For Jimeng, GitHub raw/blob URLs are automatically rehosted to Superbed when SUPERBED_TOKEN is configured, but using an already-direct Superbed CDN URL is fastest/most reliable.
+
+Reference set (GitHub source URLs):
 
 - Logo (light):
   - https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/openclaw-logo-text.png
@@ -210,6 +212,12 @@ npm run dev:next
 
 2) In another terminal, run tests:
 
+Notes
+
+- Default mode is fast (pass `--normal` for normal).
+- HITL is disabled by default (no interruptAfter pauses); the script will auto-continue if a pause still happens.
+- Images are always saved to disk; the script prints the output directory at the end.
+
 Template
 
 ```bash
@@ -222,8 +230,7 @@ npx tsx scripts/test-agent-api.ts \
   --badge "角标" \
   --footer "底部" \
   --ref "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/openclaw-logo-text.png|content" \
-  --ref "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/showcase/agents-ui.jpg|content" \
-  --auto --render
+  --ref "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/showcase/agents-ui.jpg|content"
 ```
 
 Typography preset A/B/C (same theme prompt, different cover layout)
@@ -237,8 +244,7 @@ npx tsx scripts/test-agent-api.ts \
   --provider jimeng \
   --preset 2 --h1 "你的主标题" --badge "角标" --footer "底部" \
   --ref "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/openclaw-logo-text.png|content" \
-  --ref "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/showcase/agents-ui.jpg|content" \
-  --auto --render
+  --ref "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/showcase/agents-ui.jpg|content"
 ```
 
 - Preset B (3 = comparison, center)
@@ -250,8 +256,7 @@ npx tsx scripts/test-agent-api.ts \
   --provider jimeng \
   --preset 3 --h1 "A vs B" --h2 "优缺点对比" --badge "对比" --footer "2026" \
   --ref "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/openclaw-logo-text.png|content" \
-  --ref "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/showcase/agents-ui.jpg|content" \
-  --auto --render
+  --ref "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/showcase/agents-ui.jpg|content"
 ```
 
 - Preset C (6 = feature release, bottom_center inside card)
@@ -263,8 +268,7 @@ npx tsx scripts/test-agent-api.ts \
   --provider jimeng \
   --preset 6 --h1 "新功能上线" --h2 "一眼看懂" --badge "NEW" --footer "更新" \
   --ref "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/openclaw-logo-text.png|content" \
-  --ref "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/showcase/agents-ui.jpg|content" \
-  --auto --render
+  --ref "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/showcase/agents-ui.jpg|content"
 ```
 
 Exact runs (Variant 1 = content refs only)
@@ -278,8 +282,7 @@ npx tsx scripts/test-agent-api.ts \
   --provider jimeng \
   --layout visual-first \
   --ref 'https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/openclaw-logo-text.png|content' \
-  --ref 'https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/showcase/agents-ui.jpg|content' \
-  --auto --render
+  --ref 'https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/showcase/agents-ui.jpg|content'
 ```
 
 Theme B
@@ -291,8 +294,7 @@ npx tsx scripts/test-agent-api.ts \
   --provider jimeng \
   --layout visual-first \
   --ref 'https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/openclaw-logo-text.png|content' \
-  --ref 'https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/showcase/agents-ui.jpg|content' \
-  --auto --render
+  --ref 'https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/showcase/agents-ui.jpg|content'
 ```
 
 Theme C
@@ -304,8 +306,7 @@ npx tsx scripts/test-agent-api.ts \
   --provider jimeng \
   --layout balanced \
   --ref 'https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/openclaw-logo-text.png|content' \
-  --ref 'https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/showcase/agents-ui.jpg|content' \
-  --auto --render
+  --ref 'https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/showcase/agents-ui.jpg|content'
 ```
 
 Variant 2 (add a style ref)

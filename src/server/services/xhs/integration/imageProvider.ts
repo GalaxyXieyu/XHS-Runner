@@ -148,6 +148,65 @@ export function isHttpUrl(value: string) {
   return /^https?:\/\//i.test(value);
 }
 
+function isLikelyUnreliableForJimengPull(url: string) {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.toLowerCase();
+    const path = u.pathname.toLowerCase();
+
+    if (host === 'raw.githubusercontent.com') return true;
+    if (host === 'github.com' && (path.includes('/raw/') || path.includes('/blob/'))) return true;
+    if (host.endsWith('githubusercontent.com')) return true;
+  } catch {
+    // Ignore invalid URL parsing.
+  }
+  return /raw\.githubusercontent\.com|raw\.github\.com|github\.com\//i.test(url);
+}
+
+async function isDirect200ImageUrl(url: string) {
+  try {
+    const res = await fetchWithRetry(url, { method: 'HEAD', redirect: 'manual' }, 15000, 0);
+    if (res.status !== 200) return false;
+    const ct = (res.headers.get('content-type') || '').toLowerCase();
+    return ct.startsWith('image/');
+  } catch {
+    return false;
+  }
+}
+
+async function rehostRemoteImageToSuperbed(url: string, superbedToken?: string) {
+  const response = await fetchWithRetry(url, { method: 'GET' }, 60000, 1);
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new Error(`REF_IMAGE_DOWNLOAD_FAILED: HTTP ${response.status} ${body}`.trim());
+  }
+  const buffer = Buffer.from(await response.arrayBuffer());
+  const base64 = buffer.toString('base64');
+  return uploadBase64ToSuperbed(base64, `jimeng-ref-${Date.now()}.png`, superbedToken);
+}
+
+async function normalizeJimengReferenceImageUrl(url: string, superbedToken?: string) {
+  if (!isHttpUrl(url)) return url;
+
+  const shouldRehost = isLikelyUnreliableForJimengPull(url);
+  const isDirect = !shouldRehost && (await isDirect200ImageUrl(url));
+  if (isDirect) return url;
+
+  if (!superbedToken) {
+    console.warn(`[Jimeng] reference image URL may be non-direct, but SUPERBED_TOKEN is missing; keep original: ${url}`);
+    return url;
+  }
+
+  try {
+    const directUrl = await rehostRemoteImageToSuperbed(url, superbedToken);
+    console.log(`[Jimeng] rehosted reference image to: ${directUrl}`);
+    return directUrl;
+  } catch (e: any) {
+    console.warn(`[Jimeng] failed to rehost reference image, keep original: ${url}. err=${e?.message || String(e)}`);
+    return url;
+  }
+}
+
 function readEnvString(...keys: string[]) {
   for (const key of keys) {
     const value = process.env[key];
@@ -251,7 +310,7 @@ async function generateJimengImage(params: {
         const normalized = String(image || '').trim();
         if (!normalized) continue;
         if (isHttpUrl(normalized)) {
-          imageUrls.push(normalized);
+          imageUrls.push(await normalizeJimengReferenceImageUrl(normalized, superbedToken));
           continue;
         }
         const url = await uploadBase64ToSuperbed(image, `jimeng-${Date.now()}.png`, superbedToken);
@@ -319,14 +378,17 @@ async function generateJimengImage(params: {
         const message = error?.message || String(error);
         lastError = error instanceof Error ? error : new Error(message);
 
-        const retryable = /50430|Concurrent\s*Limit|CONCURRENT_LIMIT|HTTP\s*429|\b429\b|timeout|ECONNRESET|ETIMEDOUT|\b5\d\d\b/i.test(message);
+        const retryable = /50430|50220|Download\s*Url\s*Error|Concurrent\s*Limit|CONCURRENT_LIMIT|HTTP\s*429|\b429\b|timeout|ECONNRESET|ETIMEDOUT|\b5\d\d\b/i.test(message);
         const isLastAttempt = attempt === 3;
         if (!retryable || isLastAttempt) {
           break;
         }
 
-        const jitter = Math.floor(Math.random() * 250);
-        const delayMs = 1000 * Math.pow(2, attempt) + jitter; // 1s, 2s, 4s (+jitter)
+        const is429 = /Concurrent\s*Limit|CONCURRENT_LIMIT|HTTP\s*429|\b429\b/i.test(message);
+        const jitter = Math.floor(Math.random() * 500);
+        const base = is429 ? 4000 : 1000;
+        const cap = is429 ? 30000 : 8000;
+        const delayMs = Math.min(cap, base * Math.pow(2, attempt)) + jitter;
         console.warn(`[Jimeng] retryable error, backoff ${delayMs}ms (attempt ${attempt + 1}/4): ${message}`);
         await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
@@ -391,8 +453,13 @@ async function normalizeSeedreamImages(images: string[] | undefined, superbedTok
   for (const image of images) {
     const normalized = String(image || '').trim();
     if (!normalized) continue;
-    if (isHttpUrl(normalized) || normalized.startsWith('data:image/')) {
+    if (normalized.startsWith('data:image/')) {
       output.push(normalized);
+      continue;
+    }
+    if (isHttpUrl(normalized)) {
+      // Ensure the provider can pull it (no redirects / GitHub raw timeouts).
+      output.push(await normalizeJimengReferenceImageUrl(normalized, superbedToken));
       continue;
     }
     if (superbedToken) {
@@ -500,70 +567,97 @@ async function generateSeedream45Image(params: {
     throw new Error('JIMENG_API_KEY_NOT_CONFIGURED: 请先配置即梦 4.5 API Key（Ark）');
   }
 
-  const imagePayload = await normalizeSeedreamImages(images, superbedToken);
-  const requestBody: Record<string, any> = {
-    model,
-    prompt,
-    response_format: 'b64_json',
-    sequential_image_generation: 'disabled',
-    size,
-    stream: false,
-    watermark,
-  };
-
-  if (imagePayload) {
-    requestBody.image = imagePayload;
-  }
-
-  const result: any = await postJson(
-    baseUrl,
-    requestBody,
-    {
-      Authorization: `Bearer ${apiKey}`,
-    },
-    120000
-  );
-
-  if (result?.error) {
-    const message = result.error?.message || 'Seedream API error';
-    throw new Error(`Seedream 4.5 调用失败: ${message}`);
-  }
-
-  const dataList = Array.isArray(result?.data) ? result.data : [];
-  if (dataList.length === 0) {
-    throw new Error('Seedream 4.5 返回空结果');
-  }
-
-  const item = dataList.find((entry: any) => entry?.b64_json || entry?.url || entry?.error) || dataList[0];
-  if (item?.error) {
-    const code = item.error?.code || 'unknown';
-    const message = item.error?.message || 'Unknown';
-    throw new Error(`Seedream 4.5 生成失败: code=${code}, msg=${message}`);
-  }
-
-  let imageBuffer: Buffer | null = null;
-  if (item?.b64_json) {
-    imageBuffer = Buffer.from(item.b64_json, 'base64');
-  } else if (item?.url) {
-    imageBuffer = await fetchImageBuffer(String(item.url));
-  }
-
-  if (!imageBuffer) {
-    throw new Error('Seedream 4.5 返回结果缺少图片数据');
-  }
-
-  return {
-    text: '',
-    imageBuffer,
-    metadata: {
-      mimeType: 'image/jpeg',
-      model: result?.model || model,
+  // Serialize Seedream calls to reduce provider-side 429s and make runs deterministic.
+  return jimengApiLock.enqueue(async () => {
+    const imagePayload = await normalizeSeedreamImages(images, superbedToken);
+    const requestBody: Record<string, any> = {
+      model,
       prompt,
-      size: item?.size || size,
-      usage: result?.usage,
-      created: result?.created,
-    },
-  };
+      response_format: 'b64_json',
+      sequential_image_generation: 'disabled',
+      size,
+      stream: false,
+      watermark,
+    };
+
+    if (imagePayload) {
+      requestBody.image = imagePayload;
+    }
+
+    let lastError: Error | null = null;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      try {
+        const result: any = await postJson(
+          baseUrl,
+          requestBody,
+          {
+            Authorization: `Bearer ${apiKey}`,
+          },
+          120000
+        );
+
+        if (result?.error) {
+          const message = result.error?.message || 'Seedream API error';
+          throw new Error(`Seedream 4.5 调用失败: ${message}`);
+        }
+
+        const dataList = Array.isArray(result?.data) ? result.data : [];
+        if (dataList.length === 0) {
+          throw new Error('Seedream 4.5 返回空结果');
+        }
+
+        const item = dataList.find((entry: any) => entry?.b64_json || entry?.url || entry?.error) || dataList[0];
+        if (item?.error) {
+          const code = item.error?.code || 'unknown';
+          const message = item.error?.message || 'Unknown';
+          throw new Error(`Seedream 4.5 生成失败: code=${code}, msg=${message}`);
+        }
+
+        let imageBuffer: Buffer | null = null;
+        if (item?.b64_json) {
+          imageBuffer = Buffer.from(item.b64_json, 'base64');
+        } else if (item?.url) {
+          imageBuffer = await fetchImageBuffer(String(item.url));
+        }
+
+        if (!imageBuffer) {
+          throw new Error('Seedream 4.5 返回结果缺少图片数据');
+        }
+
+        return {
+          text: '',
+          imageBuffer,
+          metadata: {
+            mimeType: 'image/jpeg',
+            model: result?.model || model,
+            prompt,
+            size: item?.size || size,
+            usage: result?.usage,
+            created: result?.created,
+          },
+        };
+      } catch (error: any) {
+        const message = error?.message || String(error);
+        lastError = error instanceof Error ? error : new Error(message);
+
+        const retryable = /50430|50220|Download\s*Url\s*Error|Concurrent\s*Limit|CONCURRENT_LIMIT|HTTP\s*429|\b429\b|timeout|ECONNRESET|ETIMEDOUT|\b5\d\d\b/i.test(message);
+        const isLastAttempt = attempt === 3;
+        if (!retryable || isLastAttempt) {
+          break;
+        }
+
+        const is429 = /Concurrent\s*Limit|CONCURRENT_LIMIT|HTTP\s*429|\b429\b/i.test(message);
+        const jitter = Math.floor(Math.random() * 500);
+        const base = is429 ? 4000 : 1000;
+        const cap = is429 ? 30000 : 8000;
+        const delayMs = Math.min(cap, base * Math.pow(2, attempt)) + jitter;
+        console.warn(`[Seedream45] retryable error, backoff ${delayMs}ms (attempt ${attempt + 1}/4): ${message}`);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+
+    throw lastError || new Error('Seedream 4.5 调用失败');
+  });
 }
 
 export async function generateImage(input: ImageGenerateInput): Promise<ImageGenerateResult> {

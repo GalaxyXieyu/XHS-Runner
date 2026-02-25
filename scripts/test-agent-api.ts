@@ -4,7 +4,7 @@
  */
 
 import { mkdir, writeFile } from 'node:fs/promises';
-import { join, dirname, basename } from 'node:path';
+import { join, basename } from 'node:path';
 
 const API_BASE = process.env.AGENT_API_BASE || 'http://localhost:3000';
 const DEFAULT_MESSAGE = 'Vibecoding 上手教程：面向新手，3步+3坑，80~120字，口语化，小红书风格，包含 #标签。';
@@ -54,11 +54,9 @@ interface TestOptions {
   // Use --ref "<url>|content" or --ref "<url>|style" (type is optional).
   referenceInputs?: ReferenceInput[];
 
-  autoConfirm?: boolean;
   showAll?: boolean;
   compact?: boolean;
-  renderImages?: boolean;
-  outDir?: string;
+  outDir?: string; // run output root
 }
 
 interface RunSummary {
@@ -222,11 +220,10 @@ async function renderImagesToDisk(
   outDir: string,
   mode: Mode
 ): Promise<{ runDir: string; files: string[] }> {
-  if (assetIds.length === 0) return { runDir: '', files: [] };
-
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const runDir = join(outDir, `${stamp}-${mode}`);
+  const runDir = join(outDir, mode);
   await mkdir(runDir, { recursive: true });
+
+  if (assetIds.length === 0) return { runDir, files: [] };
 
   const saved: string[] = [];
   for (let i = 0; i < assetIds.length; i += 1) {
@@ -295,8 +292,18 @@ function printEvent(event: StreamEvent, { showAll = false, compact = false } = {
   } else if (event.type === 'workflow_paused') {
     console.log(`⏸️  工作流暂停 (threadId: ${event.threadId})`);
   } else if (event.type === 'image_progress') {
-    const progress = ((event as any).progress * 100).toFixed(0);
-    console.log(`🖼️  图片进度: ${(event as any).status} ${progress}%`);
+    const status = (event as any).status;
+    const progressRaw = typeof (event as any).progress === 'number' ? (event as any).progress : 0;
+    const progress = (progressRaw * 100).toFixed(0);
+    const taskId = (event as any).taskId;
+    const errorMessage = (event as any).errorMessage;
+    const prefix = typeof taskId === 'number' ? `#${taskId} ` : '';
+
+    if (status === 'failed' && errorMessage) {
+      console.log(`🖼️  图片进度: ${prefix}${status} ${progress}% - ${errorMessage}`);
+    } else {
+      console.log(`🖼️  图片进度: ${prefix}${status} ${progress}%`);
+    }
   } else if (event.type === 'workflow_complete') {
     console.log('🎉 工作流完成');
   } else if (showAll) {
@@ -309,7 +316,7 @@ async function submitTask(options: TestOptions): Promise<{ threadId: string | nu
     message,
     themeId = 1,
     fastMode = false,
-    enableHITL = true,
+    enableHITL = false,
     imageGenProvider = 'jimeng',
     layoutPreference,
     sessionToken,
@@ -451,20 +458,24 @@ async function continueWithDefault(
 
 async function runOnce(mode: Mode, options: TestOptions): Promise<RunSummary> {
   const startedAt = Date.now();
-  const { autoConfirm = false, renderImages: shouldRenderImages = false, outDir = DEFAULT_OUT_DIR } = options;
+  const outDir = options.outDir || DEFAULT_OUT_DIR;
 
   const { threadId, events } = await submitTask({
     ...options,
     fastMode: mode === 'fast',
   });
 
+  // Keep runs non-interactive by default.
+  // If the backend still pauses (e.g. enableHITL=true), auto-continue until completion.
   let activeThread = threadId;
   let allEvents = [...events];
   let lastAskUser = extractLastAskUser(events);
+  let guard = 0;
 
-  while (activeThread && autoConfirm) {
+  while (activeThread && guard < 20) {
+    guard += 1;
     console.log(`\n⏭️  自动继续 (threadId: ${activeThread})...`);
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 400));
     const result = await continueTask(activeThread, lastAskUser, {
       showAll: options.showAll,
       compact: options.compact,
@@ -475,13 +486,14 @@ async function runOnce(mode: Mode, options: TestOptions): Promise<RunSummary> {
     activeThread = result.threadId;
   }
 
-  const summary = buildSummary(mode, allEvents, startedAt);
-  if (shouldRenderImages && summary.imageAssetIds.length > 0) {
-    const rendered = await renderImagesToDisk(summary.imageAssetIds, outDir, mode);
-    summary.imageSaveDir = rendered.runDir;
-    summary.imagePaths = rendered.files;
+  if (activeThread) {
+    console.warn(`⚠️  workflow still paused after ${guard} auto-continues (threadId: ${activeThread})`);
   }
 
+  const summary = buildSummary(mode, allEvents, startedAt);
+  const rendered = await renderImagesToDisk(summary.imageAssetIds, outDir, mode);
+  summary.imageSaveDir = rendered.runDir;
+  summary.imagePaths = rendered.files;
   return summary;
 }
 
@@ -636,16 +648,15 @@ async function main() {
     : baseMessage;
   const themeId = (typeof values['--theme'] === 'string' && values['--theme']) ? Number(values['--theme']) : 1;
   const imageGenProvider = (typeof values['--provider'] === 'string' ? values['--provider'] : '') || 'jimeng';
-  // Default to auto-confirm in normal runs to avoid pausing on ask_user/HITL.
-  // Escape hatch: pass --no-auto to disable auto-confirm.
-  const autoConfirm = flags.has('--no-auto')
-    ? false
-    : (flags.has('--auto') || runBoth || mode === 'normal');
-  const enableHITL = !flags.has('--no-hitl');
+  // Test harness defaults: fully automatic, no HITL pauses, always dump images to disk.
+  const enableHITL = false;
   const compact = flags.has('--compact');
   const showAll = flags.has('--verbose');
-  const renderImages = flags.has('--render');
-  const outDir = (typeof values['--out'] === 'string' ? values['--out'] : '') || DEFAULT_OUT_DIR;
+
+  const outFlag = (typeof values['--out'] === 'string' ? values['--out'] : '') || '';
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const outDir = outFlag || join(DEFAULT_OUT_DIR, `${stamp}-run`);
+  await mkdir(outDir, { recursive: true });
 
   const rawLayoutPreference = (typeof values['--layout'] === 'string' ? values['--layout'] : undefined);
   const layoutPreference = rawLayoutPreference
@@ -673,10 +684,8 @@ async function main() {
     layoutPreference,
     sessionToken,
     referenceInputs: referenceInputs.length > 0 ? referenceInputs : undefined,
-    autoConfirm,
     showAll,
     compact,
-    renderImages,
     outDir,
   };
 
