@@ -660,6 +660,88 @@ async function main() {
     assert.ok(typeof dataUrl === 'string' && dataUrl.startsWith('data:image/png;base64,'));
   });
 
+  await runTest('geminiClient generateImageWithReference uses GEMINI_API_KEY env without DB', async () => {
+    const oldFetch = global.fetch;
+    const oldEnv = {
+      GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+      GEMINI_BASE_URL: process.env.GEMINI_BASE_URL,
+      GEMINI_IMAGE_MODEL: process.env.GEMINI_IMAGE_MODEL,
+      DATABASE_URL: process.env.DATABASE_URL,
+      POSTGRES_URL: process.env.POSTGRES_URL,
+      SUPABASE_DB_URL: process.env.SUPABASE_DB_URL,
+    };
+
+    delete process.env.DATABASE_URL;
+    delete process.env.POSTGRES_URL;
+    delete process.env.SUPABASE_DB_URL;
+
+    process.env.GEMINI_API_KEY = 'test';
+    process.env.GEMINI_BASE_URL = 'https://yunwu.test/v1';
+    process.env.GEMINI_IMAGE_MODEL = 'test-image-model';
+
+    let captured = null;
+
+    global.fetch = async (url, options) => {
+      captured = { url, options };
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            candidates: [
+              {
+                content: {
+                  parts: [
+                    { inlineData: { mimeType: 'image/png', data: 'dGVzdA==' } },
+                  ],
+                },
+              },
+            ],
+          };
+        },
+        async text() {
+          return '';
+        },
+      };
+    };
+
+    try {
+      const modulePath = path.join(
+        repoRoot,
+        'electron',
+        'server',
+        'services',
+        'xhs',
+        'llm',
+        'geminiClient.js'
+      );
+      delete require.cache[require.resolve(modulePath)];
+      const geminiClient = require(modulePath);
+
+      const out = await geminiClient.generateImageWithReference({
+        prompt: 'p',
+        referenceImageUrls: ['data:image/png;base64,aGVsbG8='],
+        aspectRatio: '3:4',
+      });
+
+      assert.ok(captured, 'expected fetch to be called');
+      assert.strictEqual(
+        captured.url,
+        'https://yunwu.test/v1beta/models/test-image-model:generateContent'
+      );
+      assert.strictEqual(captured.options.method, 'POST');
+      assert.strictEqual(captured.options.headers['x-goog-api-key'], 'test');
+      assert.ok(out && out.imageBase64 === 'dGVzdA==');
+      assert.strictEqual(out.mimeType, 'image/png');
+    } finally {
+      global.fetch = oldFetch;
+      for (const k of Object.keys(oldEnv)) {
+        if (oldEnv[k] === undefined) delete process.env[k];
+        else process.env[k] = oldEnv[k];
+      }
+    }
+  });
+
   await runTest('geminiClient getVisionModel returns an enabled Vision provider when DB is configured', async () => {
     const hasDb = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.SUPABASE_DB_URL;
     if (!hasDb) {
