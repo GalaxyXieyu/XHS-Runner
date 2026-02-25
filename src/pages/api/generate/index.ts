@@ -9,7 +9,7 @@ const DEFAULT_STYLE_KEY = 'cozy';
 const DEFAULT_ASPECT_RATIO: AspectRatio = '3:4';
 const ALLOWED_ASPECT_RATIOS = new Set<string>(['3:4', '1:1', '4:3']);
 const ALLOWED_GOALS = new Set<string>(['collects', 'comments', 'followers']);
-const ALLOWED_IMAGE_MODELS = new Set<ImageModel>(['nanobanana', 'jimeng', 'jimeng-45']);
+const ALLOWED_IMAGE_MODELS = new Set<ImageModel>(['nanobanana', 'jimeng', 'ark']);
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -47,7 +47,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const normalizedCount = Math.min(9, Math.max(1, Number(normalizedCountRaw) || 1));
 
     const normalizedModel = String(model || '').trim() as ImageModel;
-    const effectiveModel: ImageModel = ALLOWED_IMAGE_MODELS.has(normalizedModel) ? normalizedModel : (model ? 'nanobanana' : 'jimeng');
+    const effectiveModel: ImageModel = ALLOWED_IMAGE_MODELS.has(normalizedModel)
+      ? normalizedModel
+      : (model ? 'nanobanana' : 'ark');
 
     const normalizedAspectRatio = ALLOWED_ASPECT_RATIOS.has(String(aspectRatio))
       ? (aspectRatio as AspectRatio)

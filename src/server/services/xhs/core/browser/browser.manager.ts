@@ -3,9 +3,7 @@
  */
 
 import puppeteer, { Browser, Page } from 'puppeteer';
-import { join } from 'path';
-import { tmpdir } from 'os';
-import { mkdtemp, rm } from 'fs/promises';
+import { rm } from 'fs/promises';
 import { Config, Cookie } from '../../shared/types';
 import { BrowserLaunchError, BrowserNavigationError, XHSError } from '../../shared/errors';
 import { getConfig } from '../../shared/config';
@@ -13,6 +11,7 @@ import { loadCookies, saveCookies } from '../../shared/cookies';
 import { logger } from '../../shared/logger';
 import { sleep } from '../../shared/utils';
 import { BrowserPoolService, ManagedBrowser } from './browser-pool.service';
+import { createBrowserTempDir, getBrowserStorageErrorMessage, isNoSpaceError } from './browser-temp-dir';
 
 export class BrowserManager {
   private config: Config;
@@ -119,7 +118,7 @@ export class BrowserManager {
   private async launchBrowser(headless?: boolean, executablePath?: string): Promise<Browser> {
     const isHeadless = headless !== undefined ? headless : this.config.browser.headlessDefault;
 
-    const userDataDir = await mkdtemp(join(tmpdir(), 'xhs-generator-'));
+    const userDataDir = await createBrowserTempDir('xhs-generator-');
     this.userDataDir = userDataDir;
 
     try {
@@ -152,6 +151,16 @@ export class BrowserManager {
       logger.info(`Browser launched with fresh profile: ${userDataDir}`);
       return browser;
     } catch (error) {
+      try {
+        await rm(userDataDir, { recursive: true, force: true });
+      } catch (cleanupError) {
+        logger.warn(`Failed to cleanup browser profile dir after launch failure: ${cleanupError}`);
+      } finally {
+        if (this.userDataDir === userDataDir) {
+          this.userDataDir = null;
+        }
+      }
+
       logger.error(`Failed to launch browser: ${error}`);
       throw new BrowserLaunchError(
         `Failed to launch browser: ${error}`,
@@ -357,6 +366,15 @@ export class BrowserManager {
 
   private handlePuppeteerError(error: Error, operationName: string): XHSError {
     const context = { operationName };
+
+    if (isNoSpaceError(error)) {
+      return new XHSError(
+        getBrowserStorageErrorMessage(),
+        'BrowserStorageError',
+        context,
+        error
+      );
+    }
 
     if (error.name === 'TimeoutError') {
       if (operationName.toLowerCase().includes('login')) {

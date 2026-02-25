@@ -169,17 +169,17 @@ export function ApiSettingsSection({
         </div>
       </div>
 
-      {/* Jimeng Seedream 4.5 */}
+      {/* Ark (Seedream) */}
       <div className="mt-4">
         <div className="flex items-center gap-2 mb-2">
-          <h3 className="text-xs font-medium text-gray-900">即梦 4.5</h3>
+          <h3 className="text-xs font-medium text-gray-900">Ark (Seedream)</h3>
           <span className="px-2 py-0.5 bg-pink-100 text-pink-700 text-xs rounded">Image</span>
         </div>
         <div className={`bg-white border rounded p-3 flex items-center justify-between ${jimengConfigured ? 'border-green-200' : 'border-gray-200'}`}>
           <div className="flex items-center gap-2">
             <Key className="w-3.5 h-3.5 text-gray-500" />
             <div>
-              <div className="text-xs font-medium text-gray-900">Seedream 4.5 (Ark)</div>
+              <div className="text-xs font-medium text-gray-900">Seedream (Ark)</div>
               <div className="text-xs text-gray-500">配置 API Key 与 Endpoint ID</div>
             </div>
           </div>
@@ -345,11 +345,11 @@ export function ApiSettingsSection({
         </div>
       )}
 
-      {/* Jimeng Config Modal */}
+      {/* Ark Config Modal */}
       {showJimengModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-4 max-w-md w-full mx-4">
-            <div className="text-sm font-medium text-gray-900 mb-3">配置 即梦 4.5</div>
+            <div className="text-sm font-medium text-gray-900 mb-3">配置 Ark (Seedream)</div>
             <div className="space-y-3">
               <div>
                 <label className="block text-xs text-gray-700 mb-1">API Key</label>
@@ -367,7 +367,7 @@ export function ApiSettingsSection({
                   type="text"
                   value={jimengConfig.endpointId}
                   onChange={(e) => setJimengConfig({ ...jimengConfig, endpointId: e.target.value })}
-                  placeholder="ep-xxxx 或 doubao-seedream-4.5"
+                  placeholder="ep-xxxx 或 doubao-seedream-*"
                   className="w-full px-3 py-2 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
                 />
               </div>

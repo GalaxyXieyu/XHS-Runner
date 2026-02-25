@@ -12,6 +12,20 @@ function isPublicPath(pathname: string) {
   // XHS login endpoints must be accessible after app login; they do their own auth checks.
   if (pathname.startsWith('/api/auth')) return true;
 
+  // Local/dev-only: allow agent test harness to hit APIs without a session cookie.
+  // Keep it behind an explicit env flag to avoid accidental exposure.
+  if (
+    process.env.NODE_ENV !== 'production'
+    && process.env.ALLOW_DEV_AGENT_API_NO_AUTH === '1'
+    && (
+      pathname.startsWith('/api/agent')
+      || pathname.startsWith('/api/assets')
+      || pathname.startsWith('/api/debug')
+    )
+  ) {
+    return true;
+  }
+
   // E2E harness pages should be reachable without app session.
   // We keep these routes available in dev only, even when running "real" login E2E.
   if (process.env.NODE_ENV !== 'production' && pathname.startsWith('/e2e')) return true;

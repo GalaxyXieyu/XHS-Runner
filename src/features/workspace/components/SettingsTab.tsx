@@ -244,7 +244,7 @@ export function SettingsTab({ theme: _theme, auth }: SettingsTabProps) {
       const data = await res.json();
       setJimengConfig({
         apiKey: data.jimeng_api_key || '',
-        endpointId: data.seedream_45_model || ''
+        endpointId: data.seedream_model || ''
       });
     } catch (e) {
       console.error('Failed to load Jimeng config:', e);
@@ -259,7 +259,7 @@ export function SettingsTab({ theme: _theme, auth }: SettingsTabProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           jimeng_api_key: jimengConfig.apiKey,
-          seedream_45_model: jimengConfig.endpointId
+          seedream_model: jimengConfig.endpointId
         }),
       });
       await loadJimengConfig();

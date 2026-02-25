@@ -59,3 +59,11 @@
 - 不提交密钥、令牌、私有数据
 - 本地数据目录（如 `data/`）默认视为运行时产物
 - 修改默认配置前先阅读部署与运维文档
+
+### Feishu Image Sending (Do This Every Time)
+
+- If you need to send an image to Feishu, send it as an actual image message (so it renders a preview), not a local file path.
+- Preferred flow:
+  - If you already have an http(s) URL: use `message(action=send, media=<url>)`.
+  - If the image is local: upload first via `gzh_image_upload(filePath=...)`, then send the returned URL via `message(..., media=<url>)`.
+- Do not send plain local paths like `/Volumes/.../image.png` or `MEDIA:/absolute/path/...`.

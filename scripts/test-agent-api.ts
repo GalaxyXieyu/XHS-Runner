@@ -67,7 +67,9 @@ interface RunSummary {
   agentDurations: Array<{ agent: string; ms: number }>;
   quality?: string;
   title?: string;
+  body?: string;
   bodyPreview?: string;
+  tags?: string[];
   tagCount?: number;
   imageAssetIds: number[];
   imageSaveDir?: string;
@@ -208,7 +210,9 @@ function buildSummary(mode: Mode, events: StreamEvent[], startedAt: number): Run
     agentDurations: durations,
     quality,
     title: title || undefined,
+    body: body || undefined,
     bodyPreview: body ? body.slice(0, 120) : undefined,
+    tags: tags.length > 0 ? tags : undefined,
     tagCount: tags.length,
     imageAssetIds,
     imagePaths: [],
@@ -317,7 +321,7 @@ async function submitTask(options: TestOptions): Promise<{ threadId: string | nu
     themeId = 1,
     fastMode = false,
     enableHITL = false,
-    imageGenProvider = 'jimeng',
+    imageGenProvider = 'ark',
     layoutPreference,
     sessionToken,
     referenceInputs,
@@ -494,6 +498,15 @@ async function runOnce(mode: Mode, options: TestOptions): Promise<RunSummary> {
   const rendered = await renderImagesToDisk(summary.imageAssetIds, outDir, mode);
   summary.imageSaveDir = rendered.runDir;
   summary.imagePaths = rendered.files;
+
+  // Persist artifacts for review without digging into logs.
+  await writeFile(join(rendered.runDir, 'run-summary.json'), JSON.stringify(summary, null, 2), 'utf8');
+  await writeFile(
+    join(rendered.runDir, 'events.jsonl'),
+    allEvents.map((e) => JSON.stringify(e)).join('\n') + '\n',
+    'utf8'
+  );
+
   return summary;
 }
 
@@ -647,7 +660,7 @@ async function main() {
     ? `${baseMessage}\n\n封面排版:\n${coverLines.join('\n')}`
     : baseMessage;
   const themeId = (typeof values['--theme'] === 'string' && values['--theme']) ? Number(values['--theme']) : 1;
-  const imageGenProvider = (typeof values['--provider'] === 'string' ? values['--provider'] : '') || 'jimeng';
+  const imageGenProvider = (typeof values['--provider'] === 'string' ? values['--provider'] : '') || 'ark';
   // Test harness defaults: fully automatic, no HITL pauses, always dump images to disk.
   const enableHITL = false;
   const compact = flags.has('--compact');

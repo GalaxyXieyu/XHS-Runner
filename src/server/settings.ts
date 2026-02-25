@@ -47,10 +47,11 @@ export async function getSettings() {
     'llmBaseUrl',
     'llmApiKey',
     'llmModel',
-    'imageGenProvider', // 图片生成服务: 'jimeng' | 'jimeng-45' | 'gemini'
+    'imageGenProvider', // 图片生成服务: 'ark' | 'jimeng' | 'gemini'
     'imageKey',
     'jimeng_api_key',
-    'seedream_45_model',
+    'seedream_model',
+    'seedream_size',
     'volcengineAccessKey',
     'volcengineSecretKey',
     'superbedToken',
@@ -78,10 +79,11 @@ export async function getSettings() {
     llmBaseUrl: parsed.llmBaseUrl ?? '',
     llmApiKey: parsed.llmApiKey ?? '',
     llmModel: parsed.llmModel ?? '',
-    imageGenProvider: parsed.imageGenProvider ?? 'gemini', // 默认使用 gemini
+    imageGenProvider: parsed.imageGenProvider ?? 'ark', // 默认使用 ark
     imageKey: parsed.imageKey ?? '',
     jimeng_api_key: parsed.jimeng_api_key ?? '',
-    seedream_45_model: parsed.seedream_45_model ?? '',
+    seedream_model: parsed.seedream_model ?? '',
+    seedream_size: parsed.seedream_size ?? '',
     volcengineAccessKey: parsed.volcengineAccessKey ?? '',
     volcengineSecretKey: parsed.volcengineSecretKey ?? '',
     superbedToken: parsed.superbedToken ?? '',

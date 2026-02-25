@@ -12,7 +12,7 @@ tsconfig.tsbuildinfo
 issues/*
 !issues/*.csv
 src/lib/*.js
-.xhs-data/assets/
+.xhs-data/
 /assets/*.png
 /assets/*.jpg
 /assets/*.webp

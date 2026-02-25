@@ -53,7 +53,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const refImages: string[] = normalizedReferenceInputs.map((item) => item.url);
   const hasReferenceImage = refImages.length > 0;
-  const provider = imageGenProvider || 'jimeng'; // 默认使用即梦
+  const provider = imageGenProvider || 'ark'; // 默认使用 ark
   const streamThreadId = uuidv4();
   const threadId = enableHITL ? streamThreadId : undefined;
   const langfuseSessionId = threadId || streamThreadId;

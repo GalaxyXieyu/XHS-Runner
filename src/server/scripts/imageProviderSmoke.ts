@@ -54,13 +54,12 @@ async function main() {
     const key = String(args.jimengApiKey || args.imageKey || args.arkApiKey);
     process.env.IMAGE_API_KEY = key;
     process.env.ARK_API_KEY = key;
-    process.env.JIMENG_API_KEY = key;
   }
   if (args.arkBaseUrl) {
     process.env.ARK_IMAGE_BASE_URL = String(args.arkBaseUrl);
   }
   if (args.arkModel) {
-    process.env.SEEDREAM_45_MODEL = String(args.arkModel);
+    process.env.SEEDREAM_MODEL = String(args.arkModel);
   }
   if (args.volcengineAccessKey) {
     process.env.VOLCENGINE_ACCESS_KEY = String(args.volcengineAccessKey);
@@ -81,7 +80,7 @@ async function main() {
 
   if (!prompt) {
     // eslint-disable-next-line no-console
-    console.error('Usage: --model <nanobanana|jimeng|jimeng-45> --prompt "<text>" [--out <path>] [--images <comma-separated>] [--baseUrl <url>] [--apiKey <key>] [--jimengApiKey <key>] [--imageKey <key>] [--arkBaseUrl <url>] [--arkModel <modelId>] [--volcengineAccessKey <ak>] [--volcengineSecretKey <sk>] [--superbedToken <token>]');
+    console.error('Usage: --model <nanobanana|jimeng|ark> --prompt "<text>" [--out <path>] [--images <comma-separated>] [--baseUrl <url>] [--apiKey <key>] [--jimengApiKey <key>] [--imageKey <key>] [--arkBaseUrl <url>] [--arkModel <modelId>] [--volcengineAccessKey <ak>] [--volcengineSecretKey <sk>] [--superbedToken <token>]');
     process.exitCode = 2;
     return;
   }

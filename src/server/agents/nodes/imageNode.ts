@@ -243,8 +243,8 @@ export async function imageAgentNode(state: typeof AgentState.State, _model: Cha
   }
 
   // 直接生成图片，不使用工具
-  // 优先从 state 读取用户选择的 provider，其次从数据库设置读取，最后默认 jimeng
-  const provider = state.imageGenProvider || (await getSetting('imageGenProvider')) || 'jimeng';
+  // 优先从 state 读取用户选择的 provider，其次从数据库设置读取，最后默认 ark
+  const provider = state.imageGenProvider || (await getSetting('imageGenProvider')) || 'ark';
   const coverTextOverlayEnabled = isCoverTextOverlayEnabled();
 
   const coverOnlySignal = state.messages
@@ -358,7 +358,7 @@ export async function imageAgentNode(state: typeof AgentState.State, _model: Cha
       const result = await generateImageWithReference({
         prompt,
         referenceImageUrls: generationReferenceImageUrls,
-        provider: provider as "gemini" | "jimeng" | "jimeng-45",
+        provider: provider as "ark" | "gemini" | "jimeng",
         aspectRatio: "3:4",
       });
 

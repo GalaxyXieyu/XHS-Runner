@@ -16,6 +16,7 @@ interface PlannerOutput {
   bodyBlocks: BodyBlock[];
   imagePlans: ImagePlan[];
   textOverlayPlan: TextOverlayPlan[];
+  paragraphImageBindings?: Array<{ imageSeq: number; paragraphIds: string[]; rationale?: string }>;
 }
 
 function fallbackSplitBody(body: string): BodyBlock[] {
@@ -167,6 +168,21 @@ function parsePlannerOutput(content: string, fallbackBody?: string): PlannerOutp
   }
 }
 
+function buildDefaultBindings(bodyBlocks: BodyBlock[], imagePlans: ImagePlan[]) {
+  const ids = bodyBlocks.map((b) => b.id);
+  if (ids.length === 0 || imagePlans.length === 0) return [];
+
+  // Simple deterministic mapping: distribute paragraphs in order across planned images.
+  return imagePlans.map((plan, idx) => {
+    const pick = ids[Math.min(idx, ids.length - 1)];
+    return {
+      imageSeq: plan.sequence,
+      paragraphIds: [pick],
+      rationale: `auto-map:${pick}`,
+    };
+  });
+}
+
 function buildFallbackOutput(
   title: string,
   body: string,
@@ -205,6 +221,7 @@ function buildFallbackOutput(
     bodyBlocks,
     imagePlans: plans,
     textOverlayPlan: overlay,
+    paragraphImageBindings: buildDefaultBindings(bodyBlocks, plans),
   };
 }
 
@@ -290,11 +307,15 @@ export async function imagePlannerNode(state: typeof AgentState.State, model: Ch
   const content = typeof response.content === "string" ? response.content : "";
   const parsed = parsePlannerOutput(content, body);
   const output = parsed || buildFallbackOutput(title, body, layoutSpec, reviewSuggestions);
+  const paragraphImageBindings = (output.paragraphImageBindings && output.paragraphImageBindings.length > 0)
+    ? output.paragraphImageBindings
+    : buildDefaultBindings(output.bodyBlocks, output.imagePlans);
 
   const summaryPayload = {
     imagePlans: output.imagePlans,
     textOverlayPlan: output.textOverlayPlan,
     bodyBlocks: output.bodyBlocks,
+    paragraphImageBindings,
   };
 
   const summaryMessage = new AIMessage(
@@ -307,6 +328,7 @@ export async function imagePlannerNode(state: typeof AgentState.State, model: Ch
     imagePlans: output.imagePlans,
     textOverlayPlan: output.textOverlayPlan,
     bodyBlocks: output.bodyBlocks,
+    paragraphImageBindings,
     reviewFeedback: null,
     imagesComplete: false,
     summary: compressed.summary,

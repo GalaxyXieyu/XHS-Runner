@@ -9,7 +9,7 @@
   - `themeId`：主题 ID（可选）
   - `referenceImageUrl`：单张参考图（可选）
   - `referenceImages`：多张参考图（可选）
-  - `imageGenProvider`：图片服务商（`jimeng`/`gemini`，可选）
+  - `imageGenProvider`：图片服务商（`ark`/`jimeng`/`gemini`，可选）
   - `enableHITL`：是否启用人工确认（可选）
 - 响应：SSE 事件流，事件类型详见 `docs/99-archive/reference/sse-events.md`
 

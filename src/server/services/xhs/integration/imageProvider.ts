@@ -1,9 +1,10 @@
 import crypto from 'crypto';
+import { generateArkImage } from './arkImageClient';
 import { generateContent } from './nanobananaClient';
 import { getSetting } from '../../../settings';
 import { getExtensionServiceByType } from '../../extensionService';
 
-export type ImageModel = 'nanobanana' | 'jimeng' | 'jimeng-45';
+export type ImageModel = 'nanobanana' | 'jimeng' | 'ark';
 
 export interface ImageGenerateInput {
   prompt: string;
@@ -22,8 +23,10 @@ const REGION = 'cn-north-1';
 const SERVICE = 'cv';
 const VERSION = '2022-08-31';
 const DEFAULT_ARK_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3/images/generations';
-const DEFAULT_SEEDREAM_45_MODEL = 'doubao-seedream-4.5';
-const DEFAULT_SEEDREAM_45_SIZE = '1728x2304';
+
+// Ark image defaults (Seedream).
+const DEFAULT_ARK_IMAGE_MODEL = 'doubao-seedream-5-0-260128';
+const DEFAULT_ARK_IMAGE_SIZE = '1728x2304';
 
 // Jimeng 图片生成串行队列（避免并发限流）
 class JimengApiLock {
@@ -485,10 +488,10 @@ async function fetchImageBuffer(url: string) {
 }
 
 async function getSeedreamConfig() {
-  let apiKey = readEnvString('JIMENG_API_KEY', 'ARK_API_KEY', 'IMAGE_API_KEY', 'VOLCENGINE_IMAGE_KEY');
+  let apiKey = readEnvString('ARK_API_KEY', 'IMAGE_API_KEY');
   let baseUrl = readEnvString('ARK_IMAGE_BASE_URL', 'ARK_BASE_URL');
-  let model = readEnvString('SEEDREAM_45_MODEL', 'ARK_IMAGE_MODEL');
-  let size = readEnvString('SEEDREAM_45_SIZE', 'ARK_IMAGE_SIZE');
+  let model = readEnvString('SEEDREAM_MODEL', 'ARK_IMAGE_MODEL');
+  let size = readEnvString('SEEDREAM_SIZE', 'ARK_IMAGE_SIZE');
   let watermark = readEnvBoolean(['SEEDREAM_WATERMARK', 'ARK_IMAGE_WATERMARK'], false);
   let superbedToken = readEnvString('SUPERBED_TOKEN');
 
@@ -510,8 +513,8 @@ async function getSeedreamConfig() {
           const config = JSON.parse(imageService.config_json);
           apiKey = apiKey || config.jimeng_api_key || config.ark_api_key || config.image_api_key || config.api_key || '';
           baseUrl = baseUrl || config.ark_base_url || config.ark_image_base_url || config.base_url || '';
-          model = model || config.seedream_model || config.seedream_45_model || config.model || '';
-          size = size || config.seedream_size || config.seedream_45_size || config.size || '';
+          model = model || config.seedream_model || config.model || '';
+          size = size || config.seedream_size || config.size || '';
           if (typeof config.seedream_watermark === 'boolean') {
             watermark = config.seedream_watermark;
           }
@@ -529,14 +532,16 @@ async function getSeedreamConfig() {
   }
 
   try {
-    const [fallbackJimengApiKey, fallbackImageKey, fallbackSeedreamModel, fallbackSuperbedToken] = await Promise.all([
+    const [fallbackJimengApiKey, fallbackImageKey, fallbackSeedreamModel, fallbackSeedreamSize, fallbackSuperbedToken] = await Promise.all([
       getSetting('jimeng_api_key'),
       getSetting('imageKey'),
-      getSetting('seedream_45_model'),
+      getSetting('seedream_model'),
+      getSetting('seedream_size'),
       getSetting('superbedToken')
     ]);
     apiKey = apiKey || fallbackJimengApiKey || fallbackImageKey || '';
     model = model || fallbackSeedreamModel || '';
+    size = size || fallbackSeedreamSize || '';
     superbedToken = superbedToken || fallbackSuperbedToken || '';
   } catch {
     // Ignore missing settings db
@@ -545,14 +550,14 @@ async function getSeedreamConfig() {
   return {
     apiKey,
     baseUrl: baseUrl || DEFAULT_ARK_BASE_URL,
-    model: model || DEFAULT_SEEDREAM_45_MODEL,
-    size: size || DEFAULT_SEEDREAM_45_SIZE,
+    model: model || DEFAULT_ARK_IMAGE_MODEL,
+    size: size || DEFAULT_ARK_IMAGE_SIZE,
     watermark,
     superbedToken,
   };
 }
 
-async function generateSeedream45Image(params: {
+async function generateSeedreamImage(params: {
   prompt: string;
   images?: string[];
   apiKey: string;
@@ -564,100 +569,81 @@ async function generateSeedream45Image(params: {
 }): Promise<ImageGenerateResult> {
   const { prompt, images, apiKey, baseUrl, model, size, watermark, superbedToken } = params;
   if (!apiKey) {
-    throw new Error('JIMENG_API_KEY_NOT_CONFIGURED: 请先配置即梦 4.5 API Key（Ark）');
+    throw new Error('ARK_API_KEY_NOT_CONFIGURED: 请先配置 ARK_API_KEY / IMAGE_API_KEY');
   }
 
-  // Serialize Seedream calls to reduce provider-side 429s and make runs deterministic.
-  return jimengApiLock.enqueue(async () => {
-    const imagePayload = await normalizeSeedreamImages(images, superbedToken);
-    const requestBody: Record<string, any> = {
-      model,
-      prompt,
-      response_format: 'b64_json',
-      sequential_image_generation: 'disabled',
-      size,
-      stream: false,
-      watermark,
-    };
+  const imagePayload = await normalizeSeedreamImages(images, superbedToken);
+  const referenceImages =
+    typeof imagePayload === 'string'
+      ? [imagePayload]
+      : Array.isArray(imagePayload)
+        ? imagePayload
+        : undefined;
 
-    if (imagePayload) {
-      requestBody.image = imagePayload;
-    }
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      const result = await generateArkImage({
+        apiKey,
+        baseUrl,
+        model,
+        prompt,
+        size,
+        watermark,
+        responseFormat: 'url',
+        referenceImages,
+      });
 
-    let lastError: Error | null = null;
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      try {
-        const result: any = await postJson(
-          baseUrl,
-          requestBody,
-          {
-            Authorization: `Bearer ${apiKey}`,
-          },
-          120000
-        );
+      const providerUrl = result.urls[0];
+      const providerB64 = result.b64Json[0];
 
-        if (result?.error) {
-          const message = result.error?.message || 'Seedream API error';
-          throw new Error(`Seedream 4.5 调用失败: ${message}`);
-        }
-
-        const dataList = Array.isArray(result?.data) ? result.data : [];
-        if (dataList.length === 0) {
-          throw new Error('Seedream 4.5 返回空结果');
-        }
-
-        const item = dataList.find((entry: any) => entry?.b64_json || entry?.url || entry?.error) || dataList[0];
-        if (item?.error) {
-          const code = item.error?.code || 'unknown';
-          const message = item.error?.message || 'Unknown';
-          throw new Error(`Seedream 4.5 生成失败: code=${code}, msg=${message}`);
-        }
-
-        let imageBuffer: Buffer | null = null;
-        if (item?.b64_json) {
-          imageBuffer = Buffer.from(item.b64_json, 'base64');
-        } else if (item?.url) {
-          imageBuffer = await fetchImageBuffer(String(item.url));
-        }
-
-        if (!imageBuffer) {
-          throw new Error('Seedream 4.5 返回结果缺少图片数据');
-        }
-
-        return {
-          text: '',
-          imageBuffer,
-          metadata: {
-            mimeType: 'image/jpeg',
-            model: result?.model || model,
-            prompt,
-            size: item?.size || size,
-            usage: result?.usage,
-            created: result?.created,
-          },
-        };
-      } catch (error: any) {
-        const message = error?.message || String(error);
-        lastError = error instanceof Error ? error : new Error(message);
-
-        const retryable = /50430|50220|Download\s*Url\s*Error|Concurrent\s*Limit|CONCURRENT_LIMIT|HTTP\s*429|\b429\b|timeout|ECONNRESET|ETIMEDOUT|\b5\d\d\b/i.test(message);
-        const isLastAttempt = attempt === 3;
-        if (!retryable || isLastAttempt) {
-          break;
-        }
-
-        const is429 = /Concurrent\s*Limit|CONCURRENT_LIMIT|HTTP\s*429|\b429\b/i.test(message);
-        const jitter = Math.floor(Math.random() * 500);
-        const base = is429 ? 4000 : 1000;
-        const cap = is429 ? 30000 : 8000;
-        const delayMs = Math.min(cap, base * Math.pow(2, attempt)) + jitter;
-        console.warn(`[Seedream45] retryable error, backoff ${delayMs}ms (attempt ${attempt + 1}/4): ${message}`);
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      let imageBuffer: Buffer | null = null;
+      if (providerUrl) {
+        imageBuffer = await fetchImageBuffer(providerUrl);
+      } else if (providerB64) {
+        imageBuffer = Buffer.from(providerB64, 'base64');
       }
-    }
 
-    throw lastError || new Error('Seedream 4.5 调用失败');
-  });
+      if (!imageBuffer) {
+        throw new Error('Ark 返回结果缺少图片数据');
+      }
+
+      const raw = result.raw;
+      const first = Array.isArray(raw?.data) ? raw.data[0] : undefined;
+      return {
+        text: '',
+        imageBuffer,
+        metadata: {
+          mimeType: 'image/jpeg',
+          model: raw?.model || model,
+          prompt,
+          size: first?.size || size,
+          usage: raw?.usage,
+          created: raw?.created,
+          url: providerUrl,
+        },
+      };
+    } catch (error: any) {
+      const message = error?.message || String(error);
+      lastError = error instanceof Error ? error : new Error(message);
+
+      const retryable = /50430|50220|Download\s*Url\s*Error|Concurrent\s*Limit|CONCURRENT_LIMIT|HTTP\s*429|\b429\b|timeout|ECONNRESET|ETIMEDOUT|\b5\d\d\b/i.test(message);
+      const isLastAttempt = attempt === 3;
+      if (!retryable || isLastAttempt) {
+        break;
+      }
+
+      const is429 = /Concurrent\s*Limit|CONCURRENT_LIMIT|HTTP\s*429|\b429\b/i.test(message);
+      const jitter = Math.floor(Math.random() * 500);
+      const base = is429 ? 4000 : 1000;
+      const cap = is429 ? 30000 : 8000;
+      const delayMs = Math.min(cap, base * Math.pow(2, attempt)) + jitter;
+      console.warn(`[Ark] retryable error, backoff ${delayMs}ms (attempt ${attempt + 1}/4): ${message}`);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+
+  throw lastError || new Error('Ark 调用失败');
 }
 
 export async function generateImage(input: ImageGenerateInput): Promise<ImageGenerateResult> {
@@ -672,9 +658,9 @@ export async function generateImage(input: ImageGenerateInput): Promise<ImageGen
       superbedToken,
     });
   }
-  if (model === 'jimeng-45') {
+  if (model === 'ark') {
     const { apiKey, baseUrl, model: modelId, size, watermark, superbedToken } = await getSeedreamConfig();
-    return generateSeedream45Image({
+    return generateSeedreamImage({
       prompt: input.prompt,
       images: input.images,
       apiKey,
@@ -696,7 +682,7 @@ export async function generateImage(input: ImageGenerateInput): Promise<ImageGen
 
 // ============ 带参考图生成接口 ============
 
-export type ReferenceImageProvider = 'gemini' | 'jimeng' | 'jimeng-45';
+export type ReferenceImageProvider = 'ark' | 'gemini' | 'jimeng';
 
 export interface ReferenceImageInput {
   prompt: string;
@@ -717,11 +703,11 @@ export interface ReferenceImageResult {
  */
 export async function generateImageWithReference(input: ReferenceImageInput): Promise<ReferenceImageResult> {
   // 优先使用参数指定的 provider，否则从设置读取
-  const provider = input.provider || (await getSetting('imageGenProvider')) || 'gemini';
+  const provider = input.provider || (await getSetting('imageGenProvider')) || 'ark';
 
   switch (provider) {
-    case 'jimeng-45':
-      return generateWithJimeng45(input);
+    case 'ark':
+      return generateWithArk(input);
     case 'jimeng':
       return generateWithJimeng(input);
     case 'gemini':
@@ -762,10 +748,10 @@ async function generateWithJimeng(input: ReferenceImageInput): Promise<Reference
   };
 }
 
-// Jimeng 4.5 (Ark) 实现
-async function generateWithJimeng45(input: ReferenceImageInput): Promise<ReferenceImageResult> {
+// Ark (Seedream) 实现
+async function generateWithArk(input: ReferenceImageInput): Promise<ReferenceImageResult> {
   const { apiKey, baseUrl, model, size, watermark, superbedToken } = await getSeedreamConfig();
-  const result = await generateSeedream45Image({
+  const result = await generateSeedreamImage({
     prompt: input.prompt,
     images: input.referenceImageUrls,
     apiKey,
@@ -777,7 +763,7 @@ async function generateWithJimeng45(input: ReferenceImageInput): Promise<Referen
   });
   return {
     imageBuffer: result.imageBuffer,
-    provider: 'jimeng-45',
+    provider: 'ark',
     metadata: result.metadata,
   };
 }

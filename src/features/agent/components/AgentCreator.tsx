@@ -74,7 +74,7 @@ export function AgentCreator({ theme, initialRequirement, autoRunInitialRequirem
   );
   
   // UI 状态
-  const [imageGenProvider, setImageGenProvider] = useState<ImageGenProvider>('jimeng');
+  const [imageGenProvider, setImageGenProvider] = useState<ImageGenProvider>('ark');
   const [autoConfirm, setAutoConfirm] = useState(false);
   const [fastMode, setFastMode] = useState(false);
 

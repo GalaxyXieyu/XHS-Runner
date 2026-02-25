@@ -11,7 +11,7 @@ import {
   Eye,
 } from "lucide-react";
 
-export type ImageGenProvider = "jimeng" | "jimeng-45" | "gemini";
+export type ImageGenProvider = "ark" | "jimeng" | "gemini";
 
 const agentIconMap: Record<string, LucideIcon> = {
   brief_compiler_agent: FileText,

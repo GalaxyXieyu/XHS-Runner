@@ -17,6 +17,9 @@
   - API tests (priority)
   - UI tests / E2E in Chrome (after API)
   - UX sanity check in Chrome: run `npm run dev:next`, open `http://localhost:3000`, and verify entry points + no redundant/confusing flows for the feature being shipped
+- Provider naming policy:
+  - No version-number names in code or config (avoid `*45*`, `v4`, etc.)
+  - Prefer canonical, extensible provider ids: `ark | jimeng | gemini`
 - Each feature point:
   - has its own commit(s)
   - includes a short self-review: redundancy? risk to main app?
@@ -39,6 +42,12 @@
 
 ## Planned Work Items (Draft)
 
+- [ ] P0: Image generation provider unification + regression harness
+  - [x] Align Ark image client with local `img-generator` plugin (request/response shape)
+  - [x] Add focused unit tests: single-call + true 4-way parallelism (fetch mocked)
+  - [ ] Rename provider naming to extensible set: `ark | jimeng | gemini` (no versioned names)
+  - [ ] Runtime smoke: verify all 3 providers can generate + save 1 image each (real calls)
+  - [ ] Add minimal run-summary artifacts for each run (provider/model/attempts/errors/paths)
 - [ ] P0: Daily generate pipeline (ideas -> agent -> drafts)
   - [x] Backend: daily_generate creates ideas + runs agent + updates generation_tasks
   - [x] UI: Generation scheduled view shows "today ideas" + actions (open in agent / rerun)
@@ -55,6 +64,14 @@
   - [ ] Define data ingestion/update pipeline
 
 ## Status Log
+
+### 2026-02-26
+
+- Image gen tooling: aligned Ark `/api/v3/images/generations` client with local `img-generator` call shape.
+- Tests: added quickSuite coverage for Ark client (single-call + 4-way parallelism with fetch mocked).
+- Model: default Seedream model now targets 5.0.
+- Routing bug found: prior long "hang" was supervisor repeatedly sending `NEXT: image_planner_agent` due to empty `paragraphImageBindings`, and router allowing safe LLM backtrack.
+- Next: finish renaming provider ids to `ark | jimeng | gemini` (no versioned names), then run real smoke for all 3 providers (each generates + saves 1 image) and report results.
 
 ### 2026-02-03
 

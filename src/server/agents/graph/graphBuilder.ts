@@ -48,7 +48,7 @@ function createReferenceImageToolNode(baseToolNode: ToolNode) {
 
     // 支持多张参考图，传递给生成工具
     const fullReferenceImageUrls = referenceImages;
-    const imageProvider = state.imageGenProvider || "gemini";
+    const imageProvider = state.imageGenProvider || "ark";
 
     const modifiedState = {
       ...state,

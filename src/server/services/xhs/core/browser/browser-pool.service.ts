@@ -3,15 +3,14 @@
  * Manages browser instance lifecycle with pooling, health monitoring, and automatic cleanup
  */
 
-import puppeteer, { Browser, BrowserContext, Page } from 'puppeteer';
-import { join } from 'path';
-import { tmpdir } from 'os';
-import { mkdtemp, rm } from 'fs/promises';
+import puppeteer, { Browser, BrowserContext } from 'puppeteer';
+import { rm } from 'fs/promises';
 import { Config } from '../../shared/types';
 import { BrowserLaunchError, XHSError } from '../../shared/errors';
 import { getConfig } from '../../shared/config';
 import { logger } from '../../shared/logger';
 import { sleep } from '../../shared/utils';
+import { createBrowserTempDir, getBrowserStorageErrorMessage, isNoSpaceError } from './browser-temp-dir';
 
 export interface ManagedBrowser {
   browser: Browser;
@@ -220,6 +219,12 @@ export class BrowserPoolService {
       } catch (error) {
         logger.warn(`Error closing browser ${managedBrowser.id}: ${error}`);
       }
+
+      try {
+        await rm(managedBrowser.userDataDir, { recursive: true, force: true });
+      } catch (error) {
+        logger.debug(`Failed to cleanup browser data dir for ${managedBrowser.id}: ${error}`);
+      }
     });
 
     await Promise.allSettled(closePromises);
@@ -234,7 +239,7 @@ export class BrowserPoolService {
   private async createBrowserInstance(): Promise<ManagedBrowser> {
     // 先生成 ID，用于独立的 userDataDir
     const id = this.generateBrowserId();
-    const userDataDir = await mkdtemp(join(tmpdir(), 'xhs-generator-pool-'));
+    const userDataDir = await createBrowserTempDir('xhs-generator-pool-');
 
     try {
       const launchOptions: any = {
@@ -283,9 +288,18 @@ export class BrowserPoolService {
 
       return managedBrowser;
     } catch (error) {
+      try {
+        await rm(userDataDir, { recursive: true, force: true });
+      } catch (cleanupError) {
+        logger.debug(`Failed to cleanup pool userDataDir after launch failure: ${cleanupError}`);
+      }
+
       logger.error(`Failed to create browser instance: ${error}`);
+      const errorMessage = isNoSpaceError(error)
+        ? getBrowserStorageErrorMessage()
+        : `Failed to create browser instance: ${error}`;
       throw new BrowserLaunchError(
-        `Failed to create browser instance: ${error}`,
+        errorMessage,
         { poolSize: this.pool.size },
         error as Error
       );

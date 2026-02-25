@@ -326,17 +326,17 @@ export function ContentPackageEditor({ pkg, onClose, onSave }: ContentPackageEdi
                       : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
                   }`}
                 >
-                  即梦 4.0
+                  即梦
                 </button>
                 <button
-                  onClick={() => setEditedPkg({ ...editedPkg, imageModel: 'jimeng-45' })}
+                  onClick={() => setEditedPkg({ ...editedPkg, imageModel: 'ark' })}
                   className={`flex-1 px-3 py-2 rounded-lg border text-sm transition-colors ${
-                    editedPkg.imageModel === 'jimeng-45'
+                    editedPkg.imageModel === 'ark'
                       ? 'bg-red-50 border-red-300 text-red-700'
                       : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
                   }`}
                 >
-                  即梦 4.5
+                  Ark (Seedream)
                 </button>
               </div>
             </div>

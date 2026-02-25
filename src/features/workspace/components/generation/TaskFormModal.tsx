@@ -337,8 +337,8 @@ export function TaskFormModal({
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
               >
                 <option value="nanobanana">Nanobanana</option>
-                <option value="jimeng">即梦 4.0</option>
-                <option value="jimeng-45">即梦 4.5</option>
+                <option value="jimeng">即梦</option>
+                <option value="ark">Ark (Seedream)</option>
               </select>
             </div>
           </div>

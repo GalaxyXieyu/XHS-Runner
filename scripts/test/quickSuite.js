@@ -685,6 +685,129 @@ async function main() {
     assert.ok(provider.isEnabled === true || provider.isEnabled === 1);
   });
 
+  await runTest('arkImageClient generateArkImage posts Ark request and normalizes urls', async () => {
+    const ark = require(path.join(
+      repoRoot,
+      'electron',
+      'server',
+      'services',
+      'xhs',
+      'integration',
+      'arkImageClient.js'
+    ));
+
+    const oldFetch = global.fetch;
+    let captured = null;
+
+    global.fetch = async (url, options) => {
+      captured = { url, options };
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            created: 123,
+            model: 'doubao-seedream-5-0-260128',
+            data: [{ url: 'https://example.com/image.png' }],
+          };
+        },
+        async text() {
+          return '';
+        },
+      };
+    };
+
+    try {
+      const res = await ark.generateArkImage({
+        apiKey: 'test-key',
+        baseUrl: 'https://ark.test/api/v3/images/generations',
+        model: 'doubao-seedream-5-0-260128',
+        prompt: 'a cat',
+        size: '1728x2304',
+        watermark: false,
+      });
+
+      assert.ok(captured, 'expected fetch to be called');
+      assert.strictEqual(captured.url, 'https://ark.test/api/v3/images/generations');
+      assert.strictEqual(captured.options.method, 'POST');
+      assert.ok(captured.options.headers && captured.options.headers.Authorization);
+
+      const body = JSON.parse(captured.options.body);
+      assert.strictEqual(body.model, 'doubao-seedream-5-0-260128');
+      assert.strictEqual(body.prompt, 'a cat');
+      assert.strictEqual(body.size, '1728x2304');
+      assert.strictEqual(body.watermark, false);
+      assert.strictEqual(body.response_format, 'url');
+      assert.strictEqual(body.sequential_image_generation, 'disabled');
+      assert.strictEqual(body.stream, false);
+
+      assert.deepStrictEqual(res.urls, ['https://example.com/image.png']);
+    } finally {
+      global.fetch = oldFetch;
+    }
+  });
+
+  await runTest('arkImageClient allows 4 concurrent generations (no global lock)', async () => {
+    const ark = require(path.join(
+      repoRoot,
+      'electron',
+      'server',
+      'services',
+      'xhs',
+      'integration',
+      'arkImageClient.js'
+    ));
+
+    const oldFetch = global.fetch;
+    let inFlight = 0;
+    let maxInFlight = 0;
+    let counter = 0;
+
+    global.fetch = (url, options) => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          const idx = counter++;
+          inFlight -= 1;
+          resolve({
+            ok: true,
+            status: 200,
+            async json() {
+              return {
+                created: 123,
+                data: [{ url: `https://example.com/${idx}.png` }],
+              };
+            },
+            async text() {
+              return '';
+            },
+          });
+        }, 50);
+      });
+    };
+
+    try {
+      await Promise.all(
+        Array.from({ length: 4 }).map((_, i) =>
+          ark.generateArkImage({
+            apiKey: 'test-key',
+            baseUrl: 'https://ark.test/api/v3/images/generations',
+            model: 'doubao-seedream-5-0-260128',
+            prompt: `p${i}`,
+            size: '1728x2304',
+            watermark: false,
+          })
+        )
+      );
+
+      assert.strictEqual(maxInFlight, 4, `expected max in-flight fetches to be 4, got ${maxInFlight}`);
+    } finally {
+      global.fetch = oldFetch;
+    }
+  });
+
   await runTest('coverTextOverlay HTML escapes + clamps text (__testOnly)', async () => {
     const overlay = require(path.join(
       repoRoot,
