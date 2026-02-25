@@ -155,6 +155,213 @@ async function main() {
       90
     );
   });
+
+  await runTest('ref-image augmentor prefers editorial archetype by default', async () => {
+    const augmentor = require(path.join(
+      repoRoot,
+      'electron',
+      'server',
+      'services',
+      'xhs',
+      'integration',
+      'referencePromptAugmentor.js'
+    ));
+
+    const base = '小红书封面：测试 editorial 默认';
+    const insights = [
+      {
+        type: 'logo',
+        bucket: 'content',
+        layout_hints: ['3:4'],
+        content_tags: [],
+        style_tags: [],
+      },
+    ];
+
+    const out = augmentor.buildFinalImagePrompt(base, insights);
+    assert.ok(out.prompt.includes('Archetype: editorial_magazine_cover'));
+    assert.ok(
+      out.prompt.toLowerCase().includes('inside the main card')
+        || out.prompt.toLowerCase().includes('inside card'),
+      'expected inside-card brand mark guidance'
+    );
+  });
+
+  await runTest('ref-image augmentor selects listicle archetype only on strong signals', async () => {
+    const augmentor = require(path.join(
+      repoRoot,
+      'electron',
+      'server',
+      'services',
+      'xhs',
+      'integration',
+      'referencePromptAugmentor.js'
+    ));
+
+    const base = '小红书封面：3 步 + 3 个坑，内容更丰富点';
+    const insights = [
+      {
+        type: 'screenshot',
+        bucket: 'content',
+        layout_hints: [],
+        content_tags: ['3步', '3个坑', '清单'],
+        style_tags: [],
+      },
+    ];
+
+    const out = augmentor.buildFinalImagePrompt(base, insights);
+    assert.ok(out.prompt.includes('Archetype: big_number_listicle'));
+    assert.ok(
+      out.prompt.includes('Keep text density unchanged'),
+      'richness mode should not encourage extra text blocks'
+    );
+  });
+
+  await runTest('ref-image augmentor injects TITLE_SPEC when provided', async () => {
+    const augmentor = require(path.join(
+      repoRoot,
+      'electron',
+      'server',
+      'services',
+      'xhs',
+      'integration',
+      'referencePromptAugmentor.js'
+    ));
+
+    const out = augmentor.buildFinalImagePrompt('小红书封面：标题注入测试', [], {
+      titleSpec: { headline: '新手上手', subline: '3步3坑' },
+    });
+
+    assert.ok(out.prompt.includes('XHS_COVER_TEMPLATE'));
+    assert.ok(out.prompt.includes('TITLE_SPEC'));
+    assert.ok(out.prompt.includes('新手上手'));
+    assert.ok(out.prompt.includes('3步3坑'));
+  });
+
+  await runTest('ref-image augmentor lints + compiles typography preset into TITLE_SPEC', async () => {
+    const augmentor = require(path.join(
+      repoRoot,
+      'electron',
+      'server',
+      'services',
+      'xhs',
+      'integration',
+      'referencePromptAugmentor.js'
+    ));
+
+    const out = augmentor.buildFinalImagePrompt('小红书封面：排版预设注入测试', [], {
+      titleSpec: {
+        headline: '新功能上线',
+        subline: '一眼看懂',
+        badge: 'NEW',
+        footer: '更新',
+        typography: { preset: 6 },
+      },
+    });
+
+    assert.ok(out.prompt.includes('TITLE_SPEC'));
+    assert.ok(out.prompt.includes('Typography preset: 6'));
+    assert.ok(out.prompt.includes('Typography position: bottom_center_in_card'));
+    assert.ok(out.prompt.includes('BADGE'));
+    assert.ok(out.prompt.includes('NEW'));
+    assert.ok(out.prompt.includes('FOOTER'));
+    assert.ok(out.prompt.includes('更新'));
+  });
+
+  await runTest('cover title-card generator returns a PNG buffer (opt-in)', async () => {
+    if (process.env.XHS_COVER_TITLE_CARD_SMOKE !== '1') {
+      // Puppeteer-based rendering can be flaky in CI without system deps.
+      // Enable explicitly when validating locally.
+      return;
+    }
+
+    const card = require(path.join(
+      repoRoot,
+      'electron',
+      'server',
+      'services',
+      'xhs',
+      'integration',
+      'coverTitleCardReference.js'
+    ));
+
+    assert.ok(typeof card.generateCoverTitleCardPng === 'function');
+
+    const outBuf = await card.generateCoverTitleCardPng({
+      headline: '测试封面标题',
+      subline: '副标题',
+      width: 640,
+      height: 854,
+    });
+
+    assert.ok(Buffer.isBuffer(outBuf));
+    assert.strictEqual(outBuf.slice(0, 8).toString('hex'), '89504e470d0a1a0a');
+  });
+
+  await runTest('geminiClient getVisionModel returns an enabled Vision provider when DB is configured', async () => {
+    const hasDb = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.SUPABASE_DB_URL;
+    if (!hasDb) {
+      // Keep CI/local runs without a DB configured green.
+      return;
+    }
+
+    const geminiClient = require(path.join(
+      repoRoot,
+      'electron',
+      'server',
+      'services',
+      'xhs',
+      'llm',
+      'geminiClient.js'
+    ));
+
+    assert.ok(geminiClient.__testOnly && typeof geminiClient.__testOnly.getVisionModel === 'function');
+
+    const provider = await geminiClient.__testOnly.getVisionModel();
+    assert.ok(provider, 'expected a provider row');
+    assert.ok(provider.supportsVision === true || provider.supportsVision === 1);
+    assert.ok(provider.isEnabled === true || provider.isEnabled === 1);
+  });
+
+  await runTest('coverTextOverlay modifies image buffer when enabled (opt-in)', async () => {
+    if (process.env.XHS_COVER_TEXT_OVERLAY_SMOKE !== '1') {
+      // Puppeteer-based rendering can be flaky in CI without system deps.
+      // Enable explicitly when validating locally.
+      return;
+    }
+
+    process.env.XHS_COVER_TEXT_OVERLAY = '1';
+
+    const overlay = require(path.join(
+      repoRoot,
+      'electron',
+      'server',
+      'services',
+      'xhs',
+      'integration',
+      'coverTextOverlay.js'
+    ));
+
+    assert.ok(typeof overlay.applyCoverTextOverlay === 'function');
+
+    const jimp = require('jimp');
+    const Jimp = jimp.Jimp || jimp.default || jimp;
+
+    const base = new Jimp({ width: 800, height: 1066, color: 0xffffffff });
+    const baseBuf = Buffer.from(await base.getBuffer('image/png'));
+
+    const outBuf = await overlay.applyCoverTextOverlay(baseBuf, {
+      titleText: '测试封面标题',
+      subtitleText: '副标题',
+    });
+
+    assert.ok(Buffer.isBuffer(outBuf));
+    assert.ok(outBuf.length > baseBuf.length, 'expected overlay output to be larger than base');
+
+    const outImg = await Jimp.read(outBuf);
+    const sample = outImg.getPixelColor(70, 70);
+    assert.notStrictEqual(sample, 0xffffffff, 'expected overlay pixels to differ from plain white');
+  });
 }
 
 main().catch((err) => {

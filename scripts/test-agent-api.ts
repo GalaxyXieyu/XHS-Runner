@@ -4,7 +4,7 @@
  */
 
 import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, dirname, basename } from 'node:path';
 
 const API_BASE = process.env.AGENT_API_BASE || 'http://localhost:3000';
 const DEFAULT_MESSAGE = 'Vibecoding 上手教程：面向新手，3步+3坑，80~120字，口语化，小红书风格，包含 #标签。';
@@ -36,12 +36,24 @@ interface StreamEvent {
   tags?: string[];
 }
 
+type ReferenceInput = { url: string; type?: 'style' | 'layout' | 'content' };
+
 interface TestOptions {
   message: string;
   themeId?: number;
   fastMode?: boolean;
   enableHITL?: boolean;
   imageGenProvider?: string;
+  layoutPreference?: string;
+
+  // App session token for auth-gated endpoints (middleware redirects otherwise).
+  // Provide via --session <token> or env XHS_RUNNER_SESSION.
+  sessionToken?: string;
+
+  // Optional reference images for testing the ref-image workflow.
+  // Use --ref "<url>|content" or --ref "<url>|style" (type is optional).
+  referenceInputs?: ReferenceInput[];
+
   autoConfirm?: boolean;
   showAll?: boolean;
   compact?: boolean;
@@ -60,6 +72,7 @@ interface RunSummary {
   bodyPreview?: string;
   tagCount?: number;
   imageAssetIds: number[];
+  imageSaveDir?: string;
   imagePaths: string[];
 }
 
@@ -204,8 +217,12 @@ function buildSummary(mode: Mode, events: StreamEvent[], startedAt: number): Run
   };
 }
 
-async function renderImagesToDisk(assetIds: number[], outDir: string, mode: Mode): Promise<string[]> {
-  if (assetIds.length === 0) return [];
+async function renderImagesToDisk(
+  assetIds: number[],
+  outDir: string,
+  mode: Mode
+): Promise<{ runDir: string; files: string[] }> {
+  if (assetIds.length === 0) return { runDir: '', files: [] };
 
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const runDir = join(outDir, `${stamp}-${mode}`);
@@ -230,7 +247,7 @@ async function renderImagesToDisk(assetIds: number[], outDir: string, mode: Mode
     await writeFile(filePath, buffer);
     saved.push(filePath);
   }
-  return saved;
+  return { runDir, files: saved };
 }
 
 async function parseSSEStream(response: Response): Promise<StreamEvent[]> {
@@ -294,24 +311,52 @@ async function submitTask(options: TestOptions): Promise<{ threadId: string | nu
     fastMode = false,
     enableHITL = true,
     imageGenProvider = 'jimeng',
+    layoutPreference,
+    sessionToken,
+    referenceInputs,
     showAll = false,
     compact = false,
   } = options;
 
   console.log(`\n📝 提交任务: ${message}`);
-  console.log(`   fastMode: ${fastMode}, HITL: ${enableHITL}\n`);
+  console.log(`   themeId: ${themeId}, provider: ${imageGenProvider}, fastMode: ${fastMode}, HITL: ${enableHITL}`);
+  if (layoutPreference) {
+    console.log(`   layoutPreference: ${layoutPreference}`);
+  }
+  if (referenceInputs && referenceInputs.length > 0) {
+    const refs = referenceInputs
+      .map((r) => `${r.type || 'auto'}:${r.url}`)
+      .join(' | ');
+    console.log(`   referenceInputs: ${refs}`);
+  }
+  console.log('');
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (sessionToken) headers['Cookie'] = `xhs_runner_session=${sessionToken}`;
 
   const response = await fetch(`${API_BASE}/api/agent/stream`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
+    redirect: 'manual',
     body: JSON.stringify({
       message,
       themeId,
       fastMode,
       enableHITL,
       imageGenProvider,
+      layoutPreference,
+      referenceInputs,
     }),
   });
+
+  // If middleware redirects to /login, fetch won't give SSE. Make it explicit.
+  if (response.status >= 300 && response.status < 400) {
+    const loc = response.headers.get('location') || '';
+    throw new Error(
+      `Auth required (redirect ${response.status} to ${loc}). `
+      + `Set --session <token> or env XHS_RUNNER_SESSION from a logged-in browser session.`
+    );
+  }
 
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -330,15 +375,29 @@ async function submitTask(options: TestOptions): Promise<{ threadId: string | nu
 async function continueTask(
   threadId: string,
   askUserEvent: StreamEvent | null,
-  { showAll = false, compact = false } = {}
+  opts: { showAll?: boolean; compact?: boolean; sessionToken?: string } = {}
 ): Promise<{ threadId: string | null; events: StreamEvent[] }> {
+  const { showAll = false, compact = false, sessionToken } = opts;
   const payload = buildConfirmPayload(threadId, askUserEvent || undefined);
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const token = sessionToken || process.env.XHS_RUNNER_SESSION;
+  if (token) headers['Cookie'] = `xhs_runner_session=${token}`;
 
   const response = await fetch(`${API_BASE}/api/agent/confirm`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
+    redirect: 'manual',
     body: JSON.stringify(payload),
   });
+
+  if (response.status >= 300 && response.status < 400) {
+    const loc = response.headers.get('location') || '';
+    throw new Error(
+      `Auth required (redirect ${response.status} to ${loc}). `
+      + `Set env XHS_RUNNER_SESSION from a logged-in browser session.`
+    );
+  }
 
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -353,15 +412,32 @@ async function continueTask(
   return { threadId: paused ? threadId : null, events };
 }
 
-async function continueWithDefault(threadId: string, { showAll = false, compact = false } = {}) {
+async function continueWithDefault(
+  threadId: string,
+  opts: { showAll?: boolean; compact?: boolean; sessionToken?: string } = {}
+) {
+  const { showAll = false, compact = false, sessionToken } = opts;
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const token = sessionToken || process.env.XHS_RUNNER_SESSION;
+  if (token) headers['Cookie'] = `xhs_runner_session=${token}`;
+
   const response = await fetch(`${API_BASE}/api/agent/confirm`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
+    redirect: 'manual',
     body: JSON.stringify({
       threadId,
       userResponse: { selectedIds: ['continue_default'] },
     }),
   });
+
+  if (response.status >= 300 && response.status < 400) {
+    const loc = response.headers.get('location') || '';
+    throw new Error(
+      `Auth required (redirect ${response.status} to ${loc}). `
+      + `Set env XHS_RUNNER_SESSION from a logged-in browser session.`
+    );
+  }
 
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -392,6 +468,7 @@ async function runOnce(mode: Mode, options: TestOptions): Promise<RunSummary> {
     const result = await continueTask(activeThread, lastAskUser, {
       showAll: options.showAll,
       compact: options.compact,
+      sessionToken: options.sessionToken,
     });
     allEvents = allEvents.concat(result.events);
     lastAskUser = extractLastAskUser(result.events);
@@ -400,7 +477,9 @@ async function runOnce(mode: Mode, options: TestOptions): Promise<RunSummary> {
 
   const summary = buildSummary(mode, allEvents, startedAt);
   if (shouldRenderImages && summary.imageAssetIds.length > 0) {
-    summary.imagePaths = await renderImagesToDisk(summary.imageAssetIds, outDir, mode);
+    const rendered = await renderImagesToDisk(summary.imageAssetIds, outDir, mode);
+    summary.imageSaveDir = rendered.runDir;
+    summary.imagePaths = rendered.files;
   }
 
   return summary;
@@ -424,7 +503,15 @@ function printSummary(summary: RunSummary) {
   if (typeof summary.tagCount === 'number') {
     console.log(`标签数: ${summary.tagCount}`);
   }
-  if (summary.imagePaths.length > 0) {
+  if (summary.imageAssetIds.length > 0) {
+    console.log(`图片资产ID: ${summary.imageAssetIds.join(', ')}`);
+  }
+  if (summary.imageSaveDir) {
+    console.log(`图片保存目录: ${summary.imageSaveDir}`);
+    const files = summary.imagePaths.map((p) => basename(p)).join(', ');
+    if (files) console.log(`图片文件: ${files}`);
+  } else if (summary.imagePaths.length > 0) {
+    // Backward compat if imageSaveDir is missing.
     console.log(`图片已保存: ${summary.imagePaths.join(', ')}`);
   }
 }
@@ -443,9 +530,24 @@ function printSuiteSummary(results: RunSummary[]) {
 
 function parseArgs(argv: string[]) {
   const flags = new Set<string>();
-  const values: Record<string, string> = {};
+  const values: Record<string, string | string[]> = {};
   const positionals: string[] = [];
-  const valueFlags = new Set(['--continue', '--out', '--theme', '--provider', '--message']);
+  const valueFlags = new Set([
+    '--continue',
+    '--out',
+    '--theme',
+    '--provider',
+    '--message',
+    '--layout',
+    '--ref',
+    '--session',
+    // Cover title / typography helpers.
+    '--preset',
+    '--h1',
+    '--h2',
+    '--badge',
+    '--footer',
+  ]);
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -453,7 +555,15 @@ function parseArgs(argv: string[]) {
       flags.add(arg);
       const next = argv[i + 1];
       if (valueFlags.has(arg) && next && !next.startsWith('--')) {
-        values[arg] = next;
+        const existing = values[arg];
+        if (typeof existing === 'string') {
+          values[arg] = [existing, next];
+        } else if (Array.isArray(existing)) {
+          existing.push(next);
+          values[arg] = existing;
+        } else {
+          values[arg] = next;
+        }
         i += 1;
       }
     } else {
@@ -462,6 +572,23 @@ function parseArgs(argv: string[]) {
   }
 
   return { flags, values, positionals };
+}
+
+function parseRefSpec(spec: string): { url: string; type?: 'style' | 'layout' | 'content' } {
+  const raw = String(spec || '').trim();
+  if (!raw) return { url: '' };
+
+  // Format: <url>|<type>  (type optional). Using '|' avoids conflict with 'http(s)://'.
+  const parts = raw.split('|');
+  const url = parts[0]?.trim() || '';
+  const t = (parts[1] || '').trim();
+  const type = (t === 'style' || t === 'layout' || t === 'content') ? t : undefined;
+  return { url, type };
+}
+
+function asArray(v?: string | string[]): string[] {
+  if (!v) return [];
+  return Array.isArray(v) ? v : [v];
 }
 
 async function main() {
@@ -480,21 +607,68 @@ async function main() {
 
   const runBoth = flags.has('--both') || flags.has('--suite');
   const mode: Mode = flags.has('--normal') ? 'normal' : 'fast';
-  const message = values['--message'] || positionals[0] || DEFAULT_MESSAGE;
-  const themeId = values['--theme'] ? Number(values['--theme']) : 1;
-  const imageGenProvider = values['--provider'] || 'jimeng';
+
+  const baseMessage = (typeof values['--message'] === 'string' ? values['--message'] : '')
+    || positionals[0]
+    || DEFAULT_MESSAGE;
+
+  const presetRaw = typeof values['--preset'] === 'string' ? values['--preset'] : '';
+  const preset = (presetRaw === '2' || presetRaw === '3' || presetRaw === '6') ? presetRaw : '';
+  if (presetRaw && !preset) {
+    console.error(`Invalid --preset "${presetRaw}". Expected: 2 | 3 | 6`);
+    process.exit(1);
+  }
+
+  const h1 = typeof values['--h1'] === 'string' ? values['--h1'] : '';
+  const h2 = typeof values['--h2'] === 'string' ? values['--h2'] : '';
+  const badge = typeof values['--badge'] === 'string' ? values['--badge'] : '';
+  const footer = typeof values['--footer'] === 'string' ? values['--footer'] : '';
+
+  const coverLines: string[] = [];
+  if (preset) coverLines.push(`封面排版预设: ${preset}`);
+  if (h1) coverLines.push(`封面H1: ${h1}`);
+  if (h2) coverLines.push(`封面H2: ${h2}`);
+  if (badge) coverLines.push(`封面BADGE: ${badge}`);
+  if (footer) coverLines.push(`封面FOOTER: ${footer}`);
+
+  const message = coverLines.length > 0
+    ? `${baseMessage}\n\n封面排版:\n${coverLines.join('\n')}`
+    : baseMessage;
+  const themeId = (typeof values['--theme'] === 'string' && values['--theme']) ? Number(values['--theme']) : 1;
+  const imageGenProvider = (typeof values['--provider'] === 'string' ? values['--provider'] : '') || 'jimeng';
   const autoConfirm = flags.has('--auto') || runBoth;
   const enableHITL = !flags.has('--no-hitl');
   const compact = flags.has('--compact');
   const showAll = flags.has('--verbose');
   const renderImages = flags.has('--render');
-  const outDir = values['--out'] || DEFAULT_OUT_DIR;
+  const outDir = (typeof values['--out'] === 'string' ? values['--out'] : '') || DEFAULT_OUT_DIR;
+
+  const rawLayoutPreference = (typeof values['--layout'] === 'string' ? values['--layout'] : undefined);
+  const layoutPreference = rawLayoutPreference
+    && ['dense', 'balanced', 'visual-first'].includes(rawLayoutPreference)
+      ? rawLayoutPreference
+      : undefined;
+  if (rawLayoutPreference && !layoutPreference) {
+    console.error(`Invalid --layout "${rawLayoutPreference}". Expected: dense | balanced | visual-first`);
+    process.exit(1);
+  }
+
+  const referenceInputs = asArray(values['--ref'])
+    .map(parseRefSpec)
+    .filter((x) => x.url);
+
+  const sessionToken = (typeof values['--session'] === 'string' ? values['--session'] : '')
+    || process.env.XHS_RUNNER_SESSION
+    || undefined;
 
   const baseOptions: TestOptions = {
     message,
     themeId,
     enableHITL,
     imageGenProvider,
+    layoutPreference,
+    sessionToken,
+    referenceInputs: referenceInputs.length > 0 ? referenceInputs : undefined,
     autoConfirm,
     showAll,
     compact,
