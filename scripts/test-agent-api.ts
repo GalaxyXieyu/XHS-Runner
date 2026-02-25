@@ -636,7 +636,11 @@ async function main() {
     : baseMessage;
   const themeId = (typeof values['--theme'] === 'string' && values['--theme']) ? Number(values['--theme']) : 1;
   const imageGenProvider = (typeof values['--provider'] === 'string' ? values['--provider'] : '') || 'jimeng';
-  const autoConfirm = flags.has('--auto') || runBoth;
+  // Default to auto-confirm in normal runs to avoid pausing on ask_user/HITL.
+  // Escape hatch: pass --no-auto to disable auto-confirm.
+  const autoConfirm = flags.has('--no-auto')
+    ? false
+    : (flags.has('--auto') || runBoth || mode === 'normal');
   const enableHITL = !flags.has('--no-hitl');
   const compact = flags.has('--compact');
   const showAll = flags.has('--verbose');
