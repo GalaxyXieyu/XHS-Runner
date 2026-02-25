@@ -57,6 +57,11 @@ interface TestOptions {
   showAll?: boolean;
   compact?: boolean;
   outDir?: string; // run output root
+
+  // Progress reporter (local only, not sent to API).
+  progress?: boolean;
+  progressIntervalSec?: number;
+  onEvent?: (event: StreamEvent) => void;
 }
 
 interface RunSummary {
@@ -74,6 +79,161 @@ interface RunSummary {
   imageAssetIds: number[];
   imageSaveDir?: string;
   imagePaths: string[];
+}
+
+type ImageStatus = 'queued' | 'generating' | 'complete' | 'failed';
+
+interface RunProgressArtifact {
+  stage: string;
+  agent?: string;
+  elapsedMs: number;
+  lastEventTimestamp: number | null;
+  images: Record<ImageStatus, number>;
+  lastError?: string | null;
+}
+
+function normalizeImageStatus(raw: unknown): ImageStatus | null {
+  const v = String(raw || '').toLowerCase();
+  if (v === 'queued' || v === 'pending') return 'queued';
+  if (v === 'generating' || v === 'running' || v === 'in_progress') return 'generating';
+  if (v === 'complete' || v === 'completed' || v === 'success' || v === 'succeeded' || v === 'done') return 'complete';
+  if (v === 'failed' || v === 'error') return 'failed';
+  return null;
+}
+
+function createProgressTracker(params: {
+  mode: Mode;
+  progressPath: string;
+  startedAt: number;
+}) {
+  const { mode, progressPath, startedAt } = params;
+
+  let stage = 'starting';
+  let agent = '';
+  let lastEventTimestamp: number | null = null;
+  let lastError: string | null = null;
+
+  const imageStatusByTaskId = new Map<number, ImageStatus>();
+
+  let scheduled: ReturnType<typeof setTimeout> | null = null;
+  let writing = false;
+  let pending = false;
+
+  const buildSnapshot = (): RunProgressArtifact => {
+    const counts: Record<ImageStatus, number> = {
+      queued: 0,
+      generating: 0,
+      complete: 0,
+      failed: 0,
+    };
+
+    for (const status of imageStatusByTaskId.values()) {
+      counts[status] += 1;
+    }
+
+    return {
+      stage,
+      agent: agent || undefined,
+      elapsedMs: Math.max(0, Date.now() - startedAt),
+      lastEventTimestamp,
+      images: counts,
+      lastError,
+    };
+  };
+
+  const writeProgress = async () => {
+    if (writing) return;
+    if (!pending) return;
+
+    writing = true;
+    try {
+      pending = false;
+      await writeFile(progressPath, JSON.stringify({ mode, ...buildSnapshot() }, null, 2), 'utf8');
+    } finally {
+      writing = false;
+      if (pending) scheduleWrite(50);
+    }
+  };
+
+  const scheduleWrite = (delayMs: number) => {
+    if (scheduled) return;
+    scheduled = setTimeout(() => {
+      scheduled = null;
+      void writeProgress();
+    }, delayMs);
+  };
+
+  const markDirty = () => {
+    pending = true;
+    // Debounce a bit so bursts of SSE events don't spam the filesystem.
+    scheduleWrite(150);
+  };
+
+  const setStage = (nextStage: string, nextAgent?: string) => {
+    stage = nextStage;
+    if (typeof nextAgent === 'string') agent = nextAgent;
+    markDirty();
+  };
+
+  const setError = (err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    lastError = message;
+    markDirty();
+  };
+
+  const onEvent = (event: StreamEvent) => {
+    const ts = typeof event.timestamp === 'number' ? event.timestamp : Date.now();
+    lastEventTimestamp = ts;
+
+    if (event.type === 'agent_start' && event.agent) {
+      stage = 'agent_start';
+      agent = event.agent;
+    } else if (event.type === 'agent_end' && event.agent) {
+      stage = 'agent_end';
+      agent = event.agent;
+    } else if (event.type === 'workflow_paused') {
+      stage = 'workflow_paused';
+    } else if (event.type === 'ask_user') {
+      stage = 'ask_user';
+    } else if (event.type === 'workflow_complete') {
+      stage = 'workflow_complete';
+    } else if (event.type === 'image_progress') {
+      stage = 'image_progress';
+      const status = normalizeImageStatus((event as any).status);
+      const taskId = (event as any).taskId;
+      if (status && typeof taskId === 'number') {
+        imageStatusByTaskId.set(taskId, status);
+      }
+      if (status === 'failed') {
+        const msg = (event as any).errorMessage || (event as any).error || event.content;
+        if (msg) lastError = String(msg);
+      }
+    } else if (typeof event.type === 'string' && event.type) {
+      stage = event.type;
+    }
+
+    markDirty();
+  };
+
+  const tick = () => {
+    // Keep elapsedMs fresh even if the SSE stream is silent for a while.
+    markDirty();
+  };
+
+  const flush = async () => {
+    pending = true;
+    await writeProgress();
+  };
+
+  return {
+    progressPath,
+    setStage,
+    setError,
+    onEvent,
+    tick,
+    snapshot: buildSnapshot,
+    flush,
+  };
 }
 
 function formatMs(ms: number): string {
@@ -251,7 +411,10 @@ async function renderImagesToDisk(
   return { runDir, files: saved };
 }
 
-async function parseSSEStream(response: Response): Promise<StreamEvent[]> {
+async function parseSSEStream(
+  response: Response,
+  opts: { onEvent?: (event: StreamEvent) => void } = {}
+): Promise<StreamEvent[]> {
   const reader = response.body?.getReader();
   if (!reader) throw new Error('No response body');
 
@@ -272,7 +435,9 @@ async function parseSSEStream(response: Response): Promise<StreamEvent[]> {
         const data = line.slice(6).trim();
         if (data === '[DONE]') return events;
         try {
-          events.push(JSON.parse(data) as StreamEvent);
+          const event = JSON.parse(data) as StreamEvent;
+          events.push(event);
+          opts.onEvent?.(event);
         } catch {
           // 忽略解析错误
         }
@@ -327,6 +492,7 @@ async function submitTask(options: TestOptions): Promise<{ threadId: string | nu
     referenceInputs,
     showAll = false,
     compact = false,
+    onEvent,
   } = options;
 
   console.log(`\n📝 提交任务: ${message}`);
@@ -373,7 +539,7 @@ async function submitTask(options: TestOptions): Promise<{ threadId: string | nu
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
   }
 
-  const events = await parseSSEStream(response);
+  const events = await parseSSEStream(response, { onEvent });
   const threadId = extractThreadId(events);
 
   for (const event of events) {
@@ -386,9 +552,14 @@ async function submitTask(options: TestOptions): Promise<{ threadId: string | nu
 async function continueTask(
   threadId: string,
   askUserEvent: StreamEvent | null,
-  opts: { showAll?: boolean; compact?: boolean; sessionToken?: string } = {}
+  opts: {
+    showAll?: boolean;
+    compact?: boolean;
+    sessionToken?: string;
+    onEvent?: (event: StreamEvent) => void;
+  } = {}
 ): Promise<{ threadId: string | null; events: StreamEvent[] }> {
-  const { showAll = false, compact = false, sessionToken } = opts;
+  const { showAll = false, compact = false, sessionToken, onEvent } = opts;
   const payload = buildConfirmPayload(threadId, askUserEvent || undefined);
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -414,7 +585,7 @@ async function continueTask(
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
   }
 
-  const events = await parseSSEStream(response);
+  const events = await parseSSEStream(response, { onEvent });
   for (const event of events) {
     printEvent(event, { showAll, compact });
   }
@@ -463,51 +634,106 @@ async function continueWithDefault(
 async function runOnce(mode: Mode, options: TestOptions): Promise<RunSummary> {
   const startedAt = Date.now();
   const outDir = options.outDir || DEFAULT_OUT_DIR;
+  const runDir = join(outDir, mode);
 
-  const { threadId, events } = await submitTask({
-    ...options,
-    fastMode: mode === 'fast',
+  // Create mode dir early so log/progress artifacts (and external tee) have a place to go.
+  await mkdir(runDir, { recursive: true });
+
+  const progressEnabled = options.progress !== false;
+  const progressIntervalSec = (typeof options.progressIntervalSec === 'number' && options.progressIntervalSec > 0)
+    ? options.progressIntervalSec
+    : 10;
+
+  const progress = createProgressTracker({
+    mode,
+    progressPath: join(runDir, 'run-progress.json'),
+    startedAt,
   });
 
-  // Keep runs non-interactive by default.
-  // If the backend still pauses (e.g. enableHITL=true), auto-continue until completion.
-  let activeThread = threadId;
-  let allEvents = [...events];
-  let lastAskUser = extractLastAskUser(events);
-  let guard = 0;
+  const onEvent = (event: StreamEvent) => {
+    progress.onEvent(event);
+    options.onEvent?.(event);
+  };
 
-  while (activeThread && guard < 20) {
-    guard += 1;
-    console.log(`\n⏭️  自动继续 (threadId: ${activeThread})...`);
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    const result = await continueTask(activeThread, lastAskUser, {
-      showAll: options.showAll,
-      compact: options.compact,
-      sessionToken: options.sessionToken,
+  progress.setStage('submitting');
+  await progress.flush();
+
+  const timer = setInterval(() => {
+    progress.tick();
+
+    if (!progressEnabled) return;
+    const snap = progress.snapshot();
+    const imgs = snap.images;
+    const agentLabel = snap.agent ? ` agent=${snap.agent}` : '';
+
+    console.log(
+      `⏱️  Progress (${mode}): ${formatMs(snap.elapsedMs)} stage=${snap.stage}${agentLabel} `
+      + `images q:${imgs.queued} g:${imgs.generating} c:${imgs.complete} f:${imgs.failed}`
+    );
+  }, Math.round(progressIntervalSec * 1000));
+
+  try {
+    const { threadId, events } = await submitTask({
+      ...options,
+      fastMode: mode === 'fast',
+      onEvent,
     });
-    allEvents = allEvents.concat(result.events);
-    lastAskUser = extractLastAskUser(result.events);
-    activeThread = result.threadId;
+
+    // Keep runs non-interactive by default.
+    // If the backend still pauses (e.g. enableHITL=true), auto-continue until completion.
+    let activeThread = threadId;
+    let allEvents = [...events];
+    let lastAskUser = extractLastAskUser(events);
+    let guard = 0;
+
+    while (activeThread && guard < 20) {
+      guard += 1;
+      progress.setStage('auto_continue');
+      console.log(`\n⏭️  自动继续 (threadId: ${activeThread})...`);
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      const result = await continueTask(activeThread, lastAskUser, {
+        showAll: options.showAll,
+        compact: options.compact,
+        sessionToken: options.sessionToken,
+        onEvent,
+      });
+      allEvents = allEvents.concat(result.events);
+      lastAskUser = extractLastAskUser(result.events);
+      activeThread = result.threadId;
+    }
+
+    if (activeThread) {
+      console.warn(`⚠️  workflow still paused after ${guard} auto-continues (threadId: ${activeThread})`);
+    }
+
+    progress.setStage('render_images');
+    const summary = buildSummary(mode, allEvents, startedAt);
+    const rendered = await renderImagesToDisk(summary.imageAssetIds, outDir, mode);
+    summary.imageSaveDir = rendered.runDir;
+    summary.imagePaths = rendered.files;
+
+    progress.setStage('write_artifacts');
+    // Persist artifacts for review without digging into logs.
+    await writeFile(join(rendered.runDir, 'run-summary.json'), JSON.stringify(summary, null, 2), 'utf8');
+    await writeFile(
+      join(rendered.runDir, 'events.jsonl'),
+      allEvents.map((e) => JSON.stringify(e)).join('\n') + '\n',
+      'utf8'
+    );
+
+    progress.setStage('done');
+    await progress.flush();
+
+    return summary;
+  } catch (error) {
+    progress.setStage('error');
+    progress.setError(error);
+    await progress.flush().catch(() => undefined);
+    throw error;
+  } finally {
+    clearInterval(timer);
+    await progress.flush().catch(() => undefined);
   }
-
-  if (activeThread) {
-    console.warn(`⚠️  workflow still paused after ${guard} auto-continues (threadId: ${activeThread})`);
-  }
-
-  const summary = buildSummary(mode, allEvents, startedAt);
-  const rendered = await renderImagesToDisk(summary.imageAssetIds, outDir, mode);
-  summary.imageSaveDir = rendered.runDir;
-  summary.imagePaths = rendered.files;
-
-  // Persist artifacts for review without digging into logs.
-  await writeFile(join(rendered.runDir, 'run-summary.json'), JSON.stringify(summary, null, 2), 'utf8');
-  await writeFile(
-    join(rendered.runDir, 'events.jsonl'),
-    allEvents.map((e) => JSON.stringify(e)).join('\n') + '\n',
-    'utf8'
-  );
-
-  return summary;
 }
 
 function printSummary(summary: RunSummary) {
@@ -533,6 +759,9 @@ function printSummary(summary: RunSummary) {
   }
   if (summary.imageSaveDir) {
     console.log(`图片保存目录: ${summary.imageSaveDir}`);
+    console.log(`run-summary.json: ${join(summary.imageSaveDir, 'run-summary.json')}`);
+    console.log(`events.jsonl: ${join(summary.imageSaveDir, 'events.jsonl')}`);
+    console.log(`run-progress.json: ${join(summary.imageSaveDir, 'run-progress.json')}`);
     const files = summary.imagePaths.map((p) => basename(p)).join(', ');
     if (files) console.log(`图片文件: ${files}`);
   } else if (summary.imagePaths.length > 0) {
@@ -560,6 +789,7 @@ function parseArgs(argv: string[]) {
   const valueFlags = new Set([
     '--continue',
     '--out',
+    '--progress-interval',
     '--theme',
     '--provider',
     '--message',
@@ -666,6 +896,15 @@ async function main() {
   const compact = flags.has('--compact');
   const showAll = flags.has('--verbose');
 
+  let progressEnabled = flags.has('--no-progress') ? false : true;
+  if (flags.has('--progress')) progressEnabled = true;
+  const rawProgressInterval = (typeof values['--progress-interval'] === 'string' ? values['--progress-interval'] : '');
+  const progressIntervalSec = rawProgressInterval ? Number(rawProgressInterval) : 10;
+  if (rawProgressInterval && (!Number.isFinite(progressIntervalSec) || progressIntervalSec <= 0)) {
+    console.error(`Invalid --progress-interval "${rawProgressInterval}". Expected a positive number (seconds).`);
+    process.exit(1);
+  }
+
   const outFlag = (typeof values['--out'] === 'string' ? values['--out'] : '') || '';
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const outDir = outFlag || join(DEFAULT_OUT_DIR, `${stamp}-run`);
@@ -700,6 +939,8 @@ async function main() {
     showAll,
     compact,
     outDir,
+    progress: progressEnabled,
+    progressIntervalSec,
   };
 
   const results: RunSummary[] = [];
