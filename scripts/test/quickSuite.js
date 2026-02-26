@@ -187,6 +187,71 @@ async function main() {
     assert.ok(res.body && res.body.error, 'expected error message');
   });
 
+  await runTest('runEvidence builder extracts prompt/model metadata deterministically', async () => {
+    const { buildRunEvidence, sha256Hex } = require(path.join(
+      repoRoot,
+      'electron',
+      'server',
+      'utils',
+      'runEvidence.js'
+    ));
+
+    const imageAssetIds = [101, 102, 103];
+    const assets = [
+      {
+        id: 101,
+        path: 'assets/a.png',
+        metadata: JSON.stringify({
+          prompt: 'final prompt A',
+          sequence: 0,
+          role: 'cover',
+          provider: 'ark',
+          model: 'seedream-v3',
+          size: '1024x1536',
+          watermark: true,
+          aspectRatio: '3:4',
+          url: 'https://example.com/image.jpg?sig=abc',
+        }),
+      },
+      {
+        id: 102,
+        path: 'assets/b.png',
+        metadata: {
+          prompt: 'final prompt B',
+          sequence: 1,
+          role: 'body',
+          provider: 'jimeng',
+          model: 'jimeng_t2i_v40',
+          imageUrls: ['https://ref.example/a.jpg', 'https://ref.example/b.jpg'],
+        },
+      },
+    ];
+
+    const evidence = buildRunEvidence({
+      mode: 'fast',
+      imageAssetIds,
+      assets,
+      generatedAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    assert.strictEqual(evidence.version, 1);
+    assert.strictEqual(evidence.mode, 'fast');
+    assert.deepStrictEqual(evidence.imageAssetIds, imageAssetIds);
+    assert.strictEqual(evidence.images.length, 3);
+
+    assert.strictEqual(evidence.images[0].assetId, 101);
+    assert.strictEqual(evidence.images[0].finalPrompt, 'final prompt A');
+    assert.strictEqual(evidence.images[0].finalPromptHash, sha256Hex('final prompt A'));
+    assert.strictEqual(evidence.images[0].watermark, true);
+
+    assert.strictEqual(evidence.images[1].assetId, 102);
+    assert.strictEqual(evidence.images[1].referenceImageCount, 2);
+
+    assert.strictEqual(evidence.images[2].assetId, 103);
+    assert.strictEqual(evidence.images[2].missing, true);
+    assert.deepStrictEqual(evidence.missingAssetIds, [103]);
+  });
+
   await runTest('workflow transition rules are enforced', async () => {
     const workflow = require(path.join(
       repoRoot,

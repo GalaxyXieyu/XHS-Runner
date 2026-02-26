@@ -375,7 +375,14 @@ async function generateJimengImage(params: {
         return {
           text: '',
           imageBuffer,
-          metadata: { model: 'jimeng_t2i_v40', prompt, imageUrls },
+          metadata: {
+            model: 'jimeng_t2i_v40',
+            prompt,
+            imageUrls,
+            // Jimeng uses a fixed 3:4 canvas for now.
+            size: '1536x2048',
+            aspectRatio: '3:4',
+          },
         };
       } catch (error: any) {
         const message = error?.message || String(error);
@@ -618,6 +625,7 @@ async function generateSeedreamImage(params: {
           model: raw?.model || model,
           prompt,
           size: first?.size || size,
+          watermark,
           usage: raw?.usage,
           created: raw?.created,
           url: providerUrl,

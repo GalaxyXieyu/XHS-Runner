@@ -721,6 +721,52 @@ async function runOnce(mode: Mode, options: TestOptions): Promise<RunSummary> {
       'utf8'
     );
 
+    // Evidence artifact: pull the final prompt + provider/model info from the assets table.
+    // This keeps an auditable chain even if the SSE events omit the full prompt.
+    try {
+      const evidencePath = join(rendered.runDir, 'run-evidence.json');
+      const { buildRunEvidence } = await import('../src/server/utils/runEvidence');
+
+      let assetsRows: Array<{ id: number; path?: string | null; metadata?: unknown; createdAt?: unknown }> = [];
+      let dbError: string | null = null;
+
+      const redact = (msg: string) => msg.replace(/([a-z]+):\/\/([^@\s]+)@/gi, '$1://***@');
+
+      try {
+        const { db, schema } = await import('../src/server/db');
+        const { inArray } = await import('drizzle-orm');
+
+        if (summary.imageAssetIds.length > 0) {
+          assetsRows = await db
+            .select({
+              id: schema.assets.id,
+              path: schema.assets.path,
+              metadata: schema.assets.metadata,
+              createdAt: schema.assets.createdAt,
+            })
+            .from(schema.assets)
+            .where(inArray(schema.assets.id, summary.imageAssetIds as any));
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        dbError = redact(msg);
+      }
+
+      const evidence = buildRunEvidence({
+        mode,
+        imageAssetIds: summary.imageAssetIds,
+        assets: assetsRows,
+      });
+
+      await writeFile(
+        evidencePath,
+        JSON.stringify({ ...evidence, db: { ok: dbError === null, error: dbError } }, null, 2),
+        'utf8'
+      );
+    } catch {
+      // Best-effort only; evidence is not required to consider the run successful.
+    }
+
     progress.setStage('done');
     await progress.flush();
 
@@ -761,6 +807,7 @@ function printSummary(summary: RunSummary) {
     console.log(`图片保存目录: ${summary.imageSaveDir}`);
     console.log(`run-summary.json: ${join(summary.imageSaveDir, 'run-summary.json')}`);
     console.log(`events.jsonl: ${join(summary.imageSaveDir, 'events.jsonl')}`);
+    console.log(`run-evidence.json: ${join(summary.imageSaveDir, 'run-evidence.json')}`);
     console.log(`run-progress.json: ${join(summary.imageSaveDir, 'run-progress.json')}`);
     const files = summary.imagePaths.map((p) => basename(p)).join(', ');
     if (files) console.log(`图片文件: ${files}`);
