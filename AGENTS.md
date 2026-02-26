@@ -36,6 +36,10 @@
 - 单文件建议 ≤ 800 行，超过请拆分
 - 默认保持向后兼容；若要硬切链路，需同步更新文档与脚本
 
+## Git / 提交规范
+- 所有 commit message 必须用中文、描述清楚“改了什么 + 为什么”（必要时补一句验证方式，例如 `npm test` / runDir）。
+- 单点改动优先：一条 commit 对应一个 feature point / 一个证据链改动，便于回滚与 diff。
+
 ## Prompt Management Workflow
 1. Prompt 源文件：`prompts/*.yaml`
 2. 直接编辑 YAML，不在 TS 中硬编码 prompt
