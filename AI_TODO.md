@@ -78,8 +78,9 @@ Blockers (need human decision):
 - Whether dev-time real image calls are allowed; if yes, provider allowlist + daily budget.
 
 Last Run (evidence validation):
-- RunDir: `.xhs-data/test-outputs/oc-validate-themeC/fast`
-- Outcome: artifacts exist + events redaction OK, but prompt files currently write `undefined` (needs fix).
+- Command: `XHS_ALLOW_REAL_IMAGE_CALLS=1 npx tsx scripts/test-agent-api.ts --fast --theme 3 --provider ark --compact --out .xhs-data/test-outputs/oc-validate-themeC2`
+- RunDir: `.xhs-data/test-outputs/oc-validate-themeC2/fast`
+- Outcome: prompt files contain full prompt text (not `undefined`), hashes match, `events.jsonl` has no full prompt, `run-evidence.json v2` hydrated without DB.
 
 ## Status Log
 
