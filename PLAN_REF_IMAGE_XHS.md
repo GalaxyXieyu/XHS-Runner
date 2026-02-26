@@ -1,5 +1,23 @@
 # Ref-Image Prompt Routing (XHS) - Dev + Test Plan
 
+Status: DONE (archived)
+
+Canonical business rules now live in:
+- `docs/agent-flow.md` (see: "XHS 封面 Prompt 策略")
+
+Source of truth (code):
+- `src/server/services/xhs/integration/referencePromptAugmentor.ts`
+
+Notes:
+- Keep this file as historical context only. Do not evolve strategy here.
+- Any future changes should update code + `docs/agent-flow.md` + `AI_TODO.md`.
+
+Status
+
+- Phase 1 (XHS cover prompt strategy) is DONE.
+- Canonical business rules now live in: `docs/agent-flow.md` → "XHS 封面 Prompt 策略（业务口径 / Canonical）".
+- This file is kept as a historical plan + test notes. Avoid maintaining two sources of truth.
+
 Goal
 
 - Reintroduce and improve the reference-image workflow for XHS cover generation (3:4).
