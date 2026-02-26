@@ -692,6 +692,26 @@ export async function generateImage(input: ImageGenerateInput): Promise<ImageGen
 
 export type ReferenceImageProvider = 'ark' | 'gemini' | 'jimeng';
 
+// Evidence-only helper: expose non-secret runtime info for provider/model.
+export async function getImageGenRuntimeInfo(provider: ReferenceImageProvider): Promise<{
+  provider: ReferenceImageProvider;
+  imageModel?: string;
+  size?: string;
+  watermark?: boolean;
+}> {
+  if (provider === 'ark') {
+    const cfg = await getSeedreamConfig();
+    return { provider, imageModel: cfg.model, size: cfg.size, watermark: cfg.watermark };
+  }
+  if (provider === 'jimeng') {
+    // Jimeng canvas/model are effectively fixed in our integration.
+    return { provider, imageModel: 'jimeng_t2i_v40', size: '1536x2048', watermark: false };
+  }
+  // Gemini model selection can be DB/env driven; keep it empty here.
+  return { provider };
+}
+
+
 export interface ReferenceImageInput {
   prompt: string;
   referenceImageUrls: string[]; // 支持多张参考图
