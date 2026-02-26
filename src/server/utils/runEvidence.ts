@@ -17,16 +17,16 @@ export type RunEvidenceImage = {
   size: string | null;
   watermark: boolean | null;
   aspectRatio: string | null;
-  finalPrompt: string | null;
   finalPromptHash: string | null;
+  finalPromptPreview: string | null;
+  finalPromptPath: string | null;
   referenceImageCount: number | null;
   url: string | null;
   missing?: boolean;
 };
 
 export type RunEvidence = {
-  version: 1;
-  generatedAt: string;
+  version: 2;
   mode: string;
   imageAssetIds: number[];
   promptGeneratorProvider: string | null;
@@ -101,9 +101,12 @@ export function buildRunEvidence(params: {
   mode: string;
   imageAssetIds: number[];
   assets: AssetRow[];
-  generatedAt?: string;
+  // Optional prompt file paths aligned with imageAssetIds.
+  promptPaths?: Array<string | null>;
+  // If true, include full prompt in preview (not recommended).
+  // Kept for debugging, but default artifacts should stay compact.
+  includeFullPrompt?: boolean;
 }): RunEvidence {
-  const generatedAt = params.generatedAt || new Date().toISOString();
 
   const assetById = new Map<number, AssetRow>();
   for (const row of params.assets) {
@@ -119,6 +122,10 @@ export function buildRunEvidence(params: {
     const meta = parseAssetMetadata(row?.metadata);
 
     const finalPrompt = coerceString(meta?.prompt);
+    const finalPromptHash = finalPrompt ? sha256Hex(finalPrompt) : null;
+    const preview = finalPrompt
+      ? (params.includeFullPrompt ? finalPrompt : finalPrompt.slice(0, 300))
+      : null;
 
     const evidence: RunEvidenceImage = {
       assetId,
@@ -130,8 +137,9 @@ export function buildRunEvidence(params: {
       size: coerceString(meta?.size),
       watermark: coerceBoolean(meta?.watermark),
       aspectRatio: coerceString(meta?.aspectRatio),
-      finalPrompt,
-      finalPromptHash: finalPrompt ? sha256Hex(finalPrompt) : null,
+      finalPromptHash,
+      finalPromptPreview: preview,
+      finalPromptPath: params.promptPaths?.[i] ?? null,
       referenceImageCount: extractReferenceImageCount(meta),
       url: coerceString(meta?.url),
     };
@@ -145,8 +153,7 @@ export function buildRunEvidence(params: {
   }
 
   return {
-    version: 1,
-    generatedAt,
+    version: 2,
     mode: params.mode,
     imageAssetIds: params.imageAssetIds,
     // TODO: expose prompt generator provider/model when we persist prompt LLM metadata.

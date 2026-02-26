@@ -231,17 +231,19 @@ async function main() {
       mode: 'fast',
       imageAssetIds,
       assets,
-      generatedAt: '2026-01-01T00:00:00.000Z',
+      promptPaths: ['prompts/image-1.prompt.txt', 'prompts/image-2.prompt.txt', null],
+      includeFullPrompt: false,
     });
 
-    assert.strictEqual(evidence.version, 1);
+    assert.strictEqual(evidence.version, 2);
     assert.strictEqual(evidence.mode, 'fast');
     assert.deepStrictEqual(evidence.imageAssetIds, imageAssetIds);
     assert.strictEqual(evidence.images.length, 3);
 
     assert.strictEqual(evidence.images[0].assetId, 101);
-    assert.strictEqual(evidence.images[0].finalPrompt, 'final prompt A');
     assert.strictEqual(evidence.images[0].finalPromptHash, sha256Hex('final prompt A'));
+    assert.strictEqual(evidence.images[0].finalPromptPreview, 'final prompt A');
+    assert.strictEqual(evidence.images[0].finalPromptPath, 'prompts/image-1.prompt.txt');
     assert.strictEqual(evidence.images[0].watermark, true);
 
     assert.strictEqual(evidence.images[1].assetId, 102);

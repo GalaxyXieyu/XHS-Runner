@@ -650,7 +650,31 @@ async function runOnce(mode: Mode, options: TestOptions): Promise<RunSummary> {
     startedAt,
   });
 
+  const promptPathsByTaskId = new Map<number, string>();
+
   const onEvent = (event: StreamEvent) => {
+    // Prompt evidence: write full prompt to a text file, keep JSON artifacts small.
+    if ((event as any)?.type === 'image_prompt_ready' && typeof (event as any).finalPrompt === 'string') {
+      const taskId = Number((event as any).taskId);
+      if (Number.isFinite(taskId) && taskId > 0) {
+        const promptsDir = join(runDir, 'prompts');
+        const relPath = join('prompts', `image-${taskId}.prompt.txt`);
+        const absPath = join(runDir, relPath);
+
+        // Best-effort: never fail the run due to evidence writing.
+        mkdir(promptsDir, { recursive: true })
+          .then(() => writeFile(absPath, String((event as any).finalPrompt) + '\n', 'utf8'))
+          .then(() => {
+            promptPathsByTaskId.set(taskId, relPath);
+          })
+          .catch(() => undefined);
+
+        // Mutate the event in-place so it stays small when persisted.
+        (event as any).finalPromptPath = relPath;
+        delete (event as any).finalPrompt;
+      }
+    }
+
     progress.onEvent(event);
     options.onEvent?.(event);
   };
@@ -752,10 +776,14 @@ async function runOnce(mode: Mode, options: TestOptions): Promise<RunSummary> {
         dbError = redact(msg);
       }
 
+      const promptPaths = summary.imageAssetIds.map((_, idx) => promptPathsByTaskId.get(idx + 1) || null);
+
       const evidence = buildRunEvidence({
         mode,
         imageAssetIds: summary.imageAssetIds,
         assets: assetsRows,
+        promptPaths,
+        includeFullPrompt: false,
       });
 
       await writeFile(

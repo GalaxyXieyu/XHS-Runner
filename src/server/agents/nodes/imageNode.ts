@@ -11,6 +11,7 @@ import {
 import { storeAsset } from "../../services/xhs/integration/assetStore";
 import { getSetting } from "../../settings";
 import { emitImageProgress } from "../utils/progressEmitter";
+import { emitImagePromptReady } from "../utils/promptEmitter";
 import { requestAgentClarification } from "../utils/agentClarification";
 import { analyzeReferenceImages } from "../../services/xhs/llm/geminiClient";
 import { buildFinalImagePrompt, buildReferenceInsightsFromInputs, sha256Hex } from "../../services/xhs/integration/referencePromptAugmentor";
@@ -344,6 +345,30 @@ export async function imageAgentNode(state: typeof AgentState.State, _model: Cha
 
     try {
       console.log(`[imageAgentNode] 生成第 ${taskId}/${plansToRun.length} 张 (seq=${sequence}, role=${role})`);
+
+      // Prompt evidence: emit BEFORE provider call so failures still have traceability.
+      if (progressThreadId) {
+        let imageModel: string | undefined;
+        try {
+          const { getImageGenRuntimeInfo } = await import('../../services/xhs/integration/imageProvider');
+          const info = await getImageGenRuntimeInfo(provider as any);
+          imageModel = info.imageModel;
+        } catch {
+          // Best-effort only; avoid breaking generation.
+        }
+
+        emitImagePromptReady(progressThreadId, {
+          taskId,
+          sequence,
+          role,
+          provider: provider as any,
+          imageModel,
+          finalPrompt: String(prompt),
+          finalPromptHash: promptResult.finalPromptHash,
+          finalPromptPreview: String(prompt).slice(0, 300),
+          referenceImageCount: generationReferenceImageUrls.length,
+        });
+      }
 
       // 添加进度消息
       messages.push(new AIMessage(`[PROGRESS] 正在生成第 ${taskId}/${plansToRun.length} 张图片 (${role})...`));
