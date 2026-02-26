@@ -89,6 +89,11 @@ Last Run (evidence validation):
 
 ### 2026-02-26
 
+- Phase 1 (XHS cover strategy): patched `src/server/services/xhs/integration/referencePromptAugmentor.ts` to hard-default editorial magazine cover + enforce safe richness policy (no paragraph text blocks; text density unchanged).
+- Validation run (Theme C fast, real image): `.xhs-data/test-outputs/oc-phase1-themeC/fast`
+  - Evidence: `events.jsonl` has no full prompt; `prompts/*.prompt.txt` present; sha256(prompt)=finalPromptHash for all tasks.
+- Next: wire remaining Phase 1 items (logo-in-card stronger bias, theme-color autonomy wording), then build a regression runner for `tests/regression/xhs-20.yaml`.
+
 - Image gen tooling: aligned Ark `/api/v3/images/generations` client with local `img-generator` call shape.
 - Tests: added quickSuite coverage for Ark client (single-call + 4-way parallelism with fetch mocked).
 - Model: default Seedream model now targets 5.0.
