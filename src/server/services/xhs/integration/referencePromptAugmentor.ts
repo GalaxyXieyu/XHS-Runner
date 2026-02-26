@@ -64,6 +64,13 @@ export type CoverTitleSpec = {
 export type BuildFinalPromptOptions = {
   // When provided, we treat this generation as an XHS cover and inject a strict title block.
   titleSpec?: CoverTitleSpec;
+
+  // If true, do not inject the generic XHS cover template block.
+  disableXhsTemplate?: boolean;
+
+  // If true, do not inject reference-based style/content/negative augmentations.
+  // Useful when the base prompt already fully specifies a design system (e.g. information cards).
+  disableReferenceAugmentations?: boolean;
 };
 
 function normalizeTypographyPreset(raw: any): TypographyPreset | undefined {
@@ -410,19 +417,20 @@ export function buildFinalImagePrompt(
     };
   }
 
-  const aug = buildReferencePromptAugmentations(normalizedInsights);
+  const includeAugmentations = !opts?.disableReferenceAugmentations;
+  const aug = includeAugmentations ? buildReferencePromptAugmentations(normalizedInsights) : null;
 
   // User intent hint: keep "rich" limited to small supporting cues, not dense text blocks.
   const rich = /内容丰富|信息丰富|更丰富|更饱满|多一些元素|细节多点/.test(base);
-  const xhsTemplate = buildXhsCoverTemplate(normalizedInsights, { richness: rich ? "rich" : "normal" });
+  const xhsTemplate = (!opts?.disableXhsTemplate)
+    ? buildXhsCoverTemplate(normalizedInsights, { richness: rich ? "rich" : "normal" })
+    : "";
 
   const chunks = [
     base,
     xhsTemplate,
     titleSpecBlock,
-    aug.styleAugment,
-    aug.contentAugment,
-    aug.negativeAugment,
+    ...(includeAugmentations && aug ? [aug.styleAugment, aug.contentAugment, aug.negativeAugment] : []),
   ].filter(Boolean);
 
   const prompt = chunks.join("\n\n");
@@ -432,6 +440,11 @@ export function buildFinalImagePrompt(
     prompt,
     basePromptHash,
     finalPromptHash,
-    augmentationSummary: aug.summary,
+    augmentationSummary: aug?.summary || {
+      styleTagCount: 0,
+      contentTagCount: 0,
+      screenshotCount: 0,
+      logoCount: 0,
+    },
   };
 }

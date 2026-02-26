@@ -291,14 +291,20 @@ export async function imageAgentNode(state: typeof AgentState.State, _model: Cha
     const role = plan.role;
     const isCover = role === 'cover' || sequence === 0;
 
-    const titleSpec = (!coverTextOverlayEnabled && isCover)
+    // Information-card prompts already include a full design system + strict text whitelist.
+    // Avoid appending extra cover templates / reference augmentations that can conflict and degrade aesthetics.
+    const isInfoCardPrompt = /图上文字（只允许出现以下文字|画面仅允许出现以下文字|画面仅两行文字|画面仅三行文字/.test(String(basePrompt || ''));
+
+    const titleSpec = (!isInfoCardPrompt && !coverTextOverlayEnabled && isCover)
       ? deriveCoverTitleSpec(state, sequence, basePrompt)
       : null;
 
     const promptResult = buildFinalImagePrompt(
       basePrompt,
       referenceInsights,
-      titleSpec ? { titleSpec } : undefined
+      isInfoCardPrompt
+        ? { disableXhsTemplate: true, disableReferenceAugmentations: true }
+        : (titleSpec ? { titleSpec } : undefined)
     );
     let prompt = promptResult.prompt;
 
@@ -308,7 +314,7 @@ export async function imageAgentNode(state: typeof AgentState.State, _model: Cha
       prompt = `${prompt}\n\nLayout instruction: leave a clean safe area at the top for a separate headline overlay; avoid adding any readable text inside the image.`;
     }
 
-    if (!coverTextOverlayEnabled && isCover && titleSpec?.headline && isCoverTitleCardReferenceEnabled()) {
+    if (!isInfoCardPrompt && !coverTextOverlayEnabled && isCover && titleSpec?.headline && isCoverTitleCardReferenceEnabled()) {
       try {
         const titleCardPng = await generateCoverTitleCardPng({
           headline: titleSpec.headline,
