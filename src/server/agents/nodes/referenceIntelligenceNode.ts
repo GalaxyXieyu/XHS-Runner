@@ -112,7 +112,7 @@ export async function referenceIntelligenceNode(state: typeof AgentState.State) 
   for (let index = 0; index < inputs.length; index++) {
     const input = inputs[index];
     try {
-      const style = await analyzeReferenceImage(input.url);
+      const style = await analyzeReferenceImage(input.url, { allowMissingVisionModel: Boolean(input.type) });
       const typeResult = classifyReferenceType(input.type, style);
       analyses.push({
         index,

@@ -17,6 +17,9 @@
   - API tests (priority)
   - UI tests / E2E in Chrome (after API)
   - UX sanity check in Chrome: run `npm run dev:next`, open `http://localhost:3000`, and verify entry points + no redundant/confusing flows for the feature being shipped
+- Provider naming policy:
+  - No version-number names in code or config (avoid `*45*`, `v4`, etc.)
+  - Prefer canonical, extensible provider ids: `ark | jimeng | gemini`
 - Each feature point:
   - has its own commit(s)
   - includes a short self-review: redundancy? risk to main app?
@@ -39,6 +42,12 @@
 
 ## Planned Work Items (Draft)
 
+- [ ] P0: Image generation provider unification + regression harness
+  - [x] Align Ark image client with local `img-generator` plugin (request/response shape)
+  - [x] Add focused unit tests: single-call + true 4-way parallelism (fetch mocked)
+  - [ ] Rename provider naming to extensible set: `ark | jimeng | gemini` (no versioned names)
+  - [ ] Runtime smoke: verify all 3 providers can generate + save 1 image each (real calls)
+  - [ ] Add minimal run-summary artifacts for each run (provider/model/attempts/errors/paths)
 - [ ] P0: Daily generate pipeline (ideas -> agent -> drafts)
   - [x] Backend: daily_generate creates ideas + runs agent + updates generation_tasks
   - [x] UI: Generation scheduled view shows "today ideas" + actions (open in agent / rerun)
@@ -54,7 +63,41 @@
   - [ ] Define UI sections & filters
   - [ ] Define data ingestion/update pipeline
 
+## Project Status (Single Source of Truth)
+
+Now:
+- P0: lock in XHS cover prompt strategy (editorial magazine-like by default) per `PLAN_REF_IMAGE_XHS.md` Phase 1.
+
+Next (1-3):
+- 回归：把 `tests/regression/xhs-20.yaml` 跑起来并生成报告（样例指针）。
+  - 命令：`npm run regress:xhs20`
+  - 产物：`.xhs-data/test-outputs/<stamp>-regress/regression-report.md` + `.json`
+- 回归：补一个“dry-run（只跑到 image_prompt_ready）”模式，不开真跑图也能产出 evidence + prompt 文件。
+- Keep harness safety defaults + evidence chain green while iterating.
+
+Blockers (need human decision):
+- Iteration sample cap per run (8 / 12 / 20).
+- Whether dev-time real image calls are allowed; if yes, provider allowlist + daily budget.
+
+Last Run (evidence validation):
+- Command: `XHS_ALLOW_REAL_IMAGE_CALLS=1 npx tsx scripts/test-agent-api.ts --fast --theme 3 --provider ark --compact --out .xhs-data/test-outputs/oc-validate-themeC2`
+- RunDir: `.xhs-data/test-outputs/oc-validate-themeC2/fast`
+- Outcome: prompt files contain full prompt text (not `undefined`), hashes match, `events.jsonl` has no full prompt, `run-evidence.json v2` hydrated without DB.
+
 ## Status Log
+
+### 2026-02-26
+
+- Phase 1 (XHS cover strategy): patched `src/server/services/xhs/integration/referencePromptAugmentor.ts` to hard-default editorial magazine cover + enforce safe richness policy (no paragraph text blocks; text density unchanged).
+- Validation run (Theme C fast, real image): `.xhs-data/test-outputs/oc-phase1-themeC/fast`
+  - Evidence: `events.jsonl` has no full prompt; `prompts/*.prompt.txt` present; sha256(prompt)=finalPromptHash for all tasks.
+- Next: wire remaining Phase 1 items (logo-in-card stronger bias, theme-color autonomy wording), then build a regression runner for `tests/regression/xhs-20.yaml`.
+
+- Image gen tooling: aligned Ark `/api/v3/images/generations` client with local `img-generator` call shape.
+- Tests: added quickSuite coverage for Ark client (single-call + 4-way parallelism with fetch mocked).
+- Model: default Seedream model now targets 5.0.
+- Routing bug found: prior long "hang" was supervisor repeatedly sending `NEXT: image_planner_agent` due to empty `paragraphImageBindings`, and router allowing safe LLM backtrack.
+- Next: finish renaming provider ids to `ark | jimeng | gemini` (no versioned names), then run real smoke for all 3 providers (each generates + saves 1 image) and report results.
 
 ### 2026-02-03
 

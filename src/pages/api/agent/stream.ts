@@ -10,6 +10,7 @@ import { detectIntent } from "@/server/agents/tools/intentTools";
 import { resetImageToolCallCount } from "@/server/agents/routing";
 import { startTraj, endTraj } from "@/server/agents/utils";
 import { registerProgressCallback, unregisterProgressCallback } from "@/server/agents/utils/progressEmitter";
+import { registerPromptCallback, unregisterPromptCallback } from "@/server/agents/utils/promptEmitter";
 import { detectContentType } from "@/server/services/contentTypeDetector";
 import { db } from "@/server/db";
 import { conversations, conversationMessages } from "@/server/db/schema";
@@ -53,7 +54,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const refImages: string[] = normalizedReferenceInputs.map((item) => item.url);
   const hasReferenceImage = refImages.length > 0;
-  const provider = imageGenProvider || 'jimeng'; // 默认使用即梦
+  const provider = imageGenProvider || 'ark'; // 默认使用 ark
   const streamThreadId = uuidv4();
   const threadId = enableHITL ? streamThreadId : undefined;
   const langfuseSessionId = threadId || streamThreadId;
@@ -119,9 +120,32 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     );
   });
 
+  // Image prompt evidence events (emitted before provider calls).
+  const promptCallbackId = streamThreadId;
+  registerPromptCallback(promptCallbackId, (event) => {
+    const timestamp = Date.now();
+
+    // Stream full prompt to the client so the harness can write prompt files.
+    // Persist only a redacted version (hash + preview) to keep events.jsonl readable.
+    const wireEvent = {
+      type: 'image_prompt_ready',
+      ...event,
+      timestamp,
+    } as any;
+
+    res.write(`data: ${JSON.stringify(wireEvent)}\n\n`);
+    if (typeof (res as any).flush === 'function') {
+      (res as any).flush();
+    }
+
+    const { finalPrompt: _drop, ...redacted } = wireEvent;
+    collectedEvents.push(redacted);
+  });
+
   // 清理函数：在请求结束时取消注册回调
   const cleanup = () => {
     unregisterProgressCallback(progressCallbackId);
+    unregisterPromptCallback(promptCallbackId);
   };
 
   // 监听连接关闭事件，确保清理
@@ -353,6 +377,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       messages: [new HumanMessage(contextMessage)],
       imageGenProvider: provider,
       threadId: streamThreadId,
+      enableHITL: !!enableHITL,
+      langfuseTraceId: traceId || "",
       contentType: contentTypeDetection.type,
       creativeId: creativeId ?? null,
       fastMode: fastMode || false,

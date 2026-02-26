@@ -96,8 +96,8 @@ export function AgentCreatorEmptyState({
                 onChange={(e) => setImageGenProvider(e.target.value as ImageGenProvider)}
                 className="px-3 py-2 text-[13px] border border-gray-200 rounded-[0.625rem] bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
               >
-                <option value="jimeng">即梦 4.0</option>
-                <option value="jimeng-45">即梦 4.5</option>
+                <option value="ark">Ark (Seedream)</option>
+                <option value="jimeng">即梦</option>
                 <option value="gemini">Gemini</option>
               </select>
             </div>

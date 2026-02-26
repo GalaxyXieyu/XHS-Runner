@@ -1,5 +1,5 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog';
-import { Loader2, LogIn, RefreshCw, AlertCircle, Smartphone, X, Cookie, ChevronDown, ChevronUp, Copy } from 'lucide-react';
+import { Loader2, LogIn, RefreshCw, AlertCircle, Smartphone, X, Cookie, ChevronDown, ChevronUp } from 'lucide-react';
 import type { AuthStatus } from '@/hooks/useAuthStatus';
 import { useState } from 'react';
 
@@ -33,6 +33,7 @@ export function LoginRequiredDialog({
   const [showCookieHelp, setShowCookieHelp] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
 
+  const canCloseDialog = Boolean(onCancel);
   const isLoggingIn = status === 'logging_in';
   const isLoadingQRCode = isLoggingIn && !qrCodeUrl && loginMethod === 'qrcode';
   const hasQRCode = isLoggingIn && qrCodeUrl && loginMethod === 'qrcode';
@@ -51,32 +52,59 @@ export function LoginRequiredDialog({
   };
 
   return (
-    <DialogPrimitive.Root open={open}>
+    <DialogPrimitive.Root
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && onCancel) {
+          onCancel();
+        }
+      }}
+    >
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-[9999] bg-black/50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <DialogPrimitive.Content
           className="fixed left-[50%] top-[50%] z-[10000] w-full max-w-md translate-x-[-50%] translate-y-[-50%] bg-white rounded-lg border p-6 shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 max-h-[90vh] overflow-y-auto"
-          onPointerDownOutside={(e) => e.preventDefault()}
-          onEscapeKeyDown={(e) => e.preventDefault()}
+          onPointerDownOutside={(e) => {
+            if (!canCloseDialog) {
+              e.preventDefault();
+            }
+          }}
+          onEscapeKeyDown={(e) => {
+            if (!canCloseDialog) {
+              e.preventDefault();
+            }
+          }}
         >
-          <div className="flex flex-col gap-2 text-center sm:text-left mb-4">
-            <DialogPrimitive.Title className="flex items-center gap-2 text-lg font-semibold">
-              {loginMethod === 'qrcode' ? (
-                <Smartphone className="w-5 h-5 text-red-500" />
-              ) : (
-                <Cookie className="w-5 h-5 text-red-500" />
-              )}
-              小红书账号登录
-            </DialogPrimitive.Title>
-            <DialogPrimitive.Description className="text-sm text-gray-500">
-              {loginMethod === 'qrcode'
-                ? hasQRCode
-                  ? '请使用小红书 App 扫描下方二维码'
-                  : isLoadingQRCode
-                  ? '正在获取登录二维码...'
-                  : '需要登录小红书账号才能使用完整功能'
-                : '粘贴从浏览器复制的 Cookie 字符串'}
-            </DialogPrimitive.Description>
+          <div className="flex items-start justify-between gap-3 mb-4">
+            <div className="flex flex-col gap-2 text-center sm:text-left">
+              <DialogPrimitive.Title className="flex items-center gap-2 text-lg font-semibold">
+                {loginMethod === 'qrcode' ? (
+                  <Smartphone className="w-5 h-5 text-red-500" />
+                ) : (
+                  <Cookie className="w-5 h-5 text-red-500" />
+                )}
+                小红书账号登录
+              </DialogPrimitive.Title>
+              <DialogPrimitive.Description className="text-sm text-gray-500">
+                {loginMethod === 'qrcode'
+                  ? hasQRCode
+                    ? '请使用小红书 App 扫描下方二维码'
+                    : isLoadingQRCode
+                    ? '正在获取登录二维码...'
+                    : '需要登录小红书账号才能使用完整功能'
+                  : '粘贴从浏览器复制的 Cookie 字符串'}
+              </DialogPrimitive.Description>
+            </div>
+            {onCancel && (
+              <button
+                type="button"
+                onClick={onCancel}
+                className="p-1 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                aria-label="关闭登录弹窗"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
 
           {/* 登录方式切换 */}
@@ -230,12 +258,12 @@ export function LoginRequiredDialog({
           </div>
 
           <div className="flex justify-end gap-2 mt-4">
-            {(hasQRCode || loginMethod === 'cookie') && onCancel && (
+            {onCancel && (
               <button
                 onClick={onCancel}
                 className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 transition-colors"
               >
-                取消
+                稍后登录
               </button>
             )}
             {loginMethod === 'qrcode' && !hasQRCode && (

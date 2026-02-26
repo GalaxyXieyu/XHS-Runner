@@ -215,14 +215,14 @@ export const analyzeReferenceImageTool = createTool(
   }
 );
 
-// Tool 7: 带参考图生成图片 (支持 gemini/jimeng，多参考图) - 默认版 (兼容性保留)
+// Tool 7: 带参考图生成图片 (支持 ark/jimeng/gemini，多参考图)
 export const generateImageWithReferenceTool = createTool(
   async ({ prompt, referenceImageUrls, sequence, role, creativeId, provider }) => {
     try {
       const result = await generateWithProvider({
         prompt,
         referenceImageUrls: referenceImageUrls || [],
-        provider: provider as "gemini" | "jimeng" | undefined,
+        provider: provider as "ark" | "gemini" | "jimeng" | undefined,
         aspectRatio: "3:4",
       });
 
@@ -253,7 +253,7 @@ export const generateImageWithReferenceTool = createTool(
       sequence: z.number().describe("图片序号 (0=封面)"),
       role: z.enum(["cover", "step", "detail", "result", "comparison"]).describe("图片角色"),
       creativeId: z.number().nullable().optional().describe("关联创意ID"),
-      provider: z.enum(["gemini", "jimeng"]).nullable().optional().describe("服务商"),
+      provider: z.enum(["ark", "gemini", "jimeng"]).nullable().optional().describe("服务商"),
     }),
   }
 );
@@ -271,8 +271,9 @@ export function createReferenceImageTools(fixedUrls: string[]) {
       console.log(`[generate_images] 使用固定参考图: ${fixedUrls.length} 个`);
 
       // 从设置中读取默认 provider
-      const defaultProvider = (await getSetting('imageGenProvider')) || 'jimeng';
+      const defaultProvider = (await getSetting('imageGenProvider')) || 'ark';
       console.log(`[generate_images] provider: ${defaultProvider}`);
+      const interImageDelayMs = defaultProvider === 'jimeng' ? 600 : 0;
 
       const results: any[] = [];
       for (let i = 0; i < prompts.length; i++) {
@@ -285,7 +286,7 @@ export function createReferenceImageTools(fixedUrls: string[]) {
           const result = await generateWithProvider({
             prompt,
             referenceImageUrls: fixedUrls, // 使用闭包中的固定 URL
-            provider: defaultProvider as "gemini" | "jimeng",
+            provider: defaultProvider as "ark" | "gemini" | "jimeng",
             aspectRatio: "3:4",
           });
 
@@ -301,6 +302,10 @@ export function createReferenceImageTools(fixedUrls: string[]) {
           const errorMsg = error instanceof Error ? error.message : String(error);
           console.error(`[generate_images] 第 ${i + 1} 张失败: ${errorMsg}`);
           results.push({ sequence, role, success: false, error: errorMsg });
+        }
+
+        if (interImageDelayMs > 0 && i < prompts.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, interImageDelayMs));
         }
       }
 
@@ -331,15 +336,18 @@ export const generateImagesBatchTool = createTool(
   async ({ images, referenceImageUrls, provider }) => {
     console.log(`[generate_images_batch] 开始批量生成 ${images.length} 张图片, provider=${provider}`);
     console.log(`[generate_images_batch] referenceImageUrls: ${referenceImageUrls?.length || 0} 个, 类型: ${referenceImageUrls?.[0]?.slice(0, 50)}...`);
+    const effectiveProvider = provider || 'ark';
+    const interImageDelayMs = effectiveProvider === 'jimeng' ? 600 : 0;
     const results: { sequence: number; role: string; success: boolean; path?: string; error?: string }[] = [];
 
-    for (const img of images) {
+    for (let i = 0; i < images.length; i++) {
+      const img = images[i];
       console.log(`[generate_images_batch] 生成 seq=${img.sequence}, role=${img.role}`);
       try {
         const result = await generateWithProvider({
           prompt: img.prompt,
           referenceImageUrls,
-          provider: provider as "gemini" | "jimeng" | undefined,
+          provider: provider as "ark" | "gemini" | "jimeng" | undefined,
           aspectRatio: "3:4",
         });
 
@@ -369,6 +377,10 @@ export const generateImagesBatchTool = createTool(
           error: errorMsg,
         });
       }
+
+      if (interImageDelayMs > 0 && i < images.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, interImageDelayMs));
+      }
     }
 
     const successCount = results.filter(r => r.success).length;
@@ -390,7 +402,7 @@ export const generateImagesBatchTool = createTool(
         prompt: z.string().describe("图片生成提示词"),
       })).describe("要生成的图片列表"),
       referenceImageUrls: z.array(z.string()).nullable().optional().describe("参考图 URL 数组，支持传递多张参考图（每张图都会应用到所有生成图片）"),
-      provider: z.enum(["gemini", "jimeng"]).nullable().optional().describe("图片生成服务商，默认 jimeng"),
+      provider: z.enum(["ark", "gemini", "jimeng"]).nullable().optional().describe("图片生成服务商，默认 ark"),
     }),
   }
 );

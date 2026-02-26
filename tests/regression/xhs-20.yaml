@@ -1,0 +1,135 @@
+# xhs-20.yaml
+# Fixed regression corpus for prompt iteration.
+# Keep this stable; add/replace cases only with explicit decision.
+# Format is intentionally minimal to reduce maintenance.
+
+version: 1
+cases:
+  - id: xhs-01
+    name: minimal-vague
+    mode: fast
+    message: "想写一篇小红书：最近有点焦虑，想做点改变。给我标题+正文结构+封面。"
+    focus: "missing specifics; should still deliver a complete, publishable draft"
+
+  - id: xhs-02
+    name: commute-outfit
+    mode: fast
+    message: "主题：通勤穿搭。人群：上班族。要实用、可执行。"
+    focus: "brief expansion without hallucinated brands"
+
+  - id: xhs-03
+    name: multi-goal-7day
+    mode: fast
+    message: "我想做：护肤/减脂/早睡/学习都想兼顾…帮我做一篇‘7天自律挑战’，别鸡汤，给清单和打卡模板。"
+    focus: "structure + actionable checklist"
+
+  - id: xhs-04
+    name: no-questions
+    mode: fast
+    message: "我要一篇关于‘租房收纳’的小红书，不要反问我，直接给可发布成稿+封面文案。"
+    focus: "one-pass completion under no-clarification constraint"
+
+  - id: xhs-05
+    name: compliant-weightloss
+    mode: fast
+    message: "减肥分享：一周瘦10斤（请改成合规、不夸大），给安全建议和免责声明风格措辞。"
+    focus: "compliance + safe phrasing"
+
+  - id: xhs-06
+    name: no-brands
+    mode: fast
+    message: "咖啡器具入门，不能提任何品牌名，用‘A类/B类’表达，给新手避坑。"
+    focus: "hard constraint compliance"
+
+  - id: xhs-07
+    name: bilingual
+    mode: fast
+    message: "Topic: solo travel in Kyoto. 中文输出，但保留3个英文关键词用于tag。"
+    focus: "bilingual handling + tags"
+
+  - id: xhs-08
+    name: listicle-rhythm
+    mode: fast
+    message: "做一篇‘5个让效率翻倍的小习惯’，要短句、强节奏、适合收藏。"
+    focus: "XHS rhythm + scannability"
+
+  - id: xhs-09
+    name: story-arc
+    mode: fast
+    message: "写个‘我如何从内耗到行动’的故事型笔记，结尾给3步方法。"
+    focus: "narrative arc + actionable ending"
+
+  - id: xhs-10
+    name: gentle-mom
+    mode: fast
+    message: "人群：新手妈妈；语气：温柔但不矫情；主题：碎片时间学习。给封面标题<=10字。"
+    focus: "tone + cover title constraint"
+
+  - id: xhs-11
+    name: feature-release
+    mode: fast
+    message: "新功能上线：AI帮我自动做内容。要‘高级杂志感’封面+正文亮点清单。"
+    focus: "editorial cover + feature framing"
+
+  - id: xhs-12
+    name: itinerary
+    mode: fast
+    message: "上海周末一日游：预算300以内，路线+时间表+避坑。不要网红滤镜口吻。"
+    focus: "itinerary structure + tone control"
+
+  - id: xhs-13
+    name: airfryer
+    mode: fast
+    message: "空气炸锅：低脂鸡胸3种做法。每种3步，配‘失败原因’小贴士。"
+    focus: "step clarity + micro-tips"
+
+  - id: xhs-14
+    name: cat-shedding
+    mode: fast
+    message: "猫咪掉毛季护理：梳毛、营养、环境清洁。不要吓人，给温和建议。"
+    focus: "safe advice + calm tone"
+
+  - id: xhs-15
+    name: study-notes
+    mode: fast
+    message: "考研英语：长难句拆解方法。做成‘笔记体’，有符号/小标题。"
+    focus: "note vibe + layout"
+
+  - id: xhs-16
+    name: wood-bedroom
+    mode: fast
+    message: "原木风卧室改造，预算2000以内：清单+优先级+替代方案。"
+    focus: "shopping list logic + priorities"
+
+  - id: xhs-17
+    name: refs-onboarding
+    mode: fast
+    refs:
+      - spec: "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/openclaw-logo-text.png|content"
+      - spec: "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/showcase/agents-ui.jpg|content"
+    message: "小红书封面：OpenClaw 新手上手，3步搭建+3个坑，高级杂志感，logo放卡片内。"
+    focus: "ref routing + in-card logo + readability"
+
+  - id: xhs-18
+    name: refs-typography-preset
+    mode: fast
+    refs:
+      - spec: "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/openclaw-logo-text.png|content"
+      - spec: "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/showcase/agents-ui.jpg|content"
+    message: "小红书封面：A vs B 对比。封面排版预设: 3；封面H1: A vs B；封面H2: 优缺点；封面BADGE: 对比；封面FOOTER: 2026"
+    focus: "preset adherence + hierarchy"
+
+  - id: xhs-19
+    name: refs-richness
+    mode: fast
+    refs:
+      - spec: "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/openclaw-logo-text.png|content"
+      - spec: "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/showcase/agents-ui.jpg|content"
+    message: "小红书封面：多渠道+工具+自动化，内容更丰富点，高级杂志感，logo放卡片内。"
+    focus: "richness without clutter"
+
+  - id: xhs-20
+    name: cover-only
+    mode: fast
+    message: "仅生成封面：标题‘租房收纳’；风格干净、留白、强对比；禁止小字段落。"
+    focus: "cover-only routing + no tiny paragraphs"

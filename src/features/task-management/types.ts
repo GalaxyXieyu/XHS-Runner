@@ -8,7 +8,7 @@ export interface AutoTask {
     persona: string;
     tone: string;
     promptProfileId: string;
-    imageModel: 'nanobanana' | 'jimeng' | 'jimeng-45';
+    imageModel: 'nanobanana' | 'jimeng' | 'ark';
     outputCount: number;
     minQualityScore: number;
   };

@@ -48,7 +48,7 @@ function createReferenceImageToolNode(baseToolNode: ToolNode) {
 
     // 支持多张参考图，传递给生成工具
     const fullReferenceImageUrls = referenceImages;
-    const imageProvider = state.imageGenProvider || "gemini";
+    const imageProvider = state.imageGenProvider || "ark";
 
     const modifiedState = {
       ...state,
@@ -108,9 +108,21 @@ function createReferenceImageToolNode(baseToolNode: ToolNode) {
 }
 
 export async function buildGraph(model: ChatOpenAI, hitlConfig?: HITLConfig) {
-  const researchToolNode = new ToolNode(researchTools);
+  // Safety: tools that call `interrupt()` require a checkpointer, otherwise langgraph throws.
+  const supportsInterrupt = Boolean(hitlConfig?.threadId);
+  const enableAskUser = Boolean(hitlConfig?.enableHITL) && supportsInterrupt;
+
+  const researchToolsEffective = enableAskUser
+    ? researchTools
+    : researchTools.filter((t: any) => t?.name !== "askUser");
+
+  const supervisorToolsEffective = enableAskUser
+    ? [...promptTools, ...intentTools, askUserTool]
+    : [...promptTools, ...intentTools];
+
+  const researchToolNode = new ToolNode(researchToolsEffective);
   const imageToolNode = new ToolNode(imageTools);
-  const supervisorToolNode = new ToolNode([...promptTools, ...intentTools, askUserTool]);
+  const supervisorToolNode = new ToolNode(supervisorToolsEffective);
   const baseReferenceImageToolNode = new ToolNode(referenceImageTools);
   const referenceImageToolNode = createReferenceImageToolNode(baseReferenceImageToolNode);
 

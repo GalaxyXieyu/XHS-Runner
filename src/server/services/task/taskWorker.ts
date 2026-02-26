@@ -291,6 +291,7 @@ export async function executeTask(taskId: number) {
     referenceImageCount: referenceImages.length,
   });
   const traceId = trace?.id;
+  initialState.langfuseTraceId = traceId || '';
 
   const stream = await app.stream(initialState, streamConfig as any);
 

@@ -3,5 +3,5 @@ export interface QuickGenConfig {
   mediaType: 'image' | 'video';
   aspectRatio: string;
   count: number;
-  model: 'nanobanana' | 'jimeng' | 'jimeng-45';
+  model: 'nanobanana' | 'jimeng' | 'ark';
 }

@@ -45,6 +45,7 @@
 
 - **数据库**：Drizzle + Postgres，需配置 `DATABASE_URL` / `POSTGRES_URL`（迁移导出时可选 `SUPABASE_DB_URL`）
 - **运行时配置**：`XHS_MCP_DRIVER=local|mock`（默认 local）、`XHS_MCP_XSEC_TOKEN`、`XHS_BROWSER_PATH`
+- **图片生成**：`imageGenProvider` 取值为 `ark` | `jimeng` | `gemini`（默认 `ark`）。
 - **本地数据路径**：`XHS_USER_DATA_PATH`（默认 Electron userData）
 
 ## 本地开发
@@ -154,15 +155,15 @@ const AgentState = Annotation.Root({
 ### 图片生成架构
 
 ```
-generateImage (统一接口)
+generateImage / generateImageWithReference (统一接口)
           │
-          ├─── Gemini ───→ geminiClient.ts (原生 API)
-          │                   ├── analyzeReferenceImage()  // 风格分析
-          │                   └── generateImageWithReference()
+          ├─── nanobanana ───→ nanobananaClient.ts
           │
-          └─── 即梦 (Jimeng) ──→ imageProvider.ts
-                                  └── generateJimengImage()
-                                      └── Volcengine 签名
+          ├─── jimeng ───────→ imageProvider.ts
+          │                     └── generateJimengImage() (Volcengine 签名)
+          │
+          └─── ark (Seedream) ─→ arkImageClient.ts
+                                └── generateArkImage() (Ark /api/v3/images/generations)
 ```
 
 ### 关键特性

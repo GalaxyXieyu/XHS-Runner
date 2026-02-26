@@ -46,7 +46,8 @@ export function requestAgentClarification(
   state: typeof AgentState.State,
   request: AgentClarificationRequest
 ): AgentClarificationResult | null {
-  if (!state.threadId) {
+  // In no-HITL runs we must not interrupt the graph (no checkpoints), so skip clarifications.
+  if (!state.threadId || state.enableHITL === false) {
     return null;
   }
 

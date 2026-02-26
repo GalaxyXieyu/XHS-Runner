@@ -83,6 +83,7 @@
 
 **业务产物**：
 - `content_update`：`title` / `body` / `tags`
+- `image_prompt_ready`：出图前的最终 prompt 证据（应只含 `finalPromptHash` + `finalPromptPreview` + `finalPromptPath`；不要在事件里放全文）
 - `image_progress`：`taskId` / `status` / `progress` / `url` / `errorMessage`
 - `workflow_progress`：`phase` / `progress` / `currentAgent`
 - `brief_ready` / `layout_spec_ready` / `alignment_map_ready`
@@ -254,3 +255,29 @@
 - `lastError` 命中严重错误时进入兜底重跑路径
 - `iterationCount >= maxIterations` 时终止流程
 - 客户端中断时尝试把 creative 标记为 `aborted`
+
+## 10. XHS 封面 Prompt 策略（业务口径 / Canonical）
+
+> 目标：一次跑完即可交付的 XHS 封面，移动端可读性优先；策略落到最终 prompt（不做像素级合成）。
+>
+> 说明：`PLAN_REF_IMAGE_XHS.md` 为阶段性计划文档；当策略落地后，以本节 + source of truth 为准。
+
+实现入口（source of truth）：
+- `src/server/services/xhs/integration/referencePromptAugmentor.ts`
+
+核心规则（必须满足）：
+- **封面模板块**：最终 prompt 会注入 `XHS_COVER_TEMPLATE (3:4, mobile-first)`。
+- **默认审美方向**：`editorial_magazine_cover` 为硬默认；仅当 reference / 语义明确是对比或清单时才切换 archetype。
+- **层级与文字密度**：必须 1 个主标题（<=10 字）；可选 1 个副标题（<=16 字）；禁止段落小字/多文本块。
+- **安全区**：关键文本/人脸/logo 保持在画面中心 ~80% 安全区，留足边距。
+- **对比度保证**：背景可深/浅/渐变/纹理，但必须保证标题/logo 高对比；必要时使用文字背后的 overlay panel（纯色/渐变）兜底。
+- **Logo / 品牌标识**：有 logo/content_ref 时，优先“放在主卡片内部”（inside-card），保持高对比、不可变形；避免 tiny corner badge。
+- **Richness policy**："更丰富" 只能加 1 个 sticker/tag（<=6 字）+ 1 个 micro element（分割线/点阵/微型 icon row）；不能用加文案来堆信息密度。
+
+标题渲染策略（优先级）：
+- **Prompt-first**：封面图优先用 `TITLE_SPEC` 让模型原生渲染可读标题。
+- **Title-card reference（可选）**：必要时可使用“最后一张 reference 作为排版锚点”的方案（以 `PLAN_REF_IMAGE_XHS.md` 为历史背景；行为以代码为准）。
+
+可观测证据（用于迭代与回归，不贴全文 prompt）：
+- `image_prompt_ready`：出图前的最终 prompt 证据，只包含 `finalPromptHash` + `finalPromptPreview` + `finalPromptPath`。
+- Harness 产物：`run-evidence.json (v2)` + `prompts/*.prompt.txt` 用于 diff 与审计。
