@@ -70,11 +70,11 @@
 
 ### Feishu Image Sending (Do This Every Time)
 
-- If you need to send an image to Feishu, send it as an actual image message (so it renders a preview), not a local file path.
-- Preferred flow:
-  - If you already have an http(s) URL: use `message(action=send, media=<url>)`.
-  - If the image is local: upload first via `gzh_image_upload(filePath=...)`, then send the returned URL via `message(..., media=<url>)`.
-- Do not send plain local paths like `/Volumes/.../image.png` or `MEDIA:/absolute/path/...`.
+- Goal: the receiver should see the image inline in Feishu ("图片消息" preview). Do NOT ask humans to download.
+- Preferred flow (most reliable):
+  - If you have an http(s) image URL: download it to `/Volumes/DATABASE/code/.openclaw/media/outbound/` (local file), then send via `message(action=send, filePath=<local>)`.
+  - If you already have a local image file: ensure it is under `/Volumes/DATABASE/code/.openclaw/media/outbound/` (copy if needed), then send via `message(action=send, filePath=<local>)`.
+- Avoid: sending only a URL, or pasting local absolute paths like `/Volumes/.../image.png` into chat.
 
 ## Project North Star & Prompt Iteration Loop
 
