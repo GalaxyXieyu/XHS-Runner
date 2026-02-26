@@ -1,4 +1,4 @@
-import { HumanMessage, AIMessage } from "@langchain/core/messages";
+import { HumanMessage, AIMessage, SystemMessage } from "@langchain/core/messages";
 import { ChatOpenAI } from "@langchain/openai";
 import {
   AgentState,
@@ -296,7 +296,8 @@ export async function imagePlannerNode(state: typeof AgentState.State, model: Ch
 3) 只输出 JSON，不要多余解释。`;
 
   const response = await model.invoke([
-    new HumanMessage(promptFromStore || fallbackSystemPrompt),
+    // Use a true system message for stronger schema/prompt compliance.
+    new SystemMessage(promptFromStore || fallbackSystemPrompt),
     ...(supervisorGuidance ? [new HumanMessage(supervisorGuidance)] : []),
     new HumanMessage(
       `标题：${title}\n\n完整正文：\n${body}\n\nlayoutSpec：${JSON.stringify(layoutSpec)}\n\nreferenceAnalyses：${JSON.stringify(state.referenceAnalyses)}\n\nreviewSuggestions：${reviewSuggestions || "无"}`
