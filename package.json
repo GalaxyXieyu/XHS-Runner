@@ -32,7 +32,8 @@
     "test:e2e": "NEXT_PUBLIC_E2E=0 npx playwright test",
     "test:quick": "npm run build:server && node scripts/test/quickSuite.js",
     "test:render": "XHS_COVER_TITLE_CARD_SMOKE=1 XHS_COVER_TEXT_OVERLAY_SMOKE=1 XHS_COVER_TEXT_OVERLAY=1 XHS_SMOKE_DUMP=1 npm run test:quick",
-    "test:ci": "npm run test:quick"
+    "test:ci": "npm run test:quick",
+    "regress:xhs20": "npx tsx scripts/run-regression.ts --corpus tests/regression/xhs-20.yaml"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.7",
