@@ -21,7 +21,8 @@ prompt: |
   - 图片数量 3-5 张；sequence 从 0 递增。
   - role 只能是：cover | detail | result（建议：第 1 张 cover，其余 detail，最后可 result）。
   - 文案要少且大：总行数建议 <= 8；每行尽量短（<= 14 字）。
-  - 禁止出现任何英文单词、标签行（例如：Tags: / hashtag / @）。
+  - 图上文字禁止出现任何英文单词、标签行（例如：Tags: / hashtag / @）。
+  - 如果输入要求保留英文关键词用于 tag：把英文关键词写到对应 imagePlan 的 description 里（例如："... (tags: solo, Kyoto, safety)"），但绝对不要写进 prompt 的白名单文字里（不允许渲染到画面）。
   - 禁止出现任何平台名/缩写/别名（包括但不限于“小红书/抖音/微博/微信/公众号/Instagram/TikTok”等）。
 
   每张图 prompt 写法（必须按这个顺序写成自然语言段落）：
