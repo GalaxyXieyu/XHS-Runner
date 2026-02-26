@@ -265,25 +265,29 @@ function buildXhsCoverTemplate(
   }
   if (hasScreenshot) hints.push("If UI is referenced, show it as a clean device/mockup or window; keep text minimal and readable.");
 
-  const richnessHints: string[] = [];
+  const richnessHints: string[] = [
+    // Always enforce a safe definition of "richness" to avoid small paragraph text blocks.
+    "Richness must NOT increase text density.",
+    "Keep text density unchanged: still 1 headline + optional 1 subline; at most 1 short sticker/tag (optional). Prefer spacing and visual texture over extra copy.",
+    "Allowed richness = at most: +1 sticker/tag (<=6 chars) +1 micro element (divider / dot-grid / tiny icon row).",
+    "Forbidden richness = extra text blocks, paragraph text, tiny disclaimers, 3+ text areas.",
+  ];
   if (richness === "rich") {
-    richnessHints.push(
-      "Add richness via premium materials/lighting/structure (paper grain, soft shadow, subtle border, micro-grid), not by adding more text."
-    );
-    richnessHints.push(
-      "Keep text density unchanged: still 1 headline + optional 1 subline; at most 1 short sticker/tag (optional). Prefer spacing and visual texture over extra copy."
+    richnessHints.unshift(
+      "If user wants \"richer\": prefer premium materials/lighting/structure (paper grain, soft shadow, subtle border, micro-grid), not more text."
     );
   }
 
   return [
     "XHS_COVER_TEMPLATE (3:4, mobile-first):",
-    `- Archetype: ${archetype} (default to editorial_magazine_cover unless the refs clearly signal comparison/listicle)`,
-    "- Hierarchy: subject > headline > sticker/tag (optional) > brand mark (small, inside card); avoid clutter.",
-    "- Text: 1 bold Chinese headline (<=10 Chinese chars), optional 1 subline (<=16 chars); avoid dense paragraphs.",
-    "- Text must be present: do NOT omit the headline. If unsure, use fewer words with very large type and a solid/gradient text zone to ensure readability.",
+    `- Archetype: ${archetype} (hard default: editorial_magazine_cover; switch ONLY when refs clearly signal comparison/listicle)`,
+    "- Hierarchy: subject > headline > sticker/tag (optional) > brand mark (small, inside card).",
+    "- Text: MUST include 1 bold Chinese headline (<=10 chars). Optional 1 subline (<=16 chars). NO paragraph text blocks.",
+    "- Readability: if unsure, use fewer words with very large type and a solid/gradient text zone to guarantee contrast.",
     "- Safe area: keep key text/face/logo within center ~80% with generous margins.",
-    "- Color & background: derive 2-4 theme colors from reference; background can be dark/light/gradient/texture but MUST keep headline/logo high-contrast (use a subtle overlay panel behind text if needed).",
-    ...(richnessHints.length > 0 ? ["- Richness:", ...richnessHints.map((h) => `- ${h}`)] : []),
+    "- Color & background: choose a background that supports readability; may be dark/light/gradient/texture, but MUST keep headline/logo high-contrast (use an overlay panel behind text if needed).",
+    "- Richness policy:",
+    ...richnessHints.map((h) => `- ${h}`),
     ...(hints.length > 0 ? ["- Content-specific:", ...hints.map((h) => `- ${h}`)] : []),
   ].join("\n");
 }
