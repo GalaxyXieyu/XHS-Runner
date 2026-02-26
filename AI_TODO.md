@@ -69,11 +69,10 @@ Now:
 - P0: lock in XHS cover prompt strategy (editorial magazine-like by default) per `PLAN_REF_IMAGE_XHS.md` Phase 1.
 
 Next (1-3):
-- Patch `src/server/services/xhs/integration/referencePromptAugmentor.ts` to strengthen `XHS_COVER_TEMPLATE` defaults:
-  - Prefer editorial magazine cover archetype unless clear comparison/listicle signals.
-  - Bias logo placement to "inside the card".
-  - Define safe richness policy (1 sticker/tag + 1 micro element; no paragraph text blocks).
-- Add a regression runner for `tests/regression/xhs-20.yaml` (one command to run + index report).
+- 回归：把 `tests/regression/xhs-20.yaml` 跑起来并生成报告（样例指针）。
+  - 命令：`npm run regress:xhs20`
+  - 产物：`.xhs-data/test-outputs/<stamp>-regress/regression-report.md` + `.json`
+- 回归：补一个“dry-run（只跑到 image_prompt_ready）”模式，不开真跑图也能产出 evidence + prompt 文件。
 - Keep harness safety defaults + evidence chain green while iterating.
 
 Blockers (need human decision):
