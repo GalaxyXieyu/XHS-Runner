@@ -66,12 +66,15 @@
 ## Project Status (Single Source of Truth)
 
 Now:
-- P0: close evidence-chain loop so prompt iteration is truly diffable and no-DB friendly.
+- P0: lock in XHS cover prompt strategy (editorial magazine-like by default) per `PLAN_REF_IMAGE_XHS.md` Phase 1.
 
 Next (1-3):
-- Fix prompt full-text persistence (`prompts/*.prompt.txt` must match hash from `image_prompt_ready`).
-- Make `run-evidence.json` useful even when DB is absent (hydrate from `events.jsonl`).
-- Add harness safety defaults (`--help`, unknown flags error, require opt-in for real image calls).
+- Patch `src/server/services/xhs/integration/referencePromptAugmentor.ts` to strengthen `XHS_COVER_TEMPLATE` defaults:
+  - Prefer editorial magazine cover archetype unless clear comparison/listicle signals.
+  - Bias logo placement to "inside the card".
+  - Define safe richness policy (1 sticker/tag + 1 micro element; no paragraph text blocks).
+- Add a regression runner for `tests/regression/xhs-20.yaml` (one command to run + index report).
+- Keep harness safety defaults + evidence chain green while iterating.
 
 Blockers (need human decision):
 - Iteration sample cap per run (8 / 12 / 20).

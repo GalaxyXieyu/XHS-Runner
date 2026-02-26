@@ -54,6 +54,7 @@
 - 调试：`docs/03-agent-flow/debug-playbook.md`
 - API/SSE/State：`docs/04-reference/`
 - 运维命令：`docs/05-ops/commands-and-checks.md`
+- XHS ref-image / cover strategy plan：`PLAN_REF_IMAGE_XHS.md`
 
 ## Security & Config Notes
 - 不提交密钥、令牌、私有数据
