@@ -48,13 +48,16 @@
 - 迁移脚本在 `scripts/migrate-db/`
 
 ## Documentation Index（必读）
-- 总入口：`docs/README.md`
-- 架构：`docs/02-architecture/single-flow-v2.md`
-- 流程：`docs/03-agent-flow/runtime-lifecycle.md`
-- 调试：`docs/03-agent-flow/debug-playbook.md`
-- API/SSE/State：`docs/04-reference/`
-- 运维命令：`docs/05-ops/commands-and-checks.md`
+- 总入口（文档地图）：`docs/README.md`
+- 架构概览：`docs/architecture.md`
+- Agent 端到端流程 + 事件协议（排障入口）：`docs/agent-flow.md`
+- SSE → UI 渲染链路：`docs/ui-streaming.md`
+- 运维 + Prompt 更新：`docs/ops.md`
 - XHS ref-image / cover strategy plan：`PLAN_REF_IMAGE_XHS.md`
+
+## Single Source of Truth（你只需要维护一套任务系统）
+- 项目 TODO / 进度 / 卡点 / 每次跑完汇报：`AI_TODO.md`
+- 固定回归集（20 条）：`tests/regression/xhs-20.yaml`
 
 ## Security & Config Notes
 - 不提交密钥、令牌、私有数据
