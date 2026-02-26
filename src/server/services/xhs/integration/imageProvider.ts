@@ -690,7 +690,8 @@ export async function generateImage(input: ImageGenerateInput): Promise<ImageGen
 
 // ============ 带参考图生成接口 ============
 
-export type ReferenceImageProvider = 'ark' | 'gemini' | 'jimeng';
+// 'dry' is a local-only provider for regression/dry-run: it generates a tiny deterministic PNG without network calls.
+export type ReferenceImageProvider = 'ark' | 'gemini' | 'jimeng' | 'dry';
 
 // Evidence-only helper: expose non-secret runtime info for provider/model.
 export async function getImageGenRuntimeInfo(provider: ReferenceImageProvider): Promise<{
@@ -706,6 +707,9 @@ export async function getImageGenRuntimeInfo(provider: ReferenceImageProvider): 
   if (provider === 'jimeng') {
     // Jimeng canvas/model are effectively fixed in our integration.
     return { provider, imageModel: 'jimeng_t2i_v40', size: '1536x2048', watermark: false };
+  }
+  if (provider === 'dry') {
+    return { provider, imageModel: 'dry_png_1x1', size: '1x1', watermark: false };
   }
   // Gemini model selection can be DB/env driven; keep it empty here.
   return { provider };
@@ -734,6 +738,8 @@ export async function generateImageWithReference(input: ReferenceImageInput): Pr
   const provider = input.provider || (await getSetting('imageGenProvider')) || 'ark';
 
   switch (provider) {
+    case 'dry':
+      return generateWithDry(input);
     case 'ark':
       return generateWithArk(input);
     case 'jimeng':
@@ -742,6 +748,18 @@ export async function generateImageWithReference(input: ReferenceImageInput): Pr
     default:
       return generateWithGemini(input);
   }
+}
+
+// Dry-run provider: deterministic tiny PNG, no network.
+async function generateWithDry(_input: ReferenceImageInput): Promise<ReferenceImageResult> {
+  // 1x1 transparent PNG
+  const base64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO5qX6kAAAAASUVORK5CYII=';
+  return {
+    imageBuffer: Buffer.from(base64, 'base64'),
+    provider: 'dry',
+    metadata: { mimeType: 'image/png', dryRun: true },
+  };
 }
 
 // Gemini 实现
