@@ -660,18 +660,19 @@ async function runOnce(mode: Mode, options: TestOptions): Promise<RunSummary> {
         const promptsDir = join(runDir, 'prompts');
         const relPath = join('prompts', `image-${taskId}.prompt.txt`);
         const absPath = join(runDir, relPath);
-
-        // Best-effort: never fail the run due to evidence writing.
-        mkdir(promptsDir, { recursive: true })
-          .then(() => writeFile(absPath, String((event as any).finalPrompt) + '\n', 'utf8'))
-          .then(() => {
-            promptPathsByTaskId.set(taskId, relPath);
-          })
-          .catch(() => undefined);
+        const fullPrompt = String((event as any).finalPrompt);
 
         // Mutate the event in-place so it stays small when persisted.
         (event as any).finalPromptPath = relPath;
         delete (event as any).finalPrompt;
+
+        // Best-effort: never fail the run due to evidence writing.
+        mkdir(promptsDir, { recursive: true })
+          .then(() => writeFile(absPath, fullPrompt + '\n', 'utf8'))
+          .then(() => {
+            promptPathsByTaskId.set(taskId, relPath);
+          })
+          .catch(() => undefined);
       }
     }
 
