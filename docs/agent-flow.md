@@ -83,6 +83,7 @@
 
 **业务产物**：
 - `content_update`：`title` / `body` / `tags`
+- `image_prompt_ready`：出图前的最终 prompt 证据（应只含 `finalPromptHash` + `finalPromptPreview` + `finalPromptPath`；不要在事件里放全文）
 - `image_progress`：`taskId` / `status` / `progress` / `url` / `errorMessage`
 - `workflow_progress`：`phase` / `progress` / `currentAgent`
 - `brief_ready` / `layout_spec_ready` / `alignment_map_ready`
