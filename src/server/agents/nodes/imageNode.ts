@@ -322,7 +322,12 @@ export async function imageAgentNode(state: typeof AgentState.State, _model: Cha
       }
     }
 
+    const finalPrompt = String(prompt);
+    const finalPromptHash = sha256Hex(finalPrompt);
+    const finalPromptPreview = finalPrompt.slice(0, 300);
+
     const taskId = i + 1; // 1-based task ID
+
 
     if (state.langfuseTraceId) {
       await logSpan({
@@ -336,7 +341,7 @@ export async function imageAgentNode(state: typeof AgentState.State, _model: Cha
           referenceImageCount: generationReferenceImageUrls.length,
         },
         output: {
-          finalPromptHash: promptResult.finalPromptHash,
+          finalPromptHash,
           ...promptResult.augmentationSummary,
         },
         metadata: { agent: 'image_agent' },
@@ -363,9 +368,9 @@ export async function imageAgentNode(state: typeof AgentState.State, _model: Cha
           role,
           provider: provider as any,
           imageModel,
-          finalPrompt: String(prompt),
-          finalPromptHash: promptResult.finalPromptHash,
-          finalPromptPreview: String(prompt).slice(0, 300),
+          finalPrompt,
+          finalPromptHash,
+          finalPromptPreview,
           referenceImageCount: generationReferenceImageUrls.length,
         });
       }

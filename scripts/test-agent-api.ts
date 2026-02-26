@@ -5,10 +5,15 @@
 
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join, basename } from 'node:path';
+import { createHash } from 'node:crypto';
 
 const API_BASE = process.env.AGENT_API_BASE || 'http://localhost:3000';
 const DEFAULT_MESSAGE = 'Vibecoding 上手教程：面向新手，3步+3坑，80~120字，口语化，小红书风格，包含 #标签。';
 const DEFAULT_OUT_DIR = '.xhs-data/test-outputs';
+
+function sha256Hex(input: string): string {
+  return createHash('sha256').update(input, 'utf8').digest('hex');
+}
 
 type Mode = 'fast' | 'normal';
 
@@ -319,6 +324,62 @@ function summarizeQuality(event?: StreamEvent | null): string | undefined {
     .map(([key, value]) => `${key}:${(value as number).toFixed(2)}`)
     .join(' ');
   return `overall:${overall}${dims ? ` | ${dims}` : ''}`;
+}
+
+function compactObject(value: any): any {
+  if (value === null || value === undefined) return undefined;
+  if (Array.isArray(value)) {
+    const arr = value
+      .map((item) => compactObject(item))
+      .filter((item) => item !== undefined);
+    return arr;
+  }
+  if (typeof value === 'object') {
+    const out: Record<string, any> = {};
+    for (const [k, v] of Object.entries(value)) {
+      const cv = compactObject(v);
+      if (cv !== undefined) out[k] = cv;
+    }
+    return out;
+  }
+  return value;
+}
+
+function hydrateEvidenceFromEvents(evidence: any, events: StreamEvent[]) {
+  const promptByTaskId = new Map<number, any>();
+  for (const e of events) {
+    if ((e as any)?.type !== 'image_prompt_ready') continue;
+    const taskId = Number((e as any).taskId);
+    if (!Number.isFinite(taskId) || taskId <= 0) continue;
+    promptByTaskId.set(taskId, e);
+  }
+
+  if (!evidence || !Array.isArray(evidence.images)) return evidence;
+
+  for (let i = 0; i < evidence.images.length; i += 1) {
+    const taskId = i + 1;
+    const pe = promptByTaskId.get(taskId);
+    if (!pe) continue;
+
+    const img = evidence.images[i] || {};
+
+    if (img.sequence == null && typeof (pe as any).sequence === 'number') img.sequence = (pe as any).sequence;
+    if (img.role == null && typeof (pe as any).role === 'string') img.role = (pe as any).role;
+    if (img.provider == null && typeof (pe as any).provider === 'string') img.provider = (pe as any).provider;
+    if (img.imageModel == null && typeof (pe as any).imageModel === 'string') img.imageModel = (pe as any).imageModel;
+
+    if (img.finalPromptHash == null && typeof (pe as any).finalPromptHash === 'string') img.finalPromptHash = (pe as any).finalPromptHash;
+    if (img.finalPromptPreview == null && typeof (pe as any).finalPromptPreview === 'string') img.finalPromptPreview = (pe as any).finalPromptPreview;
+    if (img.finalPromptPath == null && typeof (pe as any).finalPromptPath === 'string') img.finalPromptPath = (pe as any).finalPromptPath;
+
+    if (img.referenceImageCount == null && typeof (pe as any).referenceImageCount === 'number') img.referenceImageCount = (pe as any).referenceImageCount;
+
+    if (img.url == null && typeof img.assetId === 'number') img.url = `/api/assets/${img.assetId}`;
+
+    evidence.images[i] = img;
+  }
+
+  return evidence;
 }
 
 function buildSummary(mode: Mode, events: StreamEvent[], startedAt: number): RunSummary {
@@ -652,29 +713,51 @@ async function runOnce(mode: Mode, options: TestOptions): Promise<RunSummary> {
 
   const promptPathsByTaskId = new Map<number, string>();
 
+  const promptWritePromises: Array<Promise<void>> = [];
+
   const onEvent = (event: StreamEvent) => {
     // Prompt evidence: write full prompt to a text file, keep JSON artifacts small.
-    if ((event as any)?.type === 'image_prompt_ready' && typeof (event as any).finalPrompt === 'string') {
+    // Prompt evidence: write full prompt to a text file, keep JSON artifacts small.
+    if ((event as any)?.type === 'image_prompt_ready') {
       const taskId = Number((event as any).taskId);
-      if (Number.isFinite(taskId) && taskId > 0) {
-        const promptsDir = join(runDir, 'prompts');
-        const relPath = join('prompts', `image-${taskId}.prompt.txt`);
-        const absPath = join(runDir, relPath);
-        const fullPrompt = String((event as any).finalPrompt);
+      const rawPrompt = (event as any).finalPrompt;
 
-        // Mutate the event in-place so it stays small when persisted.
-        (event as any).finalPromptPath = relPath;
-        delete (event as any).finalPrompt;
+      // Always redact prompts from persisted artifacts (events.jsonl should never contain full prompts).
+      delete (event as any).finalPrompt;
 
-        // Best-effort: never fail the run due to evidence writing.
-        mkdir(promptsDir, { recursive: true })
-          .then(() => writeFile(absPath, fullPrompt + '\n', 'utf8'))
-          .then(() => {
-            promptPathsByTaskId.set(taskId, relPath);
-          })
-          .catch(() => undefined);
+      if (Number.isFinite(taskId) && taskId > 0 && typeof rawPrompt === 'string') {
+        const promptText = String(rawPrompt);
+        if (promptText.trim()) {
+          const promptsDir = join(runDir, 'prompts');
+          const relPath = join('prompts', `image-${taskId}.prompt.txt`);
+          const absPath = join(runDir, relPath);
+
+          const expectedHash = typeof (event as any).finalPromptHash === 'string'
+            ? String((event as any).finalPromptHash)
+            : '';
+          const actualHash = sha256Hex(promptText);
+          if (expectedHash && expectedHash !== actualHash) {
+            console.warn(`[evidence] image_prompt_ready hash mismatch taskId=${taskId} expected=${expectedHash} actual=${actualHash}`);
+          } else if (!expectedHash) {
+            console.warn(`[evidence] image_prompt_ready missing finalPromptHash taskId=${taskId}`);
+          }
+
+          // Best-effort: never fail the run due to evidence writing.
+          const p = mkdir(promptsDir, { recursive: true })
+            .then(() => writeFile(absPath, promptText + '\n', 'utf8'))
+            .then(() => {
+              promptPathsByTaskId.set(taskId, relPath);
+            })
+            .catch(() => undefined);
+          promptWritePromises.push(p);
+
+          // Keep event artifacts compact while retaining traceability.
+          (event as any).finalPromptPath = relPath;
+        }
       }
     }
+
+
 
     progress.onEvent(event);
     options.onEvent?.(event);
@@ -731,6 +814,9 @@ async function runOnce(mode: Mode, options: TestOptions): Promise<RunSummary> {
       console.warn(`⚠️  workflow still paused after ${guard} auto-continues (threadId: ${activeThread})`);
     }
 
+    progress.setStage('finalize_prompts');
+    await Promise.allSettled(promptWritePromises);
+
     progress.setStage('render_images');
     const summary = buildSummary(mode, allEvents, startedAt);
     const rendered = await renderImagesToDisk(summary.imageAssetIds, outDir, mode);
@@ -777,9 +863,14 @@ async function runOnce(mode: Mode, options: TestOptions): Promise<RunSummary> {
         dbError = redact(msg);
       }
 
+      if (dbError !== null) {
+        // DB unavailable: keep asset IDs but mark rows as present so evidence doesn't claim 'missing'.
+        assetsRows = summary.imageAssetIds.map((id) => ({ id, path: null, metadata: null }));
+      }
+
       const promptPaths = summary.imageAssetIds.map((_, idx) => promptPathsByTaskId.get(idx + 1) || null);
 
-      const evidence = buildRunEvidence({
+      let evidence: any = buildRunEvidence({
         mode,
         imageAssetIds: summary.imageAssetIds,
         assets: assetsRows,
@@ -787,11 +878,19 @@ async function runOnce(mode: Mode, options: TestOptions): Promise<RunSummary> {
         includeFullPrompt: false,
       });
 
-      await writeFile(
-        evidencePath,
-        JSON.stringify({ ...evidence, db: { ok: dbError === null, error: dbError } }, null, 2),
-        'utf8'
-      );
+      if (dbError !== null) {
+        evidence = hydrateEvidenceFromEvents(evidence, allEvents);
+      }
+
+      const payload = compactObject({
+        ...evidence,
+        db: {
+          ok: dbError === null,
+          ...(dbError ? { error: dbError } : {}),
+        },
+      });
+
+      await writeFile(evidencePath, JSON.stringify(payload, null, 2), 'utf8');
     } catch {
       // Best-effort only; evidence is not required to consider the run successful.
     }
@@ -862,6 +961,7 @@ function parseArgs(argv: string[]) {
   const flags = new Set<string>();
   const values: Record<string, string | string[]> = {};
   const positionals: string[] = [];
+
   const valueFlags = new Set([
     '--continue',
     '--out',
@@ -880,12 +980,40 @@ function parseArgs(argv: string[]) {
     '--footer',
   ]);
 
+  const booleanFlags = new Set([
+    '--both',
+    '--suite',
+    '--fast',
+    '--normal',
+    '--verbose',
+    '--compact',
+    '--no-progress',
+    '--progress',
+    '--help',
+  ]);
+
+  const knownFlags = new Set<string>([...valueFlags, ...booleanFlags]);
+
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
+
+    if (arg === '-h') {
+      flags.add('--help');
+      continue;
+    }
+
     if (arg.startsWith('--')) {
+      if (!knownFlags.has(arg)) {
+        throw new Error('Unknown flag: ' + arg + '. Use --help for usage.');
+      }
+
       flags.add(arg);
       const next = argv[i + 1];
-      if (valueFlags.has(arg) && next && !next.startsWith('--')) {
+
+      if (valueFlags.has(arg)) {
+        if (!next || next.startsWith('-')) {
+          throw new Error('Missing value for ' + arg + '. Use --help for usage.');
+        }
         const existing = values[arg];
         if (typeof existing === 'string') {
           values[arg] = [existing, next];
@@ -897,9 +1025,15 @@ function parseArgs(argv: string[]) {
         }
         i += 1;
       }
-    } else {
-      positionals.push(arg);
+
+      continue;
     }
+
+    if (arg.startsWith('-')) {
+      throw new Error('Unknown flag: ' + arg + '. Use --help for usage.');
+    }
+
+    positionals.push(arg);
   }
 
   return { flags, values, positionals };
@@ -922,9 +1056,18 @@ function asArray(v?: string | string[]): string[] {
   return Array.isArray(v) ? v : [v];
 }
 
+function printHelp() {
+  console.log('\nUsage:\n  npx tsx scripts/test-agent-api.ts [message]\n\nOptions:\n  --help, -h                     Show this help\n  --theme <id>                   Theme ID (default: 1)\n  --provider <ark|jimeng|gemini> Image provider (default: ark)\n  --message <text>               Override prompt message\n  --layout <dense|balanced|visual-first>\n  --ref <url>|<type>             Reference image input; repeatable (type: style|layout|content)\n  --out <dir>                    Output root (default: .xhs-data/test-outputs/...)\n  --compact                      Reduce console output\n  --verbose                      Print more event info\n  --progress / --no-progress     Enable/disable local progress logs\n  --progress-interval <sec>      Progress log interval (default: 10)\n  --both / --suite               Run fast + normal\n  --fast                         Run fast mode (default)\n  --normal                       Run normal mode\n  --continue <threadId>          Continue a paused run\n\nSafety:\n  This script can trigger real image generation calls.\n  Set env XHS_ALLOW_REAL_IMAGE_CALLS=1 to allow providers ark/jimeng/gemini.\n\nExamples:\n  XHS_ALLOW_REAL_IMAGE_CALLS=1 npx tsx scripts/test-agent-api.ts --fast --theme 3 --provider ark --compact\n  npx tsx scripts/test-agent-api.ts --help\n');
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const { flags, values, positionals } = parseArgs(args);
+
+  if (flags.has('--help')) {
+    printHelp();
+    return;
+  }
 
   if (flags.has('--continue')) {
     const threadId = values['--continue'] || positionals[0];
@@ -967,6 +1110,16 @@ async function main() {
     : baseMessage;
   const themeId = (typeof values['--theme'] === 'string' && values['--theme']) ? Number(values['--theme']) : 1;
   const imageGenProvider = (typeof values['--provider'] === 'string' ? values['--provider'] : '') || 'ark';
+  const allowRealCalls = process.env.XHS_ALLOW_REAL_IMAGE_CALLS === '1';
+  const realProviders = new Set(['ark', 'jimeng', 'gemini']);
+  if (realProviders.has(imageGenProvider) && !allowRealCalls) {
+    console.error(
+      'Refusing to run with real image provider: ' + imageGenProvider + '. ' +
+      'Set env XHS_ALLOW_REAL_IMAGE_CALLS=1 to allow real provider calls.'
+    );
+    process.exit(1);
+  }
+
   // Test harness defaults: fully automatic, no HITL pauses, always dump images to disk.
   const enableHITL = false;
   const compact = flags.has('--compact');

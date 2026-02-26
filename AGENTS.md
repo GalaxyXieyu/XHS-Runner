@@ -67,3 +67,35 @@
   - If you already have an http(s) URL: use `message(action=send, media=<url>)`.
   - If the image is local: upload first via `gzh_image_upload(filePath=...)`, then send the returned URL via `message(..., media=<url>)`.
 - Do not send plain local paths like `/Volumes/.../image.png` or `MEDIA:/absolute/path/...`.
+
+## Project North Star & Prompt Iteration Loop
+
+### North Star (可执行定义)
+- 输入：用户需求（可选参考图/标题/卖点/风格/限制）。
+- 输出：一次跑完即可发布的小红书成套素材（标题/正文结构/封面图或配图），不依赖人工救火。
+
+### Success Metrics (硬指标)
+- 一次通过率：不需要补问/重跑/手工修图即可交付的比例。
+- 稳定性：同类输入在不同表述、不同长度、信息缺失时，质量波动要小。
+- 成本与时延：单次生成时延、调用次数、失败重试可控。
+
+### Iteration Rules (为什么要这么改)
+- 固定回归集：先维护一组“典型输入集”（建议 20 条，覆盖多题材/长短输入/缺信息/有无参考图/带约束）。每次改 prompt 都跑同一组，避免凭感觉。
+- 单点改动：每轮只改一个 agent 的一个明确段落（其余锁死），否则无法归因。
+- 证据驱动：每次修改必须能回答：改了什么、解决了哪个失败模式、怎么验证没伤到别的类。
+
+### Evidence Chain Artifacts (联调证据链)
+- `run-progress.json`：实时进度（给人看）。
+- `events.jsonl`：时间线（可吵，但不塞全文 prompt；仅保留 hash + preview 等可读字段）。
+- `run-summary.json`：结果摘要（标题/标签/图片路径/assetIds 等）。
+- `run-evidence.json`：稳定可 diff 的证据链（当前应为 `version: 2`，字段精简、默认无时间戳噪音）。
+- `prompts/`：全文 prompt（每张图一个 `.prompt.txt`，用于 diff，不污染 JSON/JSONL）。
+
+### Post-run Report Template (每次跑完必须汇报)
+- 结论：本轮“最好/最差”样例各 1-3 个（不在群里贴全文 prompt）。
+- 证据：给出对应的 `runDir` 路径 + `run-evidence.json` / `run-summary.json` / `prompts/*.prompt.txt` 的相对路径；必要时只引用 hash/preview。
+- 修改计划：下一轮只改哪一个 agent、哪一段（写清楚改动意图），以及预期影响。
+- 风险与验证：可能的副作用是什么、用回归集如何确认。
+
+### Execution Policy (避免阻塞)
+- 可能耗时的跑图/回归/验证，优先用 subagent/后台运行；主聊只同步关键进度与最终结果路径。

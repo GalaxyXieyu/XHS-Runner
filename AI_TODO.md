@@ -63,6 +63,24 @@
   - [ ] Define UI sections & filters
   - [ ] Define data ingestion/update pipeline
 
+## Project Status (Single Source of Truth)
+
+Now:
+- P0: close evidence-chain loop so prompt iteration is truly diffable and no-DB friendly.
+
+Next (1-3):
+- Fix prompt full-text persistence (`prompts/*.prompt.txt` must match hash from `image_prompt_ready`).
+- Make `run-evidence.json` useful even when DB is absent (hydrate from `events.jsonl`).
+- Add harness safety defaults (`--help`, unknown flags error, require opt-in for real image calls).
+
+Blockers (need human decision):
+- Iteration sample cap per run (8 / 12 / 20).
+- Whether dev-time real image calls are allowed; if yes, provider allowlist + daily budget.
+
+Last Run (evidence validation):
+- RunDir: `.xhs-data/test-outputs/oc-validate-themeC/fast`
+- Outcome: artifacts exist + events redaction OK, but prompt files currently write `undefined` (needs fix).
+
 ## Status Log
 
 ### 2026-02-26
