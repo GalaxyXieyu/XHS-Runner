@@ -13,40 +13,22 @@ Langfuse 提供了：
 
 ## 工具列表
 
-### 1. `query-langfuse-runs.ts` - 基础查询工具
+### `langfuse.ts` - 查询 + 分析（统一入口）
 
-快速查询 traces，获取原始数据。
-
-```bash
-# 查询最近 10 条 traces
-npx tsx scripts/query-langfuse-runs.ts --limit 10
-
-# 查询特定 session
-npx tsx scripts/query-langfuse-runs.ts --sessionId <session-id>
-
-# 查询最近 24 小时的 traces
-npx tsx scripts/query-langfuse-runs.ts --since 24h
-
-# 获取详细信息（包括 observations）
-npx tsx scripts/query-langfuse-runs.ts --limit 5 --detailed
-```
-
-### 2. `analyze-langfuse-runs.ts` - 性能分析工具
-
-深度分析 agent 性能，计算各种指标。
+我们把 Langfuse 的“拉取 traces / 取详情 / 计算指标”统一到一个脚本里，减少重复与漂移。
 
 ```bash
-# 分析最近 20 条 runs
-npx tsx scripts/analyze-langfuse-runs.ts --limit 20
+# 1) 查询最近 10 条 traces（只拉列表）
+npx tsx scripts/langfuse.ts query --limit 10
 
-# 分析最近 24 小时的 runs
-npx tsx scripts/analyze-langfuse-runs.ts --since 24h
+# 2) 查询最近 24 小时 traces（并拉每条 trace 的详细 observations，便于后续分析）
+npx tsx scripts/langfuse.ts query --since 24h --limit 20 --detailed
 
-# 导出 metrics 到 JSON 文件
-npx tsx scripts/analyze-langfuse-runs.ts --limit 50 --export metrics.json
+# 3) 查询某个 session
+npx tsx scripts/langfuse.ts query --sessionId <session-id> --detailed
 
-# 分析特定 session
-npx tsx scripts/analyze-langfuse-runs.ts --sessionId <id> --detailed
+# 4) 分析（输入必须是 query --detailed 的导出 JSON）
+npx tsx scripts/langfuse.ts analyze --input .xhs-data/langfuse/<stamp>-traces.json --export metrics.json
 ```
 
 **输出指标：**
