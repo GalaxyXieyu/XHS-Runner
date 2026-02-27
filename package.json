@@ -29,7 +29,11 @@
     "eval:agent-clarification": "npx tsx scripts/eval-agent-clarification-matrix.ts",
     "lint:supervisor-prompt": "npx tsx scripts/lint-supervisor-prompt.ts",
     "test:login": "npx tsx src/server/scripts/test-login-flow.ts",
-    "test:e2e": "NEXT_PUBLIC_E2E=0 npx playwright test"
+    "test:e2e": "NEXT_PUBLIC_E2E=0 npx playwright test",
+  "test:agent": "npx tsx scripts/test-agent-api.ts --themes 1,2,3 --both --auto --compact",
+    "agent:replay": "npx tsx scripts/replay-agent-run.ts",
+  "langfuse:query": "npx tsx scripts/langfuse.ts query --since 24h --limit 20 --detailed",
+  "langfuse:analyze": "npx tsx scripts/langfuse.ts analyze --input .xhs-data/langfuse/latest-traces.json --export .xhs-data/langfuse/latest-metrics.json"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.7",

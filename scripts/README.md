@@ -46,6 +46,21 @@ npx tsx scripts/init-minio-storage.ts
 
 ## 开发工具
 
+### `replay-agent-run.ts`
+回放本地 `writeRunArtifacts` 生成的 agent run（`.xhs-data/agent-runs/<runId>`），用于复现/调试 SSE 流。
+
+```bash
+# runId / runDir / index.json 都支持
+npx tsx scripts/replay-agent-run.ts --run <runId> --baseUrl http://localhost:3000
+
+# 只解析并打印将要发送的请求（默认对 message 做脱敏预览）
+npx tsx scripts/replay-agent-run.ts --run <runId> --dryRun
+
+# 如需输出完整 message（注意不要贴到 PR/CI 日志）
+npx tsx scripts/replay-agent-run.ts --run <runId> --dryRun --printMessage full
+```
+
+
 ### `check-latest-creative.ts`
 检查最新生成的创意内容。
 
