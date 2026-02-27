@@ -1,43 +1,37 @@
 import { AIMessage } from "@langchain/core/messages";
 import { ChatOpenAI } from "@langchain/openai";
-import { AgentState, type AgentType } from "../state/agentState";
+import { AgentState, type AgentType, type ImagePlan } from "../state/agentState";
 import { isHttpUrl, uploadBase64ToSuperbed, generateImageWithReference } from "../../services/xhs/integration/imageProvider";
 import { storeAsset } from "../../services/xhs/integration/assetStore";
 import { getSetting } from "../../settings";
 import { emitImageProgress } from "../utils/progressEmitter";
-import { requestAgentClarification } from "../utils/agentClarification";
 
 export async function imageAgentNode(state: typeof AgentState.State, _model: ChatOpenAI) {
-  const plans = state.imagePlans;
+  const basePlans = state.imagePlans;
+
+  // Fallback: always generate at least 1 image even if the planner returned no plans.
+  // This prevents workflows from completing with imageAssetIds=[] by accident.
+  const buildFallbackPlans = (): ImagePlan[] => {
+    const title = state.generatedContent?.title || 'AI 生成内容';
+    const body = state.generatedContent?.body || '';
+    const excerpt = body.trim() ? body.trim().slice(0, 80) : '';
+    const prompt =
+      '小红书图文配图，角色=cover，主题视觉清晰，背景简洁。' +
+      `标题"${title}"` +
+      (excerpt ? `，正文重点"${excerpt}"` : '');
+
+    return [
+      {
+        sequence: 0,
+        role: 'cover',
+        description: 'fallback cover',
+        prompt,
+      },
+    ];
+  };
+
+  const plans = basePlans.length > 0 ? basePlans : buildFallbackPlans();
   const optimizedPrompts = state.reviewFeedback?.optimizedPrompts || [];
-
-  const needImageStyleClarification =
-    plans.length > 0
-    && state.referenceImages.length === 0
-    && state.referenceAnalyses.length === 0;
-
-  if (needImageStyleClarification) {
-    const clarificationResult = requestAgentClarification(state, {
-      key: "image_agent.style_hint",
-      agent: "image_agent",
-      question: "生成图片前，你希望视觉风格偏向哪一类？",
-      options: [
-        { id: "realistic", label: "写实风", description: "真实质感、生活化场景" },
-        { id: "clean_graphic", label: "极简图文风", description: "干净背景+明确信息层次" },
-        { id: "continue_default", label: "按默认风格", description: "系统根据文案自动适配" },
-      ],
-      selectionType: "single",
-      allowCustomInput: true,
-    });
-
-    if (clarificationResult) {
-      return {
-        ...clarificationResult,
-        currentAgent: "image_agent" as AgentType,
-        imagesComplete: false,
-      };
-    }
-  }
 
   // 获取参考图数据并上传
   const rawReferenceImages = state.referenceImages && state.referenceImages.length > 0

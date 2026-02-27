@@ -10,7 +10,6 @@ import {
 } from "../state/agentState";
 import { compressContext, safeSliceMessages, formatSupervisorGuidance } from "../utils";
 import { getAgentPrompt } from "../../services/promptManager";
-import { requestAgentClarification } from "../utils/agentClarification";
 
 interface PlannerOutput {
   bodyBlocks: BodyBlock[];
@@ -229,31 +228,8 @@ export async function imagePlannerNode(state: typeof AgentState.State, model: Ch
     };
   }
 
-  const needImagePlannerClarification = state.layoutSpec.length === 0;
-  if (needImagePlannerClarification) {
-    const clarificationResult = requestAgentClarification(state, {
-      key: "image_planner_agent.visual_strategy",
-      agent: "image_planner_agent",
-      question: "还没有明确版式，你希望图片规划更偏向哪种策略？",
-      options: [
-        { id: "story_based", label: "按段落叙事", description: "每段对应一张图，图文映射最强" },
-        { id: "highlight_based", label: "按重点提炼", description: "围绕核心卖点设计少量高价值图" },
-        { id: "continue_default", label: "按默认策略", description: "系统自动平衡图文信息" },
-      ],
-      selectionType: "single",
-      allowCustomInput: true,
-    });
-
-    if (clarificationResult) {
-      return {
-        ...clarificationResult,
-        currentAgent: "image_planner_agent" as AgentType,
-        imagePlans: [],
-        textOverlayPlan: [],
-        bodyBlocks: [],
-      };
-    }
-  }
+  // Do not block image generation on missing layoutSpec.
+  // If layoutSpec is empty, we fall back to a default layout strategy below.
 
   const compressed = await compressContext(state, model);
 

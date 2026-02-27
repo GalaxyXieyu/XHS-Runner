@@ -62,6 +62,7 @@ interface TestOptions {
   compact?: boolean;
   renderImages?: boolean;
   outDir?: string;
+  allowEmptyImages?: boolean;
   auth?: AuthOptions;
 }
 
@@ -533,6 +534,13 @@ async function runOnce(mode: Mode, options: TestOptions, cookie?: string): Promi
 
   const summary = buildSummary(mode, themeId, allEvents, startedAt);
 
+  if (summary.complete && summary.imageAssetIds.length === 0 && !options.allowEmptyImages) {
+    throw new Error(
+      `No images were generated (imageAssetIds=[]). This is a regression for the agent pipeline. ` +
+      `Re-run with --allow-empty-images to bypass.`
+    );
+  }
+
   // Always persist the raw events so we can diff/debug without re-running.
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   await mkdir(outDir, { recursive: true });
@@ -687,6 +695,7 @@ async function main() {
   const compact = flags.has('--compact');
   const showAll = flags.has('--verbose');
   const renderImages = flags.has('--render');
+  const allowEmptyImages = flags.has('--allow-empty-images');
   const outDir = values['--out'] || DEFAULT_OUT_DIR;
 
   const baseOptions: Omit<TestOptions, 'themeId'> = {
@@ -699,6 +708,7 @@ async function main() {
     compact,
     renderImages,
     outDir,
+    allowEmptyImages,
     auth,
   };
 
