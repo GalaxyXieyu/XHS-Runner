@@ -59,6 +59,7 @@ LANGFUSE_PUBLIC_KEY="<YOUR_KEY>"
 LANGFUSE_HOST="https://cloud.langfuse.com"
 NODE_ENV=production
 PORT=33001
+IMAGE_PROMPT_LANG="en"  # en|zh: image prompt scaffolding language (default en)
 ```
 
 ## 4. CI/CD（GitHub Actions）

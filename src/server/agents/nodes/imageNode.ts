@@ -6,8 +6,48 @@ import { storeAsset } from "../../services/xhs/integration/assetStore";
 import { getSetting } from "../../settings";
 import { emitImageProgress } from "../utils/progressEmitter";
 
+type PromptLang = "en" | "zh";
+
+function normalizePromptLang(value: string | undefined): PromptLang {
+  const v = String(value || "").trim().toLowerCase();
+  return v === "zh" || v === "cn" || v === "chinese" ? "zh" : "en";
+}
+
+function buildImagePromptScaffold(params: {
+  lang: PromptLang;
+  role?: string;
+  titleText?: string;
+  bodyText?: string;
+}) {
+  const role = params.role || "cover";
+  const titleText = params.titleText || "";
+  const bodyText = params.bodyText || "";
+
+  // Prompt scaffolding in English by default (better compatibility with some image models),
+  // while preserving user content language via TitleText/BodyText.
+  if (params.lang === "zh") {
+    return (
+      "你要生成一张小红书风格的竖版海报图。要求：构图干净、主体清晰、留白合理、无水印、无乱码。\n" +
+      "如果画面中包含文字，必须只使用下面提供的文字，并且保持原样（不要翻译、不要拆词、不要改写、不要额外添加）。\n" +
+      `Role: ${role}\n` +
+      `TitleText: ${titleText}\n` +
+      `BodyText: ${bodyText}\n`
+    );
+  }
+
+  return (
+    "Generate a vertical Xiaohongshu-style poster image. Requirements: clean composition, clear subject, good whitespace, no watermark, no garbled text.\n" +
+    "If the image contains any text, you MUST use only the exact text strings provided below (do not translate, do not rephrase, do not split words, do not add extra text).\n" +
+    `Role: ${role}\n` +
+    `TitleText: ${titleText}\n` +
+    `BodyText: ${bodyText}\n`
+  );
+}
+
 export async function imageAgentNode(state: typeof AgentState.State, _model: ChatOpenAI) {
   const basePlans = state.imagePlans;
+
+  const promptLang = normalizePromptLang(process.env.IMAGE_PROMPT_LANG);
 
   // Fallback: always generate at least 1 image even if the planner returned no plans.
   // This prevents workflows from completing with imageAssetIds=[] by accident.
@@ -15,10 +55,21 @@ export async function imageAgentNode(state: typeof AgentState.State, _model: Cha
     const title = state.generatedContent?.title || 'AI 生成内容';
     const body = state.generatedContent?.body || '';
     const excerpt = body.trim() ? body.trim().slice(0, 80) : '';
+    const scaffold = buildImagePromptScaffold({
+      lang: promptLang,
+      role: 'cover',
+      titleText: title,
+      bodyText: excerpt,
+    });
+
+    // Keep the user content in-place; only the meta-instructions switch language.
     const prompt =
-      '小红书图文配图，角色=cover，主题视觉清晰，背景简洁。' +
-      `标题"${title}"` +
-      (excerpt ? `，正文重点"${excerpt}"` : '');
+      scaffold +
+      (promptLang === 'zh'
+        ? '画面风格：小红书图文封面，背景简洁，主题视觉清晰。\n'
+        : 'Style: Xiaohongshu cover image, minimal background, clear main subject.\n') +
+      `Content hint: title="${title}"` +
+      (excerpt ? `, key point="${excerpt}"` : '');
 
     return [
       {
@@ -79,7 +130,15 @@ export async function imageAgentNode(state: typeof AgentState.State, _model: Cha
 
   for (let i = 0; i < plans.length; i++) {
     const plan = plans[i];
-    const prompt = optimizedPrompts[i] || plan.prompt || plan.description;
+    const overlay = state.textOverlayPlan.find((x) => x.imageSeq === plan.sequence) || null;
+    const basePrompt = optimizedPrompts[i] || plan.prompt || plan.description;
+    const scaffold = buildImagePromptScaffold({
+      lang: promptLang,
+      role: plan.role,
+      titleText: overlay?.titleText || state.generatedContent?.title || '',
+      bodyText: overlay?.bodyText || '',
+    });
+    const prompt = scaffold + String(basePrompt || '');
     const sequence = plan.sequence;
     const role = plan.role;
     const taskId = i + 1; // 1-based task ID
